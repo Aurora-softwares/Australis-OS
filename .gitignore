@@ -1,0 +1,5 @@
+build/
+tools/bflat/
+tools/debs/
+tools/lib/
+tools/libroot/
