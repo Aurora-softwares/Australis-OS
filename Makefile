@@ -4,7 +4,11 @@ OVMF_CODE ?= /usr/share/OVMF/OVMF_CODE_4M.fd
 LOCAL_LIB_DIR := $(CURDIR)/tools/lib
 LLVM_LIB_DIR := $(CURDIR)/tools/libroot/usr/lib/llvm-18/lib
 BFLAT_DIR := $(dir $(abspath $(BFLAT)))
-RUN_WITH_LOCAL_LIBS := LD_LIBRARY_PATH=$(BFLAT_DIR):$(LOCAL_LIB_DIR):$(LLVM_LIB_DIR):$$LD_LIBRARY_PATH
+# System paths must come before tools/lib, which contains bflat stub files that the
+# OS dynamic linker cannot load. The real libc++ is provided by the system package.
+SYS_LLVM_LIB_DIR := /usr/lib/llvm-18/lib
+SYS_LIB_DIR := /usr/lib/x86_64-linux-gnu
+RUN_WITH_LOCAL_LIBS := LD_LIBRARY_PATH=$(BFLAT_DIR):$(SYS_LLVM_LIB_DIR):$(SYS_LIB_DIR):$(LOCAL_LIB_DIR):$(LLVM_LIB_DIR):$$LD_LIBRARY_PATH
 
 BUILD_DIR := build
 EFI_DIR := $(BUILD_DIR)/efi
