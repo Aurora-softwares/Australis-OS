@@ -19,7 +19,7 @@ KERNEL_SRC := src/boot/Program.cs
 
 .PHONY: all build image run clean check-tools
 
-all: build
+all: clean build image run
 
 check-tools:
 	@test -x "$(BFLAT)" || { echo "bflat was not found. Install bflat or place it at tools/bflat/bflat."; exit 1; }
@@ -28,6 +28,7 @@ check-tools:
 	@command -v mcopy >/dev/null || { echo "mcopy was not found."; exit 1; }
 	@command -v "$(QEMU)" >/dev/null || { echo "$(QEMU) was not found."; exit 1; }
 	@test -f "$(OVMF_CODE)" || { echo "OVMF firmware was not found at $(OVMF_CODE)."; exit 1; }
+
 
 build: check-tools $(EFI_BINARY)
 
@@ -43,7 +44,7 @@ image: build
 	mmd -i "$(IMAGE)" ::/EFI ::/EFI/BOOT
 	mcopy -i "$(IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 
-run: build
+run: 
 	"$(QEMU)" \
 		-machine q35 \
 		-m 256M \
