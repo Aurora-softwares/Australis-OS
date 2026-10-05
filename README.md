@@ -1,63 +1,60 @@
 # Australis OS
 
-Australis OS v0 is a tiny 64-bit x86 UEFI application written in C#.
-It boots in a virtual machine, clears the screen, prints a fixed message,
-and then stays on screen.
+Australis OS is a minimal x86_64 UEFI proof of concept authored in Hylang. It
+boots directly from a UEFI ISO, writes a message to the firmware console, and
+then remains on screen:
 
 ```text
-Australis OS booted from C#
+Hello world from Hylang!
 ```
+
+This is deliberately a small compiler-target proof, not a kernel or general
+UEFI runtime. The initial `uefi-x64` Hylang target accepts a `Main` method with
+one `System.Console.WriteLine` ASCII string literal and emits the PE32+ EFI
+application without C#, bflat, an assembler, or a linker.
 
 ## Requirements
 
-- `bflat` with UEFI support.
-- `qemu-system-x86_64`.
-- OVMF firmware at `/usr/share/OVMF/OVMF_CODE_4M.fd`.
-- `mtools` commands: `mformat`, `mmd`, and `mcopy`.
+- A built self-hosted Hylang compiler
+  (`../Hylang-Compiler/build/self_hosting/hydrogen-stage1` by default), or set
+  `HYDROGEN=/path/to/hydrogen-stage1`.
+- `mtools` (`mformat`, `mmd`, and `mcopy`).
+- `xorriso`.
+- For running the image: `qemu-system-x86_64` and OVMF firmware. The default
+  firmware path is `/usr/share/OVMF/OVMF_CODE_4M.fd`.
 
-If `bflat` is not on `PATH`, place it at `tools/bflat/bflat` or pass it
-explicitly:
-
-```bash
-make build BFLAT=/path/to/bflat
-```
-
-On Linux, bflat also needs LLVM's C++ runtime library. If your system does
-not already provide `libc++.so.1`, install the matching package, for example:
+Build the compiler first if necessary:
 
 ```bash
-sudo apt install libc++1-18 libc++abi1-18 libunwind-18
+cd ../Hylang-Compiler
+cmake -S . -B build
+cmake --build build --target hydrogen_stage1
 ```
 
 ## Build
 
+From this repository:
+
 ```bash
-make build
+make iso
 ```
 
-This compiles `src/boot/Program.cs` into:
+This compiles [`src/boot/Program.hy`](src/boot/Program.hy) into a native UEFI
+application and produces:
 
 ```text
 build/efi/EFI/BOOT/BOOTX64.EFI
+build/australis-hylang-hello.iso
 ```
 
-The build uses:
-
-```bash
-bflat build --stdlib:zero --os:uefi --arch:x64 -o build/efi/EFI/BOOT/BOOTX64.EFI src/boot/Program.cs
-```
-
-## Image
+The ISO contains a FAT EFI boot image at its El Torito UEFI boot entry. A raw
+FAT UEFI disk image is also available through:
 
 ```bash
 make image
 ```
 
-This creates a FAT UEFI image at:
-
-```text
-build/australis-uefi.img
-```
+at `build/australis-hylang-uefi.img`.
 
 ## Run
 
@@ -65,11 +62,17 @@ build/australis-uefi.img
 make run
 ```
 
-This launches QEMU with OVMF and boots the EFI application from
-`build/efi/EFI/BOOT/BOOTX64.EFI`.
+This boots `build/australis-hylang-hello.iso` in QEMU with OVMF. Override the
+default locations when needed:
+
+```bash
+make run HYDROGEN=/path/to/hydrogen-stage1 OVMF_CODE=/path/to/OVMF_CODE.fd
+```
 
 ## Scope
 
-This milestone is intentionally print-only. It does not include keyboard
-input, a shell parser, filesystems, interrupts, Secure Boot, BIOS boot, or
-Hydrogen integration yet.
+The UEFI target is intentionally limited to the one-line hello-world proof.
+It has no keyboard support, shell, filesystem, allocator, drivers, general
+method compilation, or post-boot-services kernel handoff yet. Those need a
+defined firmware ABI, memory model, and freestanding runtime before they can
+be added safely.

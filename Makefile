@@ -1,55 +1,73 @@
-BFLAT ?= $(shell command -v bflat 2>/dev/null || printf '%s' tools/bflat/bflat)
+HYDROGEN ?= ../Hylang-Compiler/build/self_hosting/hydrogen-stage1
 QEMU ?= qemu-system-x86_64
+XORRISO ?= xorriso
 OVMF_CODE ?= /usr/share/OVMF/OVMF_CODE_4M.fd
-LOCAL_LIB_DIR := $(CURDIR)/tools/lib
-LLVM_LIB_DIR := $(CURDIR)/tools/libroot/usr/lib/llvm-18/lib
-BFLAT_DIR := $(dir $(abspath $(BFLAT)))
-# System paths must come before tools/lib, which contains bflat stub files that the
-# OS dynamic linker cannot load. The real libc++ is provided by the system package.
-SYS_LLVM_LIB_DIR := /usr/lib/llvm-18/lib
-SYS_LIB_DIR := /usr/lib/x86_64-linux-gnu
-RUN_WITH_LOCAL_LIBS := LD_LIBRARY_PATH=$(BFLAT_DIR):$(SYS_LLVM_LIB_DIR):$(SYS_LIB_DIR):$(LOCAL_LIB_DIR):$(LLVM_LIB_DIR):$$LD_LIBRARY_PATH
 
 BUILD_DIR := build
 EFI_DIR := $(BUILD_DIR)/efi
 EFI_BOOT_DIR := $(EFI_DIR)/EFI/BOOT
 EFI_BINARY := $(EFI_BOOT_DIR)/BOOTX64.EFI
-IMAGE := $(BUILD_DIR)/australis-uefi.img
-KERNEL_SRC := src/boot/Program.cs
+IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
+EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
+ISO_ROOT := $(BUILD_DIR)/iso-root
+ISO := $(BUILD_DIR)/australis-hylang-hello.iso
+KERNEL_SRC := src/boot/Program.hy
 
-.PHONY: all build image run clean check-tools
+.PHONY: all build image iso run clean check-build-tools check-image-tools check-run-tools
 
-all: clean build image run
+all: build image iso
 
-check-tools:
-	@test -x "$(BFLAT)" || { echo "bflat was not found. Install bflat or place it at tools/bflat/bflat."; exit 1; }
+check-build-tools:
+	@test -x "$(HYDROGEN)" || { echo "hydrogen-stage1 was not found. Build the self-hosted Hylang compiler first or set HYDROGEN=/path/to/hydrogen-stage1."; exit 1; }
+
+check-image-tools:
 	@command -v mformat >/dev/null || { echo "mformat was not found."; exit 1; }
 	@command -v mmd >/dev/null || { echo "mmd was not found."; exit 1; }
 	@command -v mcopy >/dev/null || { echo "mcopy was not found."; exit 1; }
+	@command -v "$(XORRISO)" >/dev/null || { echo "$(XORRISO) was not found."; exit 1; }
+
+check-run-tools:
 	@command -v "$(QEMU)" >/dev/null || { echo "$(QEMU) was not found."; exit 1; }
 	@test -f "$(OVMF_CODE)" || { echo "OVMF firmware was not found at $(OVMF_CODE)."; exit 1; }
 
-
-build: check-tools $(EFI_BINARY)
+build: check-build-tools $(EFI_BINARY)
 
 $(EFI_BINARY): $(KERNEL_SRC)
 	@mkdir -p "$(EFI_BOOT_DIR)"
-	$(RUN_WITH_LOCAL_LIBS) "$(BFLAT)" build --stdlib:zero --os:uefi --arch:x64 -o "$@" "$<"
+	"$(HYDROGEN)" compile "$<" --target uefi-x64 -o "$@"
 
-image: build
+$(IMAGE): $(EFI_BINARY) | check-image-tools
 	@mkdir -p "$(BUILD_DIR)"
 	@rm -f "$(IMAGE)"
-	@truncate -s 64M "$(IMAGE)"
+	truncate -s 64M "$(IMAGE)"
 	mformat -i "$(IMAGE)" -F ::
 	mmd -i "$(IMAGE)" ::/EFI ::/EFI/BOOT
 	mcopy -i "$(IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 
-run: 
+image: $(IMAGE)
+
+$(EFI_BOOT_IMAGE): $(EFI_BINARY) | check-image-tools
+	@mkdir -p "$(dir $(EFI_BOOT_IMAGE))"
+	@rm -f "$(EFI_BOOT_IMAGE)"
+	truncate -s 8M "$(EFI_BOOT_IMAGE)"
+	mformat -i "$(EFI_BOOT_IMAGE)" ::
+	mmd -i "$(EFI_BOOT_IMAGE)" ::/EFI ::/EFI/BOOT
+	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
+
+$(ISO): $(EFI_BOOT_IMAGE) | check-image-tools
+	@rm -rf "$(ISO_ROOT)"
+	@mkdir -p "$(ISO_ROOT)/EFI/BOOT"
+	cp "$(EFI_BOOT_IMAGE)" "$(ISO_ROOT)/EFI/BOOT/efiboot.img"
+	"$(XORRISO)" -as mkisofs -R -J -eltorito-alt-boot -e EFI/BOOT/efiboot.img -no-emul-boot -o "$@" "$(ISO_ROOT)"
+
+iso: $(ISO)
+
+run: iso | check-run-tools
 	"$(QEMU)" \
 		-machine q35 \
 		-m 256M \
 		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
-		-drive format=raw,file=fat:rw:"$(EFI_DIR)" \
+		-cdrom "$(ISO)" \
 		-net none
 
 clean:

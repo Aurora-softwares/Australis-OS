@@ -1,8 +1,5 @@
-using System;
-
-Console.Clear();
-Console.WriteLine("Australis OS booted from Hydrogen!");
-
-while (true) {
-	
+public class Program {
+    public static void Main(string[] args) {
+        System.Console.WriteLine("Hello world from Hylang!");
+    }
 }
