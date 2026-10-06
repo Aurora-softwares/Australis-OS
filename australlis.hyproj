@@ -1,0 +1,12 @@
+format = 2
+name = "Australlis.OS"
+version = "0.1.0"
+type = "exe"
+sources = ["./src/bootloader/program.hy"]
+project_references = []
+
+[package]
+id = "Australlis-OS"
+description = ""
+authors = ["Aurora Softwares"]
+license = "MIT"

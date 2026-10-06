@@ -7,13 +7,14 @@ Australis documentation and the Hylang compiler's OS roadmap.
 
 Australis currently proves one narrow but important path end to end:
 
-- `src/boot/Program.hy` is compiled by the retained self-hosted
+- `src/bootloader/program.hy` is compiled by the retained self-hosted
   `hydrogen-stage1` compiler.
 - `--target uefi-x64` emits a PE32+ x86-64 EFI application with an EFI entry
   point, UTF-16 output, and a direct UEFI text-console call.
 - `mtools` and `xorriso` package that application into either a FAT disk image
   or an El Torito UEFI ISO. They do not compile Hydrogen.
-- QEMU with OVMF boots the ISO and displays `Hello world from Hylang!`.
+- QEMU with OVMF boots the ISO, then the bootloader loads and starts
+  `EFI/AUSTRALIS/KERNEL.EFI` from the same FAT volume.
 
 The current EFI target is intentionally restricted. It supports the static
 entry-point console demonstration—ASCII literals passed to
@@ -25,11 +26,14 @@ library, command shell, or independent kernel.
 - [x] Self-hosted compiler emits a PE32+ x86-64 UEFI image.
 - [x] UEFI entry-point ABI and firmware console function-pointer call.
 - [x] UTF-16 encoding for the firmware console string.
-- [x] `src/boot/Program.hy` is the sole current boot source; the old C# source
+- [x] Load a kernel EFI application through UEFI file, image, and boot services.
+- [x] `src/bootloader/program.hy` is the current boot source; the old C# source
   was removed.
 - [x] `make build`, `make image`, `make iso`, and `make run` use the
   self-hosted compiler plus packaging tools.
 - [x] Boot the generated ISO in QEMU/OVMF and verify the text output.
+- [x] Capture a final UEFI memory map, call `ExitBootServices`, then disable
+  interrupts and idle in the kernel.
 
 ## Next: `Hydrogen.Uefi` library
 
@@ -62,9 +66,20 @@ owns memory, drivers, and platform services.
 
 Goal: make the boundaries explicit before calling `ExitBootServices`.
 
-- [ ] Obtain and preserve the UEFI memory map.
-- [ ] Call `ExitBootServices` successfully and continue execution.
-- [ ] Implement allocation and framebuffer output without firmware services.
+- [x] Preserve the UEFI memory map in `KernelBootInfo` and pass its pointer in
+  `RDI` to post-handoff Hydrogen code.
+- [x] Call `ExitBootServices` successfully and continue execution in an
+  interrupt-disabled halt loop.
+- [x] Retry the final `GetMemoryMap`/`ExitBootServices` pair with a fixed
+  descriptor reserve when the firmware updates its map key.
+- [x] Emit position-independent UEFI PE32+ images with a zero image base.
+- [x] Initialize a bootstrap physical-page range from the largest
+  `EfiConventionalMemory` descriptor.
+- [x] Clone the active PML4 into a kernel-owned page and activate it through
+  `CR3` while retaining current mappings.
+- [ ] Replace inherited lower-level table pages and define kernel mapping policy.
+- [ ] Expose a physical-page allocation API.
+- [ ] Implement framebuffer output without firmware services.
 - [ ] Establish interrupt, keyboard, and storage drivers.
 - [ ] Define a kernel/runtime boundary, then introduce userland and syscalls as
   the system matures.

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="1024"
+   height="1024"
+   viewBox="0 0 1024 1024"
+   version="1.1"
+   id="svg4"
+   sodipodi:docname="australis.icon.svg"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview4"
+     pagecolor="transparent"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="1"
+     inkscape:cx="483.5"
+     inkscape:cy="485"
+     inkscape:window-width="2560"
+     inkscape:window-height="1371"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg4" />
+  <defs
+     id="defs2">
+    <linearGradient
+       id="australisGradient"
+       x1="-48"
+       y1="-48"
+       x2="48"
+       y2="48"
+       gradientUnits="userSpaceOnUse"
+       gradientTransform="matrix(8.0786452,0,0,8.0786452,512.00004,511.99998)">
+      <stop
+         offset="0%"
+         stop-color="#38BDF8"
+         id="stop1" />
+      <stop
+         offset="100%"
+         stop-color="#7C3AED"
+         id="stop2" />
+    </linearGradient>
+  </defs>
+  <path
+     d="m 511.99997,124.225 88.8651,298.90985 298.90993,88.86512 -298.90993,88.8651 -88.8651,298.90984 L 423.13493,600.86507 124.225,511.99997 423.13493,423.13485 Z"
+     fill="url(#australisGradient)"
+     id="path3"
+     style="fill:url(#australisGradient);stroke-width:8.07865" />
+</svg>
