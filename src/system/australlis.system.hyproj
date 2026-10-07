@@ -1,7 +1,8 @@
 format = 2
 name = "australlis.system"
 version = "0.1.0"
-type = "exe"
+type = "efi"
+output = "EFI/AUSTRALIS/SYSTEM.EFI"
 sources = ["./program.hy"]
 project_references = []
 

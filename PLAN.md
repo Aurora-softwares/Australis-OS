@@ -16,10 +16,11 @@ Australis currently proves one narrow but important path end to end:
 - QEMU with OVMF boots the ISO, then the bootloader loads and starts
   `EFI/AUSTRALIS/KERNEL.EFI` from the same FAT volume.
 
-The current EFI target is intentionally restricted. It supports the static
-entry-point console demonstration—ASCII literals passed to
-`System.Console.WriteLine`—and is not yet a general UEFI runtime, standard
-library, command shell, or independent kernel.
+The current EFI target is intentionally constrained. It supports firmware
+console calls before `ExitBootServices`, then transfers to a freestanding kernel
+handoff with memory-map, physical-page, paging-policy, and bootstrap-heap
+support. Arbitrary Hydrogen method compilation, a general runtime library, a
+command shell, and a raw kernel-image format remain later work.
 
 ## Completed
 
@@ -75,12 +76,22 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
 - [x] Emit position-independent UEFI PE32+ images with a zero image base.
 - [x] Initialize a bootstrap physical-page range from the largest
   `EfiConventionalMemory` descriptor.
-- [x] Clone the active PML4 into a kernel-owned page and activate it through
-  `CR3` while retaining current mappings.
-- [ ] Replace inherited lower-level table pages and define kernel mapping policy.
-- [ ] Expose a physical-page allocation API.
-- [ ] Implement framebuffer output without firmware services.
+- [x] Clone every present PML4, PDPT, PD, and PT page into allocator-owned pages
+  and activate the resulting hierarchy through `CR3` while retaining current
+  leaf mappings.
+- [x] Keep virtual page zero unmapped, splitting only the required large leaf.
+- [x] Expose zero-filled 4 KiB page allocation through `KernelBootInfo`.
+- [x] Build a page-backed, 16-byte aligned bump heap over that allocator.
+- [x] Capture GOP framebuffer metadata before `ExitBootServices`, then clear and
+  render literal text through direct pixel writes without firmware services.
 - [ ] Establish interrupt, keyboard, and storage drivers.
+- [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
+  controller stop/reset, descriptor selection, MSC BOT reads via a mock
+  transport, and boot HID reports with a basic US keymap.
+- [ ] Add freestanding PCI port I/O, MMIO mapping, DMA allocation, and timer
+  backends so the USB code can execute after `ExitBootServices`.
+- [ ] Complete xHCI rings, port enumeration, control/bulk/interrupt transfers,
+  then connect MSC and HID to the kernel's block and input queues.
 - [ ] Define a kernel/runtime boundary, then introduce userland and syscalls as
   the system matures.
 

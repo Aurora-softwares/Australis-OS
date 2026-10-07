@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisUsbTests"
+type = "exe"
+sources = ["../../src/kernel/usb/UsbDrivers.hy", "Program.hy"]
+
+[package]
+id = "AustralisUsbTests"
+description = "Host-side USB driver protocol tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -8,14 +8,14 @@ EFI_DIR := $(BUILD_DIR)/efi
 EFI_BOOT_DIR := $(EFI_DIR)/EFI/BOOT
 EFI_BINARY := $(EFI_BOOT_DIR)/BOOTX64.EFI
 KERNEL_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/KERNEL.EFI
+SYSTEM_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/SYSTEM.EFI
 IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
 EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
 ISO_ROOT := $(BUILD_DIR)/iso-root
 ISO := $(BUILD_DIR)/australis-hylang.iso
-BOOTLOADER_SRC := src/bootloader/program.hy
-KERNEL_SRC := src/kernel/program.hy
+PROJECT := src/australlis.hyproj
 
-.PHONY: all build image iso run run-disk clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build test-usb image iso run run-emu run-disk clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -36,17 +36,15 @@ check-run-tools:
 	@command -v "$(QEMU)" >/dev/null || { echo "$(QEMU) was not found."; exit 1; }
 	@test -f "$(OVMF_CODE)" || { echo "OVMF firmware was not found at $(OVMF_CODE)."; exit 1; }
 
-build: check-build-tools $(EFI_BINARY) $(KERNEL_BINARY)
+build: check-build-tools
+	"$(HYDROGEN)" build "$(PROJECT)" -o "$(EFI_DIR)"
 
-$(KERNEL_BINARY): $(KERNEL_SRC) | check-build-tools
-	@mkdir -p "$(dir $@)"
-	"$(HYDROGEN)" compile "$<" --target uefi-x64 -o "$@"
+test-usb: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/usb/UsbDrivers.hyproj -o "$(BUILD_DIR)/usb-tests"
+	"$(BUILD_DIR)/usb-tests"
 
-$(EFI_BINARY): $(BOOTLOADER_SRC) $(KERNEL_BINARY) | check-build-tools
-	@mkdir -p "$(EFI_BOOT_DIR)"
-	"$(HYDROGEN)" compile "$<" --target uefi-x64 -o "$@"
-
-$(IMAGE): $(EFI_BINARY) | check-image-tools
+$(IMAGE): build | check-image-tools
 	@mkdir -p "$(BUILD_DIR)"
 	@rm -f "$(IMAGE)"
 	truncate -s 64M "$(IMAGE)"
@@ -54,10 +52,11 @@ $(IMAGE): $(EFI_BINARY) | check-image-tools
 	mmd -i "$(IMAGE)" ::/EFI ::/EFI/BOOT ::/EFI/AUSTRALIS
 	mcopy -i "$(IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.EFI
+	mcopy -i "$(IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
 
 image: $(IMAGE)
 
-$(EFI_BOOT_IMAGE): $(EFI_BINARY) | check-image-tools
+$(EFI_BOOT_IMAGE): build | check-image-tools
 	@mkdir -p "$(dir $(EFI_BOOT_IMAGE))"
 	@rm -f "$(EFI_BOOT_IMAGE)"
 	truncate -s 8M "$(EFI_BOOT_IMAGE)"
@@ -65,6 +64,7 @@ $(EFI_BOOT_IMAGE): $(EFI_BINARY) | check-image-tools
 	mmd -i "$(EFI_BOOT_IMAGE)" ::/EFI ::/EFI/BOOT ::/EFI/AUSTRALIS
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.EFI
+	mcopy -i "$(EFI_BOOT_IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
 
 $(ISO): $(EFI_BOOT_IMAGE) | check-image-tools
 	@rm -rf "$(ISO_ROOT)"
@@ -77,10 +77,10 @@ $(ISO): $(EFI_BOOT_IMAGE) | check-image-tools
 
 iso: $(ISO)
 
-run-emu: iso | check-run-tools
+run run-emu: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" -net none
 
-run: iso | check-run-tools
+run-disk: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -drive format=raw,file="$(ISO)" -net none
 
 clean:

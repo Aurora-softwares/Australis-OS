@@ -7,6 +7,7 @@ public class Program {
 		// The bootloader will load the kernel and then transfer control to it.
 		// The kernel will then take over and continue the boot process.
 		//
+		System.Uefi.ClearScreen();
 		System.Console.WriteLine("[BOOT] Hydrogen Bootloader");
 		System.Console.WriteLine("[BOOT] Loading EFI kernel...");
 

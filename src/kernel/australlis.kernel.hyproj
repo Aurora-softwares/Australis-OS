@@ -1,8 +1,9 @@
 format = 2
 name = "australlis.kernel"
 version = "0.0.1"
-type = "exe"
-sources = ["./program.hy"]
+type = "kernel"
+output = "EFI/AUSTRALIS/KERNEL.EFI"
+sources = ["./program.hy", "./usb/UsbDrivers.hy"]
 project_references = []
 
 [package]
