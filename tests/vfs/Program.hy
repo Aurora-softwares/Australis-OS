@@ -25,6 +25,10 @@ public class MockFileSystem : IFileSystem {
         return VfsStatus.Ok();
     }
     public bool Exists(string path) { return path == "/shell.hy"; }
+    public VfsFileInfo Stat(string path) {
+        if (path == "/shell.hy") { return new VfsFileInfo(VfsStatus.Ok(), 2); }
+        return new VfsFileInfo(VfsStatus.NotFound(), 0);
+    }
     public int ReadFile(string path, long offset, byte[] destination) {
         readCalls = readCalls + 1;
         if (path != "/shell.hy" || offset != 0 || destination.Length < 2) { return VfsStatus.InvalidArgument(); }
@@ -53,8 +57,12 @@ public class Program {
         MockFileSystem mounted = new MockFileSystem(false);
         if (vfs.MountRoot(mounted, device, root) != VfsStatus.Ok() || !vfs.IsRootMounted()) { return 4; }
         if (!vfs.Exists("/shell.hy") || vfs.Exists("/missing")) { return 5; }
+        if (vfs.StatRootFile("/shell.hy").ByteLength() != 2 || vfs.StatRootFile("/missing").Status() != VfsStatus.NotFound()) { return 51; }
         if (vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.Ok() || bytes[0] != 72 || bytes[1] != 121 || mounted.ReadCalls() != 1) { return 6; }
         if (vfs.ReadRootFile("/shell.hy", -1, bytes) != VfsStatus.InvalidArgument()) { return 7; }
+        MockFileSystem failedRemount = new MockFileSystem(true);
+        if (vfs.MountRoot(failedRemount, device, root) != VfsStatus.MountFailed() || vfs.IsRootMounted() ||
+            vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.NotMounted()) { return 8; }
         System.Console.WriteLine("Australis VFS tests passed");
         return 0;
     }

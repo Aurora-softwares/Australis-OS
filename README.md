@@ -189,11 +189,15 @@ physical pages from the reserved slice and records the latest allocation. This
 bootstrap has no IOMMU programming yet, so device-specific DMA address-width
 and cache coherency rules still belong to each driver.
 
-`Storage.Initialize()` uses the mapped AHCI controller, the selected SATA port,
-and the 16-page DMA allocation in the current kernel program. It stops the
-port engine with bounded polling, installs a command list, received-FIS area,
-command table, and data buffer, then issues polling ATA READ DMA EXT commands.
-It reads LBA 0 for the MBR, LBA 1 for the GPT header, and the primary GPT entry
+`Storage.Initialize()` prefers a mapped NVMe controller and uses AHCI when NVMe
+is absent. The NVMe path uses the 16-page DMA allocation for depth-two admin
+and I/O queues, a single-page PRP buffer, and the GPT transfer buffer. It
+enables PCI bus-master DMA, resets the controller with bounded polling,
+identifies namespace 1, creates I/O queues, and issues one-sector polling reads.
+The AHCI path stops the selected SATA port engine, installs its command list,
+received-FIS area, command table, and data buffer, then issues polling ATA READ
+DMA EXT commands. Both paths read LBA 0 for the MBR, LBA 1 for the GPT header,
+and the primary GPT entry
 array from the LBA recorded in that verified header. The emitted path checks
 the MBR signature and protective entry, the GPT 1.0 signature, exact 92-byte
 header, header CRC-32, and entry-array CRC-32. It accepts 512-byte logical
@@ -246,7 +250,9 @@ never reports a partial request as successful.
 stop/start sequencing, ATA IDENTIFY parsing, and physical-addressed IDENTIFY and
 READ DMA EXT command layouts. `Nvme.hy` implements controller-ready checks,
 doorbell stride decoding, standard 4 KiB-page controller configuration,
-Identify and Read commands, and namespace geometry parsing. `Partitions.hy`
+Identify and Read commands, and namespace geometry parsing. Its `NvmeController`
+implements the block transport over injected registers and DMA pages for
+host-side queue and failure testing. `Partitions.hy`
 validates protective MBR entries and GPT 1.0 headers plus entry-array CRC-32
 before it returns a usable partition.
 
@@ -256,22 +262,42 @@ Run the executable Hydrogen protocol tests with:
 make test-storage
 make test-ahci
 make test-nvme
+make test-nvme-controller
+make test-nvme-boot
 make test-partitions
 make test-vfs
+make test-hyfs
 ```
 
-The constrained `uefi-x64` builder now emits the live AHCI path described
-above when `Main` calls `System.Kernel.Storage.Initialize()`. QEMU Q35/OVMF
-with `make run-disk` has exercised the protective MBR, GPT header, and complete
-primary entry-array reads from the generated ISO. NVMe remains a host-tested
-protocol layer; it is not emitted into `KERNEL.EFI` yet. Hardware validation is
-still required for each AHCI controller and firmware family.
+The constrained `uefi-x64` builder emits both controller paths when `Main`
+calls `System.Kernel.Storage.Initialize()`. QEMU Q35/OVMF has exercised the
+protective MBR, GPT header, and complete primary entry-array reads from the
+generated ISO through both AHCI and NVMe. `make test-nvme-boot` repeats the NVMe
+boot check and verifies the published partition. Physical controller validation
+is still required; the live image has not mounted a VFS root yet.
 
 `src/kernel/vfs/Vfs.hy` defines the VFS boundary: filesystem drivers receive a
-validated `BlockDevice` plus a bounded `Partition`, expose mount, lookup, and
-file-read operations, and are mounted as the single initial root. This is an
-interface and host-tested mount contract. HyFS and FAT drivers, a live VFS
-dispatcher, and root mounting are later work.
+validated `BlockDevice` plus a bounded `Partition`, expose mount, file metadata,
+lookup, and all-or-fail file reads, and are mounted as the single initial root.
+The mount path clears an existing root before attempting a remount, so it never
+leaves callers with a stale mounted-driver reference after a failed remount.
+
+`src/kernel/vfs/Hyfs.hy` implements the first filesystem driver: read-only
+HyFS v1. A HyFS partition has one logical-sector superblock, a CRC-32-protected
+fixed-entry directory, and regular-file records with a full-content CRC-32.
+The driver accepts only 512 to 4096-byte logical sectors, a directory up to
+64 KiB, files up to 1 MiB, and flat printable-ASCII paths such as
+`/shell.hy`. It validates the superblock, directory allocation, reserved bytes,
+file extents, duplicate names, and full file data before returning bytes to a
+caller. `make test-hyfs` constructs a complete in-memory HyFS volume and checks
+mounting, metadata, partial reads, EOF handling, VFS mounting, corrupted data,
+corrupted metadata, and media I/O failure.
+
+This driver is compiled into the kernel project, but the current `uefi-x64`
+image builder only emits its fixed boot intrinsics. `KERNEL.EFI` therefore does
+not yet instantiate the Hylang VFS or mount HyFS from its live AHCI transport.
+Wiring that general freestanding method code and selecting a HyFS GPT partition
+are the next integration step. FAT/FAT32 remains a later compatibility driver.
 
 ## KernelBootInfo ABI
 
@@ -333,7 +359,7 @@ the four-level paging mode accepted by the current kernel handoff.
 | `288` | `uint64` | Most recent DMA allocation byte size |
 | `296` | `uint32` | Most recent DMA allocation page count |
 | `300` | `uint32` | Reserved |
-| `304` | `uint32` | Live block-controller kind: `1` for AHCI |
+| `304` | `uint32` | Live block-controller kind: `1` for AHCI, `2` for NVMe |
 | `308` | `uint32` | Reserved |
 | `312` | `uint32` | Selected AHCI port number |
 | `316` | `uint32` | Live block logical-sector size in bytes; currently `512` |
@@ -351,6 +377,12 @@ the four-level paging mode accepted by the current kernel handoff.
 | `396` | `uint32` | Reserved |
 | `400` | `uint64` | GPT first usable LBA |
 | `408` | `uint64` | GPT last usable LBA |
+| `416`–`436` | `uint32` | NVMe admin and I/O queue tail, head, and phase cursors |
+| `444` | `uint32` | NVMe doorbell stride in bytes |
+| `448` | `uint64` | Current NVMe read LBA |
+| `456` | `uint32` | Remaining sectors in current NVMe read |
+| `460` | `uint32` | Destination byte offset in GPT transfer buffer |
+| `464` | `uint64` | Namespace 1 logical-sector count |
 
 ## UEFI Framebuffer offsets
 

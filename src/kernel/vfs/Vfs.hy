@@ -7,6 +7,7 @@ namespace Australis.Kernel.Vfs {
     public interface IFileSystem {
         int Mount(BlockDevice device, Partition partition);
         bool Exists(string path);
+        VfsFileInfo Stat(string path);
         int ReadFile(string path, long offset, byte[] destination);
     }
 
@@ -15,6 +16,26 @@ namespace Australis.Kernel.Vfs {
         public static int InvalidArgument() { return 1; }
         public static int MountFailed() { return 2; }
         public static int NotMounted() { return 3; }
+        public static int NotFound() { return 4; }
+        public static int EndOfFile() { return 5; }
+        public static int IoFailure() { return 6; }
+        public static int Corrupt() { return 7; }
+    }
+
+    // File metadata returned by a filesystem lookup. A status-bearing value
+    // avoids treating a zero-length file as indistinguishable from a missing
+    // file, while keeping the VFS free of filesystem-specific metadata.
+    public class VfsFileInfo {
+        private int status;
+        private long byteLength;
+
+        public VfsFileInfo(int inputStatus, long inputByteLength) {
+            status = inputStatus;
+            byteLength = inputByteLength;
+        }
+        public int Status() { return status; }
+        public long ByteLength() { return byteLength; }
+        public bool Exists() { return status == VfsStatus.Ok(); }
     }
 
     // The initial VFS has one root mount. It performs the common block-range
@@ -46,6 +67,11 @@ namespace Australis.Kernel.Vfs {
                 return lastStatus;
             }
 
+            // A failed remount must not leave a stale root pointing at a
+            // filesystem driver that may already have released its mount data.
+            rootFileSystem = null;
+            rootDevice = null;
+            rootPartition = new Partition(false, false, 0, 0, 0);
             if (fileSystem.Mount(device, partition) != VfsStatus.Ok()) {
                 lastStatus = VfsStatus.MountFailed();
                 return lastStatus;
@@ -64,8 +90,28 @@ namespace Australis.Kernel.Vfs {
                 return false;
             }
             if (path == null) { lastStatus = VfsStatus.InvalidArgument(); return false; }
-            lastStatus = VfsStatus.Ok();
-            return rootFileSystem.Exists(path);
+            VfsFileInfo result = rootFileSystem.Stat(path);
+            if (result == null) { lastStatus = VfsStatus.Corrupt(); return false; }
+            lastStatus = result.Status();
+            return result.Exists();
+        }
+
+        public VfsFileInfo StatRootFile(string path) {
+            if (rootFileSystem == null) {
+                lastStatus = VfsStatus.NotMounted();
+                return new VfsFileInfo(lastStatus, 0);
+            }
+            if (path == null) {
+                lastStatus = VfsStatus.InvalidArgument();
+                return new VfsFileInfo(lastStatus, 0);
+            }
+            VfsFileInfo result = rootFileSystem.Stat(path);
+            if (result == null) {
+                lastStatus = VfsStatus.Corrupt();
+                return new VfsFileInfo(lastStatus, 0);
+            }
+            lastStatus = result.Status();
+            return result;
         }
 
         public int ReadRootFile(string path, long offset, byte[] destination) {

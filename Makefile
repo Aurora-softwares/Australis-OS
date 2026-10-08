@@ -15,7 +15,7 @@ ISO_ROOT := $(BUILD_DIR)/iso-root
 ISO := $(BUILD_DIR)/australis-hylang.iso
 PROJECT := src/australlis.hyproj
 
-.PHONY: all build test-usb test-storage test-ahci test-nvme test-partitions test-vfs image iso run run-emu run-gop run-disk clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build test-usb test-storage test-ahci test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs image iso run run-emu run-gop run-disk clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -59,6 +59,14 @@ test-nvme: check-build-tools
 	"$(HYDROGEN)" build tests/storage/Nvme.hyproj -o "$(BUILD_DIR)/nvme-tests"
 	"$(BUILD_DIR)/nvme-tests"
 
+test-nvme-controller: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/NvmeController.hyproj -o "$(BUILD_DIR)/nvme-controller-tests"
+	"$(BUILD_DIR)/nvme-controller-tests"
+
+test-nvme-boot: iso | check-run-tools
+	python3 tests/storage/nvme_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)"
+
 test-partitions: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/Partitions.hyproj -o "$(BUILD_DIR)/partition-tests"
@@ -68,6 +76,11 @@ test-vfs: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/vfs/Vfs.hyproj -o "$(BUILD_DIR)/vfs-tests"
 	"$(BUILD_DIR)/vfs-tests"
+
+test-hyfs: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/vfs/Hyfs.hyproj -o "$(BUILD_DIR)/hyfs-tests"
+	"$(BUILD_DIR)/hyfs-tests"
 
 $(IMAGE): build | check-image-tools
 	@mkdir -p "$(BUILD_DIR)"

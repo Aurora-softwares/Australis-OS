@@ -104,8 +104,11 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
   GPT header, and primary GPT entry array; validate both GPT CRCs and publish
   the first present partition.
 - [x] Define and host-test a VFS root-mount interface over a bounded partition.
-- [ ] Emit NVMe controller transport and connect live block reads to the VFS.
-- [ ] Implement filesystem drivers and mount a root filesystem.
+- [x] Implement and host-test a read-only HyFS v1 driver with superblock,
+  directory, and complete-file CRC validation.
+- [x] Emit and boot NVMe admin/I/O queues, Identify, bounded polling reads,
+  and the shared CRC-checked GPT discovery path under QEMU Q35/OVMF.
+- [ ] Connect live AHCI and NVMe block reads to VFS and mount a HyFS root.
 - [ ] Establish keyboard and storage drivers.
 - [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
   controller stop/reset, descriptor selection, MSC BOT reads via a mock

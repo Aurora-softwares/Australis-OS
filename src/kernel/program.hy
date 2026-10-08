@@ -26,10 +26,10 @@
 //
 //	[x] Live AHCI reads of the MBR, GPT header, and bounded primary GPT entry array
 //	[x] CRC-checked GPT parser and protective MBR parser
-//	[ ] Live NVMe transport code in the freestanding kernel
+//	[x] Live NVMe transport and GPT discovery in the freestanding kernel
 //
 //	[x] Host-tested VFS interface and root-mount contract
-//	[ ] HyFS driver
+//	[x] Host-tested, read-only HyFS v1 driver
 //	[ ] Mount root filesystem - HyFS
 //
 //	[ ] FAT/FAT32 driver

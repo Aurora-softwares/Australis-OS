@@ -1,0 +1,11 @@
+format = 2
+name = "AustralisNvmeControllerTests"
+type = "exe"
+sources = ["../../src/kernel/storage/BlockDevice.hy", "../../src/kernel/storage/Nvme.hy", "NvmeControllerProgram.hy"]
+project_references = []
+
+[package]
+id = "AustralisNvmeControllerTests"
+description = "Host-side NVMe controller transport tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

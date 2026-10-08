@@ -3,7 +3,7 @@ name = "australlis.kernel"
 version = "0.0.1"
 type = "kernel"
 output = "EFI/AUSTRALIS/KERNEL.EFI"
-sources = ["./program.hy", "./storage/BlockDevice.hy", "./storage/Ahci.hy", "./storage/Nvme.hy", "./storage/Partitions.hy", "./vfs/Vfs.hy", "./usb/UsbDrivers.hy"]
+sources = ["./program.hy", "./storage/BlockDevice.hy", "./storage/Ahci.hy", "./storage/Nvme.hy", "./storage/Partitions.hy", "./vfs/Vfs.hy", "./vfs/Hyfs.hy", "./usb/UsbDrivers.hy"]
 project_references = []
 
 [package]

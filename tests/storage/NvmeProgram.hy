@@ -8,6 +8,10 @@ public class Program {
         while (shifts < 32) { cap = cap * 2; shifts = shifts + 1; }
         cap = cap * 4; // DSTRD=4, so stride is 64 bytes
         if (Nvme.DoorbellStride(cap) != 64) { return 2; }
+        long high = 2147483647; high = high + 1;
+        if (Nvme.DoorbellStrideFromHigh(high) != 4 || Nvme.DoorbellStrideFromHigh(8) != 0) { return 10; }
+        long divisor = 65536; divisor = divisor * divisor;
+        if (Nvme.DoorbellStride(high * divisor) != 4) { return 11; }
 
         byte[] command = new byte[64];
         if (!Nvme.BuildIdentify(command, 9, 1, true, 8192) || command[0] != 6 || command[2] != 9 ||
