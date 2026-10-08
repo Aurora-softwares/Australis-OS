@@ -1,6 +1,6 @@
 # Australis OS
 
-<img src="assets/australis.icon.svg" width="200" />
+<img src="assets/australis.icon.svg" style="display: block;margin-left: auto; margin-right: auto; width: 30%;" />
 
 Australis OS is a minimal x86_64 UEFI proof of concept authored in Hylang. It
 boots directly from a UEFI ISO, writes boot status lines to the firmware console, and
@@ -354,6 +354,8 @@ the four-level paging mode accepted by the current kernel handoff.
 
 ## UEFI Framebuffer offsets
 
+| Offset | Type | Value |
+| --- | --- | --- |
 | `304` | -- | ProtocolsPerHandle |
 | `312` | -- | LocateHandleBuffer |
 | `320` | -- | LocateProtocol |
