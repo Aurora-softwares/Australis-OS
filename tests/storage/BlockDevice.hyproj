@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisBlockDeviceTests"
+type = "exe"
+sources = ["../../src/kernel/storage/BlockDevice.hy", "Program.hy"]
+
+[package]
+id = "AustralisBlockDeviceTests"
+description = "Host-side block-device contract tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

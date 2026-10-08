@@ -15,7 +15,7 @@ ISO_ROOT := $(BUILD_DIR)/iso-root
 ISO := $(BUILD_DIR)/australis-hylang.iso
 PROJECT := src/australlis.hyproj
 
-.PHONY: all build test-usb image iso run run-emu run-disk clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build test-usb test-storage test-ahci test-nvme test-partitions test-vfs image iso run run-emu run-gop run-disk clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -43,6 +43,31 @@ test-usb: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/usb/UsbDrivers.hyproj -o "$(BUILD_DIR)/usb-tests"
 	"$(BUILD_DIR)/usb-tests"
+
+test-storage: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/BlockDevice.hyproj -o "$(BUILD_DIR)/storage-tests"
+	"$(BUILD_DIR)/storage-tests"
+
+test-ahci: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/Ahci.hyproj -o "$(BUILD_DIR)/ahci-tests"
+	"$(BUILD_DIR)/ahci-tests"
+
+test-nvme: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/Nvme.hyproj -o "$(BUILD_DIR)/nvme-tests"
+	"$(BUILD_DIR)/nvme-tests"
+
+test-partitions: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/Partitions.hyproj -o "$(BUILD_DIR)/partition-tests"
+	"$(BUILD_DIR)/partition-tests"
+
+test-vfs: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/vfs/Vfs.hyproj -o "$(BUILD_DIR)/vfs-tests"
+	"$(BUILD_DIR)/vfs-tests"
 
 $(IMAGE): build | check-image-tools
 	@mkdir -p "$(BUILD_DIR)"
@@ -79,6 +104,12 @@ iso: $(ISO)
 
 run run-emu: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" -net none
+
+# Start QEMU with its graphical window and the standard VGA device. OVMF
+# publishes EFI_GRAPHICS_OUTPUT_PROTOCOL for this device, which lets the
+# post-handoff kernel use its direct framebuffer console.
+run-gop: iso | check-run-tools
+	"$(QEMU)" -machine q35,graphics=on -m 256M -vga none -device VGA -display gtk -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" -net none
 
 run-disk: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -drive format=raw,file="$(ISO)" -net none

@@ -84,12 +84,34 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
 - [x] Build a page-backed, 16-byte aligned bump heap over that allocator.
 - [x] Capture GOP framebuffer metadata before `ExitBootServices`, then clear and
   render literal text through direct pixel writes without firmware services.
-- [ ] Establish interrupt, keyboard, and storage drivers.
+- [x] Install a ring-0 GDT and IDT, capture fatal exception vectors, remap and
+  mask the legacy PIC, enable the local APIC, and dispatch periodic timer IRQs
+  into an uncalibrated monotonic tick counter.
+- [x] Enumerate PCI functions through configuration-space port I/O, retain the
+  first xHCI, AHCI, and NVMe function addresses, and map fixed uncached high
+  MMIO register apertures for valid controller BARs.
+- [x] Allocate contiguous, zero-filled DMA pages below 4 GiB and reserve their
+  requested slice from the primary physical allocator when both overlap.
+- [x] Define a synchronous, all-or-nothing block-device contract with checked
+  geometry, overflow-safe range validation, and explicit error status.
+- [x] Add host-tested AHCI SATA port discovery, bounded engine sequencing,
+  IDENTIFY parsing, and IDENTIFY/READ DMA EXT command layouts.
+- [x] Add host-tested NVMe queue command layouts, namespace geometry parsing,
+  and one-page PRP read bounds.
+- [x] Add host-tested protective-MBR and CRC-checked GPT header and entry-array
+  parsing.
+- [x] Emit and execute bounded polling AHCI reads in `KERNEL.EFI` for the MBR,
+  GPT header, and primary GPT entry array; validate both GPT CRCs and publish
+  the first present partition.
+- [x] Define and host-test a VFS root-mount interface over a bounded partition.
+- [ ] Emit NVMe controller transport and connect live block reads to the VFS.
+- [ ] Implement filesystem drivers and mount a root filesystem.
+- [ ] Establish keyboard and storage drivers.
 - [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
   controller stop/reset, descriptor selection, MSC BOT reads via a mock
   transport, and boot HID reports with a basic US keymap.
-- [ ] Add freestanding PCI port I/O, MMIO mapping, DMA allocation, and timer
-  backends so the USB code can execute after `ExitBootServices`.
+- [ ] Add driver-facing BAR sizing, dynamic MMIO mapping, IOMMU setup where
+  present, timer calibration, and cache/DMA synchronization rules.
 - [ ] Complete xHCI rings, port enumeration, control/bulk/interrupt transfers,
   then connect MSC and HID to the kernel's block and input queues.
 - [ ] Define a kernel/runtime boundary, then introduce userland and syscalls as
