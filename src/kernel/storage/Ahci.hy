@@ -134,6 +134,7 @@ namespace Australis.Kernel.Storage {
             i = 0; while (i < 144) { table[i] = 0; i = i + 1; }
             header[0] = 5; header[2] = 1; Write64(header, 8, commandTablePhysical);
             table[0] = 39; table[1] = 128; table[2] = 37; // READ DMA EXT
+            table[7] = 64; // device register: select LBA addressing
             long remainingLba = lba;
             table[4] = (byte)(remainingLba % 256); remainingLba = remainingLba / 256;
             table[5] = (byte)(remainingLba % 256); remainingLba = remainingLba / 256;

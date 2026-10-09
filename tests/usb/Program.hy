@@ -40,7 +40,7 @@ public class MockBulk : IUsbBulkTransport {
     }
     public int BulkIn(byte[] data, int length) {
         if (stage == 1) {
-            if (failData) { return -1; }
+            if (failData) { data[0] = 99; return 1; }
             int i = 0;
             while (i < length) { data[i] = 42; i = i + 1; }
             stage = 2;
@@ -91,10 +91,13 @@ public class Program {
         MockBulk bulk = new MockBulk(false);
         if (!UsbMassStorage.ReadBlocks(bulk, 0, 0, 1, 512, 9, blocks) || blocks[0] != 42 || bulk.Resets() != 0) { return 16; }
         MockBulk failedBulk = new MockBulk(true);
-        if (UsbMassStorage.ReadBlocks(failedBulk, 0, 0, 1, 512, 9, blocks) || failedBulk.Resets() != 1) { return 17; }
+        if (UsbMassStorage.ReadBlocks(failedBulk, 0, 0, 1, 512, 9, blocks) ||
+            failedBulk.Resets() != 1 || blocks[0] != 42) { return 17; }
         MockBulk rejectedCommand = new MockBulk(false);
         rejectedCommand.SetCommandStatus(1);
-        if (UsbMassStorage.ReadBlocks(rejectedCommand, 0, 0, 1, 512, 9, blocks) || rejectedCommand.Resets() != 0) { return 19; }
+        blocks[0] = 67;
+        if (UsbMassStorage.ReadBlocks(rejectedCommand, 0, 0, 1, 512, 9, blocks) ||
+            rejectedCommand.Resets() != 0 || blocks[0] != 67) { return 19; }
 
         byte[] before = new byte[8]; byte[] after = new byte[8];
         after[2] = 4;

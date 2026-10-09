@@ -90,6 +90,32 @@ public class Program {
         return image;
     }
 
+    // A file larger than the former 1 MiB limit also crosses a sector edge
+    // at the requested slice. Reading it must need only a small scratch buffer.
+    private static byte[] MakeLargeImage() {
+        int fileLength = 1048577;
+        byte[] image = new byte[2060 * 512];
+        byte[] superblock = new byte[512];
+        byte[] directory = new byte[512];
+        byte[] content = new byte[fileLength];
+        content[511] = 17; content[512] = 18; content[513] = 19;
+
+        superblock[0] = 72; superblock[1] = 89; superblock[2] = 70; superblock[3] = 83;
+        superblock[4] = 13; superblock[5] = 10; superblock[6] = 26; superblock[7] = 10;
+        Write32(superblock, 8, 1); Write32(superblock, 12, 512); Write64(superblock, 16, 2052);
+        Write64(superblock, 24, 1); Write32(superblock, 32, 1); Write32(superblock, 36, 1);
+        directory[0] = 8; directory[1] = 1; Write64(directory, 4, 2);
+        Write64(directory, 12, fileLength);
+        Write32(directory, 20, PartitionBytes.Crc32(content, 0, fileLength, fileLength, 0));
+        WriteName(directory, 0, "boot.txt");
+        Write32(superblock, 40, PartitionBytes.Crc32(directory, 0, 512, 512, 0));
+        Write32(superblock, 44, PartitionBytes.Crc32(superblock, 0, 48, 44, 4));
+        Copy(superblock, 0, image, 8 * 512, 512);
+        Copy(directory, 0, image, 9 * 512, 512);
+        Copy(content, 0, image, 10 * 512, fileLength);
+        return image;
+    }
+
     public static int Main() {
         byte[] image = MakeImage();
         MemoryTransport transport = new MemoryTransport(image);
@@ -112,6 +138,10 @@ public class Program {
         if (vfs.MountRoot(hyfs, device, root) != VfsStatus.Ok() || vfs.StatRootFile("/boot.txt").ByteLength() != 5) { return 6; }
         byte[] full = new byte[5];
         if (vfs.ReadRootFile("/boot.txt", 0, full) != VfsStatus.Ok() || full[0] != 104 || full[4] != 111) { return 7; }
+        byte[] name = new byte[32];
+        if (vfs.RootDirectorySlotCount() != 2 || vfs.CopyRootDirectoryEntryName(0, name) != 8 ||
+            name[0] != 98 || name[7] != 116 || vfs.CopyRootDirectoryEntryName(1, name) != 9 ||
+            name[0] != 101 || name[8] != 116) { return 71; }
 
         // The data CRC is checked before any caller-visible bytes are copied.
         image[10 * 512] = 72;
@@ -129,6 +159,20 @@ public class Program {
         MemoryTransport failedTransport = new MemoryTransport(MakeImage());
         failedTransport.SetFailReads(true);
         if (new Hyfs().Mount(new BlockDevice(failedTransport), root) != VfsStatus.IoFailure()) { return 10; }
+
+        byte[] largeImage = MakeLargeImage();
+        Partition largeRoot = new Partition(true, true, 0, 8, 2052);
+        MemoryTransport largeTransport = new MemoryTransport(largeImage);
+        Hyfs largeHyfs = new Hyfs();
+        if (largeHyfs.Mount(new BlockDevice(largeTransport), largeRoot) != VfsStatus.Ok() ||
+            largeHyfs.Stat("/boot.txt").ByteLength() != 1048577) { return 11; }
+        byte[] crossSector = new byte[3];
+        if (largeHyfs.ReadFile("/boot.txt", 511, crossSector) != VfsStatus.Ok() ||
+            crossSector[0] != 17 || crossSector[1] != 18 || crossSector[2] != 19) { return 12; }
+        largeImage[10 * 512 + 1000] = 1;
+        crossSector[0] = 91; crossSector[1] = 92; crossSector[2] = 93;
+        if (largeHyfs.ReadFile("/boot.txt", 511, crossSector) != VfsStatus.Corrupt() ||
+            crossSector[0] != 91 || crossSector[1] != 92 || crossSector[2] != 93) { return 13; }
 
         System.Console.WriteLine("Australis HyFS tests passed");
         return 0;

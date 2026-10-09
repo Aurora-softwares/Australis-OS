@@ -2,22 +2,28 @@
 
 <img src="assets/australis.icon.svg" style="display: block;margin-left: auto; margin-right: auto; width: 30%;" />
 
-Australis OS is a minimal x86_64 UEFI proof of concept authored in Hylang. It
-boots directly from a UEFI ISO, writes boot status lines to the firmware console, and
-then remains on screen:
+Australis OS is an x86_64 freestanding kernel booted from a UEFI ISO. The
+Hylang bootloader loads the separate raw `KERNEL.BIN`, captures the final
+memory map, leaves boot services, prepares paging and interrupts, switches to
+a kernel stack, and calls the kernel entry. The kernel uses no firmware API.
+The firmware console shows the early handoff:
 
 ```text
-[BOOT] Hydrogen Bootloader
-[BOOT] Loading EFI kernel...
-[KERNEL] Australis kernel started.
-[KERNEL] Capturing UEFI memory map.
-[KERNEL] Leaving UEFI boot services.
+[BOOT] Australis bootloader started.
+[BOOT] Loading raw kernel image.
+[BOOT] Preparing kernel handoff.
+[BOOT] Leaving UEFI boot services.
 ```
 
-This is deliberately a small compiler-target proof, not a kernel or general
-UEFI runtime. The `uefi-x64` self-hosted Hylang target accepts a `Main` method with
-`System.Console.WriteLine` ASCII string literals and emits the PE32+ EFI
-application without C#, bflat, an assembler, or a linker.
+The self-hosted compiler emits the bootloader as PE32+ and the kernel as an
+`AUKR` raw image without C#, bflat, an assembler, or a linker. The kernel
+executes a compiled `KernelMain.Run(long bootInfo)` method graph after the
+bootloader calls `ExitBootServices`. It uses
+freestanding memory intrinsics, page-backed object/array allocation, and live
+Hylang AHCI or NVMe drivers to validate GPT, mount a read-only HyFS root, and
+read files through the VFS. A COM1 interrupt receive ring runs a small kernel shell
+with `help`, `echo`, `ls`, `cat`, and `version`. The bootstrap still has
+limits described below; it is not yet a general-purpose OS.
 
 ## Requirements
 
@@ -48,9 +54,10 @@ make iso
 
 `src/australlis.hyproj` is a Hydrogen `os` project referencing the bootloader,
 kernel, and system projects. The bootloader and system projects use
-`type = "efi"`; the kernel uses `type = "kernel"`. Hydrogen builds each as a separate
-UEFI application and uses its `output` field to place it in the EFI
-tree. You can invoke the compiler directly:
+`type = "efi"`; the kernel uses `type = "kernel"`. Hydrogen builds the
+bootloader and system projects as UEFI applications, and the kernel as a raw
+binary. Each manifest's `output` field places the artifact in the EFI tree.
+You can invoke the compiler directly:
 
 ```bash
 ../Hylang-Compiler/build/self_hosting/hydrogen-stage1 build src/australlis.hyproj -o build/efi
@@ -60,18 +67,25 @@ tree. You can invoke the compiler directly:
 
 ```text
 build/efi/EFI/BOOT/BOOTX64.EFI
-build/efi/EFI/AUSTRALIS/KERNEL.EFI
+build/efi/EFI/AUSTRALIS/KERNEL.BIN
 build/efi/EFI/AUSTRALIS/SYSTEM.EFI
+build/boot/root.hyfs.img
 build/australis-hylang.iso
 ```
 
-The bootloader reads `KERNEL.EFI` from the same FAT volume through UEFI boot
-services and starts it with `LoadImage` and `StartImage`. `SYSTEM.EFI` is included
+The bootloader reads `KERNEL.BIN` from the same FAT volume, validates its
+`AUKR` header and exact size, and places it in executable loader memory before
+the final memory-map capture. After `ExitBootServices`, it switches to a
+dedicated 64 KiB kernel stack and enters the raw code. `SYSTEM.EFI` is included
 as a separate application, but the current boot sequence does not start it.
-The ISO is hybrid: it
-contains an El Torito UEFI boot entry for optical media and a GPT EFI System
-Partition for direct writing to a USB drive or disk. It is not a virtual-disk
-format.
+The raw header is 16 bytes: `AUKR`, version `1`, code length, and entry offset
+`16`, all little endian. The code is position independent.
+The ISO is hybrid: it contains an El Torito UEFI boot entry for optical media,
+a GPT EFI System Partition, and a 4 MiB read-only HyFS partition for the kernel
+root. `tools/make_hyfs_image.py` packs the flat files in `rootfs/` into that
+partition. Its GPT type GUID is `9f5eb82e-692e-5a8f-b968-adaaa349dd93`.
+The ISO can also be written directly to a USB drive or disk. It is not a
+virtual-disk format.
 
 Write the ISO byte-for-byte to the target drive; do not copy its files onto an
 existing filesystem. This replaces that drive's contents. The target must boot
@@ -84,7 +98,8 @@ A standalone raw FAT image is also available through:
 make image
 ```
 
-at `build/australis-hylang-uefi.img`.
+at `build/australis-hylang-uefi.img`. That FAT-only image contains the EFI
+programs; use the hybrid ISO for the live HyFS root.
 
 ## Run
 
@@ -92,12 +107,32 @@ at `build/australis-hylang-uefi.img`.
 make run
 ```
 
-This boots `build/australis-hylang.iso` in QEMU with OVMF as optical media. To
-validate the same ISO as a hard disk, run:
+This boots `build/australis-hylang.iso` in QEMU with OVMF as optical media and
+attaches the same image as an AHCI disk for the kernel's live HyFS root. To
+boot directly from the image's GPT EFI partition on AHCI, run:
 
 ```bash
 make run-disk
 ```
+
+For the NVMe storage path, run `make run-nvme`. The ISO remains optical boot
+media while the same image is attached as an NVMe namespace.
+
+For the interactive kernel console in the terminal, run:
+
+```bash
+make run-serial
+# or: make run-serial-nvme
+```
+
+Wait for `australis> `, then type `help`. `ls` lists the flat HyFS root and
+`cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
+echoes input and accepts Enter, Backspace/Delete, Ctrl-C, and Ctrl-U. Its line
+buffer holds 256 bytes. `cat` accepts file names up to 32 bytes and files up to
+64 KiB. The UART uses COM1 at 115200 baud, 8 data bits, no parity, and one stop
+bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
+then the shell drains that ring after it wakes. A full ring drops new input and
+records the drop count in `KernelBootInfo`.
 
 For the post-handoff framebuffer console, run QEMU with OVMF and its standard
 VGA device:
@@ -119,9 +154,9 @@ make run HYDROGEN=/path/to/hydrogen-stage1 OVMF_CODE=/path/to/OVMF_CODE.fd
 
 ## Scope
 
-The UEFI target supports `System.Uefi.ClearScreen()` before console output,
+The UEFI bootloader target supports `System.Uefi.ClearScreen()` before console output,
 `System.Uefi.Await()` to wait for and consume one keyboard event, literal console
-lines, starting one EFI application from the boot volume, and the kernel handoff
+lines, `System.Kernel.Boot.Load(<literal-path>)` for the raw image, and the handoff
 sequence:
 `System.Uefi.ExitBootServices()`, `System.Kernel.MemoryMap.Initialize()`,
 `System.Kernel.Memory.Initialize()`, `System.Kernel.VirtualMemory.Initialize()`,
@@ -138,8 +173,9 @@ ordered sequence `System.Kernel.Gdt.Initialize()`,
 `System.Kernel.Pci.Initialize()`, `System.Kernel.Mmio.Initialize()`,
 `System.Kernel.Dma.Initialize()`, literal
 `System.Kernel.Dma.AllocatePages(<1..1024>)` calls,
-`System.Kernel.Interrupts.Enable()`, and `System.Kernel.Interrupts.Idle()`.
-`KERNEL.EFI` captures a final UEFI memory map,
+`System.Kernel.Runtime.Execute()`. The kernel enables interrupts and runs its
+own idle loop after the raw entry is called.
+`BOOTX64.EFI` captures a final UEFI memory map,
 reserves space for 64 additional memory descriptors, then retries the
 `GetMemoryMap`/`ExitBootServices` pair up to eight times if firmware changes the
 map key. It initializes its physical-page allocator after the successful
@@ -163,6 +199,13 @@ heap is monotonic: it does not free or reuse allocations. The framebuffer
 console locates GOP before firmware services end, records its framebuffer data,
 then clears and writes pixels directly from the post-handoff kernel. It supports
 the standard RGB and BGR 32-bit GOP pixel formats and printable ASCII literals.
+
+After entry, `PhysicalPages.AllocateZeroed` and `PhysicalPages.Free` provide a
+checked reusable 4 KiB page pool for explicit kernel owners. `KernelAddressSpace`
+maps and unmaps explicit pages only in an unused lower-half PML4 slot, preserves
+the bootstrap hierarchy, rejects large bootstrap leaves, invalidates the local
+TLB after each change, and sets NX on every dynamic data mapping. Managed
+objects still use the runtime's monotonic allocation path.
 
 The interrupt sequence installs a ring-0 GDT, then an IDT with dedicated stubs
 for CPU exceptions, legacy PIC vectors `0x20`–`0x2f`, and local-APIC timer
@@ -202,14 +245,15 @@ array from the LBA recorded in that verified header. The emitted path checks
 the MBR signature and protective entry, the GPT 1.0 signature, exact 92-byte
 header, header CRC-32, and entry-array CRC-32. It accepts 512-byte logical
 sectors and standard 128-byte GPT entries, with a bounded maximum of 256
-entries. The first present GPT partition is published in `KernelBootInfo`; it
-is metadata for the future VFS and does not mount a filesystem.
+entries. The first present GPT partition is published in `KernelBootInfo` for
+boot diagnostics. The raw kernel independently reads the GPT, selects the
+HyFS partition by its full type GUID, and mounts it through the VFS.
 
 The paging-hierarchy copier targets the normal four-level x86_64 paging mode. It
 detects an active five-level (LA57) hierarchy and halts before changing `CR3`.
 
-The generated EFI applications use a zero image base and RIP-relative internal
-references, so UEFI firmware can load them at an available address. They are
+The generated EFI bootloader and system applications use a zero image base and
+RIP-relative internal references, so firmware can load them at an available address. They are
 tested as both an El Torito ISO and a hard disk image under OVMF. Physical
 hardware validation still requires booting a test USB or disk on each firmware
 family that Australis intends to support.
@@ -227,9 +271,8 @@ Run its simulated PCI, register, descriptor, storage, and HID checks with:
 make test-usb
 ```
 
-The current `uefi-x64` image builder emits only its fixed kernel intrinsic
-calls from `Main`; it does not emit the general Hylang methods in this new
-module. The resulting `KERNEL.EFI` therefore still cannot access USB hardware.
+The kernel image includes these USB sources but does not yet call them from its
+post-handoff method graph. It therefore cannot access USB hardware yet.
 Before a keyboard, mouse, or flash drive can work after `ExitBootServices`, the
 kernel needs freestanding PCI port I/O, MMIO mapping, DMA-safe allocation,
 timeouts, xHCI command/event/transfer rings and port enumeration, USB control,
@@ -264,17 +307,26 @@ make test-ahci
 make test-nvme
 make test-nvme-controller
 make test-nvme-boot
+make test-ahci-boot
 make test-partitions
 make test-vfs
 make test-hyfs
+make test-serial-ahci
+make test-serial-nvme
 ```
 
-The constrained `uefi-x64` builder emits both controller paths when `Main`
-calls `System.Kernel.Storage.Initialize()`. QEMU Q35/OVMF has exercised the
-protective MBR, GPT header, and complete primary entry-array reads from the
-generated ISO through both AHCI and NVMe. `make test-nvme-boot` repeats the NVMe
-boot check and verifies the published partition. Physical controller validation
-is still required; the live image has not mounted a VFS root yet.
+The boot emitter initializes either controller when `Main` calls
+`System.Kernel.Storage.Initialize()`. The compiled Hylang method graph then
+reinitializes the selected AHCI or NVMe controller through direct MMIO and DMA
+adapters, reads through `BlockDevice`, and verifies both GPT CRCs through
+`GptDisk`. `make test-nvme-boot` and `make test-ahci-boot` then verify the live
+HyFS mount and checksummed reads of `/hello.txt` and the multi-sector
+`/readme.txt` under QEMU Q35/OVMF. Physical controller validation remains
+outstanding. The serial smoke tests send commands over COM1 and verify line
+editing, root listing, file content, errors, and the prompt on both controllers.
+They also verify PIC IRQ4 delivery, an empty non-overflowed receive ring, and
+that repeated file reads return the page-allocation cursor to its shell
+transient boundary.
 
 `src/kernel/vfs/Vfs.hy` defines the VFS boundary: filesystem drivers receive a
 validated `BlockDevice` plus a bounded `Partition`, expose mount, file metadata,
@@ -286,23 +338,33 @@ leaves callers with a stale mounted-driver reference after a failed remount.
 HyFS v1. A HyFS partition has one logical-sector superblock, a CRC-32-protected
 fixed-entry directory, and regular-file records with a full-content CRC-32.
 The driver accepts only 512 to 4096-byte logical sectors, a directory up to
-64 KiB, files up to 1 MiB, and flat printable-ASCII paths such as
+64 KiB, and flat printable-ASCII paths such as
 `/shell.hy`. It validates the superblock, directory allocation, reserved bytes,
 file extents, duplicate names, and full file data before returning bytes to a
 caller. `make test-hyfs` constructs a complete in-memory HyFS volume and checks
 mounting, metadata, partial reads, EOF handling, VFS mounting, corrupted data,
 corrupted metadata, and media I/O failure.
 
-This driver is compiled into the kernel project, but the current `uefi-x64`
-image builder only emits its fixed boot intrinsics. `KERNEL.EFI` therefore does
-not yet instantiate the Hylang VFS or mount HyFS from its live AHCI transport.
-Wiring that general freestanding method code and selecting a HyFS GPT partition
-are the next integration step. FAT/FAT32 remains a later compatibility driver.
+The mounted root is read-only. File reads stream over bounded sector buffers
+and check the complete stored data CRC before returning bytes. The VFS exposes
+root directory names to the serial shell. Persistent file handles, nested
+directory traversal, general allocation reclamation, and executable loading remain
+future work.
+
+Before mounting storage, the kernel verifies the handoff's active four-level
+page tables: the boot record must be mapped and virtual page zero must remain
+unmapped. Shell commands mark and rewind a transient allocation region, so
+their path strings, file buffers, and validation buffers do not consume memory
+permanently. This scoped reclamation does not replace a general allocator.
 
 ## KernelBootInfo ABI
 
-After `System.Kernel.Framebuffer.Initialize()` succeeds, `RDI` points to this
-little-endian record, currently defined through byte `415`. The EFI memory-map buffer is allocated as
+After `System.Kernel.Framebuffer.Initialize()` succeeds, the bootloader holds
+this little-endian record. It passes the pointer to the raw kernel as its
+argument and retains it in `R15` for freestanding allocation. The first page
+also contains the GDT beginning at byte `512`; the IDT occupies the second
+page. Loader-owned raw-image and stack fields begin at byte `1024`. The EFI
+memory-map buffer is allocated as
 `EfiLoaderData` and remains valid after `ExitBootServices`. The active paging
 hierarchy has allocator-owned PML4, PDPT, PD, and PT pages. Its leaf entries
 preserve the prior physical frames and attributes, so the existing mappings
@@ -383,6 +445,42 @@ the four-level paging mode accepted by the current kernel handoff.
 | `456` | `uint32` | Remaining sectors in current NVMe read |
 | `460` | `uint32` | Destination byte offset in GPT transfer buffer |
 | `464` | `uint64` | Namespace 1 logical-sector count |
+| `472` | `uint32` | Compiled Hylang entry completed (`1`) |
+| `476` | `uint32` | Compiled Hylang entry status (`0` on success) |
+| `480` | `uint64` | Zeroed page allocated by Hylang code |
+| `488`–`492` | `uint32` | Object/array and literal-string runtime checks |
+| `496` | `uint32` | Hylang NVMe sector read completed (`1`; zero for AHCI) |
+| `500` | `uint32` | Hylang GPT reader completed (`1`) |
+| `504`–`508` | `uint32` | GPT and block read diagnostic statuses |
+| `1024` | `uint64` | Raw kernel entry address |
+| `1032` | `uint64` | Raw kernel code byte count |
+| `1040` | `uint64` | Raw image allocation base |
+| `1048` | `uint64` | Dedicated kernel stack base |
+| `1056` | `uint64` | Dedicated kernel stack top |
+| `1064` | `uint64` | Previous bootloader stack pointer, used only if the kernel returns |
+| `1072` | `uint32` | Root flags: bit 0 mounted, bit 1 `/hello.txt` verified, bit 2 `/readme.txt` verified |
+| `1076` | `uint32` | VFS root mount status (`0` on success) |
+| `1080` | `uint64` | `/hello.txt` byte length |
+| `1088` | `uint64` | CRC-32 of bytes read from `/hello.txt` |
+| `1096` | `uint64` | HyFS root first LBA |
+| `1104` | `uint64` | HyFS root block count |
+| `1112` | `uint32` | `/hello.txt` read status (`0` on success) |
+| `1120` | `uint64` | `/readme.txt` byte length |
+| `1128` | `uint64` | CRC-32 of bytes read from `/readme.txt` |
+| `1136` | `uint32` | `/readme.txt` read status (`0` on success) |
+| `1140` | `uint32` | COM1 flags: bit 0 initialized, bit 1 PIC IRQ4 receive enabled |
+| `1144` | `uint32` | Number of submitted serial command lines |
+| `1148` | `uint32` | COM1 IRQ4 delivery count |
+| `1152` | `uint64` | Lowest allocation retained while the shell reclaims command temporaries |
+| `1160` | `uint32` | Memory/runtime error code; zero means no recorded error |
+| `1164` | `uint32` | Page-table validation error; zero means the audit passed |
+| `1168` | `uint32` | COM1 receive-ring producer cursor |
+| `1172` | `uint32` | COM1 receive-ring consumer cursor |
+| `1176` | `uint32` | COM1 receive-ring dropped-byte count |
+| `1184` | `uint64` | Head of the reusable physical-page free list; zero before the first page is returned |
+| `1192` | `uint64` | Number of pages in that free list |
+| `1200` | `uint32` | Kernel map/unmap and page-reuse self-test status; zero means it passed |
+| `1280`–`2303` | `uint8` | 1024-byte COM1 interrupt receive ring |
 
 ## UEFI Framebuffer offsets
 

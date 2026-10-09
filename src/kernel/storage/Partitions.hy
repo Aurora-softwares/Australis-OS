@@ -51,6 +51,30 @@ namespace Australis.Kernel.Storage {
         private static long MaxU32() { long high = 2147483647; return high * 2 + 1; }
         private static long CrcPolynomial() { long high = 60856; return high * 65536 + 33568; } // 0xedb88320
 
+        // The raw CRC state can be carried across bounded block reads. The
+        // caller starts with MaxU32State() and complements only after the last
+        // byte. This avoids assembling an entire file in memory for its CRC.
+        public static long MaxU32State() { return MaxU32(); }
+        public static long FinishCrc32(long state) { return Xor32(state, MaxU32()); }
+
+        public static long UpdateCrc32(long state, byte[] bytes, int offset, int length) {
+            if (bytes == null || offset < 0 || length < 0 || offset > bytes.Length ||
+                length > bytes.Length - offset || state < 0 || state > MaxU32()) { return -1; }
+            int i = 0;
+            while (i < length) {
+                state = Xor32(state, bytes[offset + i]);
+                int bit = 0;
+                while (bit < 8) {
+                    bool lowBit = state % 2 != 0;
+                    state = state / 2;
+                    if (lowBit) { state = Xor32(state, CrcPolynomial()); }
+                    bit = bit + 1;
+                }
+                i = i + 1;
+            }
+            return state;
+        }
+
         // Calculate standard reflected CRC-32. `zeroOffset` and `zeroLength`
         // let GPT verify a header without allocating a mutable copy.
         public static long Crc32(byte[] bytes, int offset, int length, int zeroOffset, int zeroLength) {
@@ -71,7 +95,7 @@ namespace Australis.Kernel.Storage {
                 }
                 i = i + 1;
             }
-            return Xor32(crc, MaxU32());
+            return FinishCrc32(crc);
         }
     }
 
@@ -119,6 +143,20 @@ namespace Australis.Kernel.Storage {
             long entrySize = PartitionBytes.Read32(header, 84);
             return current == 1 && backup > current && firstUsable <= lastUsable && entriesLba >= 2 &&
                 entryCount > 0 && entrySize >= 128 && entrySize % 8 == 0;
+        }
+
+        public static bool IsValidHeaderAt(byte[] header, long expectedLba, long otherLba) {
+            if (header == null || header.Length < 92 || !IsSignature(header) ||
+                PartitionBytes.Read32(header, 8) != 65536 || PartitionBytes.Read32(header, 20) != 0) { return false; }
+            int headerSize = (int)PartitionBytes.Read32(header, 12);
+            if (headerSize < 92 || headerSize > header.Length ||
+                PartitionBytes.Crc32(header, 0, headerSize, 16, 4) != PartitionBytes.Read32(header, 16)) { return false; }
+            long firstUsable = PartitionBytes.Read64(header, 40);
+            long lastUsable = PartitionBytes.Read64(header, 48);
+            return PartitionBytes.Read64(header, 24) == expectedLba &&
+                PartitionBytes.Read64(header, 32) == otherLba &&
+                firstUsable > 1 && firstUsable <= lastUsable &&
+                PartitionBytes.Read32(header, 80) > 0;
         }
 
         public static bool ValidateEntries(byte[] header, byte[] entries, int entryBytes) {

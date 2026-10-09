@@ -1,5 +1,5 @@
 namespace Australis.Kernel.Usb {
-    // These interfaces keep the protocol code independent of the current EFI
+    // These interfaces keep the protocol code independent of the current boot
     // image builder. A freestanding port-I/O and MMIO backend is still needed.
     public interface IPciConfig {
         long Read32(int bus, int device, int function, int offset);
@@ -214,14 +214,15 @@ namespace Australis.Kernel.Usb {
         // reported as a successful block read.
         public static bool ReadBlocks(IUsbBulkTransport transport, int lun, long lba,
             int blocks, int blockSize, long tag, byte[] destination) {
-            if (blockSize < 1 || blocks < 1 || blocks > 65535 ||
+            if (transport == null || destination == null || blockSize < 1 || blocks < 1 || blocks > 65535 ||
                 blocks > destination.Length / blockSize) { return false; }
             int bytes = blocks * blockSize;
             byte[] cdb = new byte[10];
             byte[] cbw = new byte[31];
             if (!BuildRead10(cdb, lba, blocks) || !BuildCbw(cbw, tag, bytes, true, lun, cdb, 10)) { return false; }
             if (transport.BulkOut(cbw, 31) != 31) { transport.ResetRecovery(); return false; }
-            if (transport.BulkIn(destination, bytes) != bytes) { transport.ResetRecovery(); return false; }
+            byte[] staged = new byte[bytes];
+            if (transport.BulkIn(staged, bytes) != bytes) { transport.ResetRecovery(); return false; }
             byte[] csw = new byte[13];
             int statusLength = transport.BulkIn(csw, 13);
             int result = CheckCsw(csw, statusLength, tag);
@@ -230,6 +231,8 @@ namespace Australis.Kernel.Usb {
                 transport.ResetRecovery();
                 return false;
             }
+            int i = 0;
+            while (i < bytes) { destination[i] = staged[i]; i = i + 1; }
             return true;
         }
     }

@@ -3,8 +3,8 @@ using Australis.Kernel.Storage;
 namespace Australis.Kernel.Vfs {
     // HyFS v1 is the bootstrap filesystem for Australis. It intentionally has
     // a narrow surface: a single flat directory of regular files, no writes,
-    // and byte-exact ASCII file names. Keeping the first format small makes it
-    // possible to validate every on-disk bound before it is used for I/O.
+    // and byte-exact ASCII file names. Every on-disk extent is checked against
+    // the partition before I/O, and file reads verify the complete data CRC.
     //
     // Superblock (logical block 0, little-endian):
     //   0..7   "HYFS\r\n\x1a\n"
@@ -36,12 +36,35 @@ namespace Australis.Kernel.Vfs {
         private static int Version() { return 1; }
         private static int EntrySize() { return 64; }
         private static int MaxDirectoryBytes() { return 65536; }
-        private static long MaxFileBytes() { return 1048576; }
 
         public Hyfs() { Reset(); }
 
         public int LastStatus() { return lastStatus; }
         public bool IsMounted() { return device != null; }
+
+        public int DirectorySlotCount() {
+            if (!IsMounted()) { lastStatus = VfsStatus.NotMounted(); return -1; }
+            lastStatus = VfsStatus.Ok();
+            return entryCount;
+        }
+
+        public int CopyDirectoryEntryName(int index, byte[] destination) {
+            if (!IsMounted()) { lastStatus = VfsStatus.NotMounted(); return -1; }
+            if (index < 0 || index >= entryCount || destination == null) {
+                lastStatus = VfsStatus.InvalidArgument(); return -1;
+            }
+            int offset = index * EntrySize();
+            if (directory[offset + 1] != 1) { lastStatus = VfsStatus.Ok(); return 0; }
+            int length = directory[offset];
+            if (destination.Length < length) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
+            int i = 0;
+            while (i < length) {
+                destination[i] = directory[offset + 24 + i];
+                i = i + 1;
+            }
+            lastStatus = VfsStatus.Ok();
+            return length;
+        }
 
         private void Reset() {
             device = null;
@@ -183,7 +206,7 @@ namespace Australis.Kernel.Vfs {
             long firstBlock = PartitionBytes.Read64(directory, offset + 4);
             long byteLength = PartitionBytes.Read64(directory, offset + 12);
             long dataCrc = PartitionBytes.Read32(directory, offset + 20);
-            if (byteLength < 0 || byteLength > MaxFileBytes()) { return false; }
+            if (byteLength < 0) { return false; }
             if (byteLength == 0) { return firstBlock == 0 && dataCrc == 0; }
 
             long blocks = byteLength / sectorSize;
@@ -318,9 +341,9 @@ namespace Australis.Kernel.Vfs {
             return new VfsFileInfo(lastStatus, PartitionBytes.Read64(directory, index * EntrySize() + 12));
         }
 
-        private int ReadVerifiedEntry(int index, byte[] output) {
+        private int ReadVerifiedEntry(int index, long requestedOffset, byte[] output) {
             int entryOffset = index * EntrySize();
-            int byteLength = (int)PartitionBytes.Read64(directory, entryOffset + 12);
+            long byteLength = PartitionBytes.Read64(directory, entryOffset + 12);
             long expectedCrc = PartitionBytes.Read32(directory, entryOffset + 20);
             if (byteLength == 0) {
                 if (expectedCrc != 0) { return VfsStatus.Corrupt(); }
@@ -329,19 +352,29 @@ namespace Australis.Kernel.Vfs {
 
             long firstBlock = PartitionBytes.Read64(directory, entryOffset + 4);
             byte[] sector = new byte[sectorSize];
-            int copied = 0;
+            long crc = PartitionBytes.MaxU32State();
+            long scanned = 0;
             long block = 0;
-            while (copied < byteLength) {
+            long requestedEnd = requestedOffset + output.Length;
+            while (scanned < byteLength) {
                 if (device.Read(partition.FirstLba() + firstBlock + block, 1, sector) != BlockStatus.Ok()) { return VfsStatus.IoFailure(); }
-                int inSector = 0;
-                while (inSector < sectorSize && copied < byteLength) {
-                    output[copied] = sector[inSector];
-                    copied = copied + 1;
-                    inSector = inSector + 1;
+                int validBytes = sectorSize;
+                if (byteLength - scanned < validBytes) { validBytes = (int)(byteLength - scanned); }
+                crc = PartitionBytes.UpdateCrc32(crc, sector, 0, validBytes);
+                if (crc < 0) { return VfsStatus.Corrupt(); }
+                long copyStart = requestedOffset;
+                if (copyStart < scanned) { copyStart = scanned; }
+                long copyEnd = requestedEnd;
+                if (copyEnd > scanned + validBytes) { copyEnd = scanned + validBytes; }
+                long position = copyStart;
+                while (position < copyEnd) {
+                    output[(int)(position - requestedOffset)] = sector[(int)(position - scanned)];
+                    position = position + 1;
                 }
+                scanned = scanned + validBytes;
                 block = block + 1;
             }
-            if (PartitionBytes.Crc32(output, 0, byteLength, byteLength, 0) != expectedCrc) { return VfsStatus.Corrupt(); }
+            if (PartitionBytes.FinishCrc32(crc) != expectedCrc) { return VfsStatus.Corrupt(); }
             return VfsStatus.Ok();
         }
 
@@ -358,12 +391,15 @@ namespace Australis.Kernel.Vfs {
                 return lastStatus;
             }
 
-            byte[] fileBytes = new byte[(int)byteLength];
-            int result = ReadVerifiedEntry(index, fileBytes);
+            // Keep caller memory untouched until all sectors and the complete
+            // file CRC pass. Memory usage is proportional to the requested
+            // slice rather than the size of the file on disk.
+            byte[] verifiedBytes = new byte[destination.Length];
+            int result = ReadVerifiedEntry(index, offset, verifiedBytes);
             if (result != VfsStatus.Ok()) { lastStatus = result; return lastStatus; }
             int i = 0;
             while (i < destination.Length) {
-                destination[i] = fileBytes[(int)offset + i];
+                destination[i] = verifiedBytes[i];
                 i = i + 1;
             }
             lastStatus = VfsStatus.Ok();

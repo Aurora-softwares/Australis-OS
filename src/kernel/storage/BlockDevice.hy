@@ -71,8 +71,18 @@ namespace Australis.Kernel.Storage {
             if (sectors > destination.Length / geometry.SectorSize()) {
                 lastStatus = BlockStatus.InvalidArgument(); return lastStatus;
             }
-            if (!transport.Read(lba, sectors, destination)) {
+            // A controller may DMA some sectors before reporting an error.
+            // Stage the complete transfer so failure never exposes partial
+            // data to filesystem parsers or their callers.
+            int byteCount = sectors * geometry.SectorSize();
+            byte[] staged = new byte[byteCount];
+            if (!transport.Read(lba, sectors, staged)) {
                 lastStatus = BlockStatus.IoFailure(); return lastStatus;
+            }
+            int i = 0;
+            while (i < byteCount) {
+                destination[i] = staged[i];
+                i = i + 1;
             }
             lastStatus = BlockStatus.Ok();
             return lastStatus;
@@ -80,6 +90,7 @@ namespace Australis.Kernel.Storage {
 
         public int Flush() {
             if (transport == null) { lastStatus = BlockStatus.Unavailable(); return lastStatus; }
+            if (!geometry.IsValid()) { lastStatus = BlockStatus.InvalidArgument(); return lastStatus; }
             if (!transport.Flush()) { lastStatus = BlockStatus.IoFailure(); return lastStatus; }
             lastStatus = BlockStatus.Ok();
             return lastStatus;

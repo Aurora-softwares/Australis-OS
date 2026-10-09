@@ -36,7 +36,7 @@ public class Program {
         while (lbaByte < 5) { lba = lba * 256; lbaByte = lbaByte + 1; }
         lba = lba + 15365;
         if (!Ahci.BuildReadDmaExt(header, table, 8192, 16384, lba, 2, 512)) { return 5; }
-        if (table[2] != 37) { return 51; }
+        if (table[2] != 37 || table[7] != 64) { return 51; }
         if (table[4] != 5 || table[5] != 60 || table[8] != 0 || table[9] != 0 || table[10] != 1) { return 52; }
         if (table[12] != 2) { return 53; }
         if (table[140] != 255 || table[141] != 3 || table[143] != 128) { return 54; }

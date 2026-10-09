@@ -35,6 +35,13 @@ public class MockFileSystem : IFileSystem {
         destination[0] = 72; destination[1] = 121;
         return VfsStatus.Ok();
     }
+    public int DirectorySlotCount() { return 1; }
+    public int CopyDirectoryEntryName(int index, byte[] destination) {
+        if (index != 0 || destination == null || destination.Length < 8) { return -1; }
+        destination[0] = 115; destination[1] = 104; destination[2] = 101; destination[3] = 108;
+        destination[4] = 108; destination[5] = 46; destination[6] = 104; destination[7] = 121;
+        return 8;
+    }
     public int MountCalls() { return mountCalls; }
     public int ReadCalls() { return readCalls; }
 }
@@ -59,6 +66,9 @@ public class Program {
         if (!vfs.Exists("/shell.hy") || vfs.Exists("/missing")) { return 5; }
         if (vfs.StatRootFile("/shell.hy").ByteLength() != 2 || vfs.StatRootFile("/missing").Status() != VfsStatus.NotFound()) { return 51; }
         if (vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.Ok() || bytes[0] != 72 || bytes[1] != 121 || mounted.ReadCalls() != 1) { return 6; }
+        byte[] name = new byte[32];
+        if (vfs.RootDirectorySlotCount() != 1 || vfs.CopyRootDirectoryEntryName(0, name) != 8 ||
+            name[0] != 115 || name[7] != 121 || vfs.CopyRootDirectoryEntryName(1, name) >= 0) { return 61; }
         if (vfs.ReadRootFile("/shell.hy", -1, bytes) != VfsStatus.InvalidArgument()) { return 7; }
         MockFileSystem failedRemount = new MockFileSystem(true);
         if (vfs.MountRoot(failedRemount, device, root) != VfsStatus.MountFailed() || vfs.IsRootMounted() ||

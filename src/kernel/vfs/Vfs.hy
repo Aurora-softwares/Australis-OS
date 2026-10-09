@@ -9,6 +9,8 @@ namespace Australis.Kernel.Vfs {
         bool Exists(string path);
         VfsFileInfo Stat(string path);
         int ReadFile(string path, long offset, byte[] destination);
+        int DirectorySlotCount();
+        int CopyDirectoryEntryName(int index, byte[] destination);
     }
 
     public class VfsStatus {
@@ -125,6 +127,23 @@ namespace Australis.Kernel.Vfs {
             }
             lastStatus = rootFileSystem.ReadFile(path, offset, destination);
             return lastStatus;
+        }
+
+        // HyFS v1 has a flat root directory. Empty slots return a zero name
+        // length; a negative result means the request failed.
+        public int RootDirectorySlotCount() {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); return -1; }
+            lastStatus = VfsStatus.Ok();
+            return rootFileSystem.DirectorySlotCount();
+        }
+
+        public int CopyRootDirectoryEntryName(int index, byte[] destination) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); return -1; }
+            if (index < 0 || destination == null) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
+            int length = rootFileSystem.CopyDirectoryEntryName(index, destination);
+            if (length < 0) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
+            lastStatus = VfsStatus.Ok();
+            return length;
         }
     }
 }
