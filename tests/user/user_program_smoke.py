@@ -74,6 +74,12 @@ def main():
                 read_until(connection, PROMPT, 75, process)
                 before = capture_record(monitor_path, memory_path)
 
+                hello_program = shell(connection, process, b"run /hello_world.exec", 30)
+                if (b"Hello, World!\r\n" not in hello_program or
+                        b"User program exited cleanly.\r\n" not in hello_program):
+                    raise AssertionError(
+                        f"compiler generated hello program failed: {hello_program!r}")
+
                 # Canonical traversal crosses into /usb and back to the boot
                 # root. Repeated separators and dot components stay valid.
                 traversed = shell(connection, process, b"cat /usb/.././hello.txt", 30)
@@ -87,7 +93,7 @@ def main():
                 run_demo(connection, process, b"/usb/../user-demo.exec")
                 after_demo = capture_record(monitor_path, memory_path)
                 if (after_demo["user_state"] != 2 or after_demo["user_exit"] != 0 or
-                        after_demo["user_fault"] != 0 or after_demo["user_runs"] != 2 or
+                        after_demo["user_fault"] != 0 or after_demo["user_runs"] != 3 or
                         after_demo["user_instructions"] < 10 or
                         after_demo["allocator_next"] != before["allocator_next"]):
                     raise AssertionError(
@@ -99,7 +105,7 @@ def main():
                     raise AssertionError(f"protected write was not blocked: {faulted!r}")
                 after_fault = capture_record(monitor_path, memory_path)
                 if (after_fault["user_state"] != 3 or after_fault["user_fault"] != 3 or
-                        after_fault["user_runs"] != 3 or
+                        after_fault["user_runs"] != 4 or
                         after_fault["allocator_next"] != before["allocator_next"]):
                     raise AssertionError(f"fault cleanup changed kernel state: {after_fault}")
 
@@ -121,7 +127,7 @@ def main():
                 if (final["exception"] != 0 or final["ring_dropped"] != 0 or
                         final["event_dropped"] != 0 or final["memory_error"] != 0 or
                         final["allocator_next"] != before["allocator_next"] or
-                        final["user_runs"] != 4):
+                        final["user_runs"] != 5):
                     raise AssertionError(f"stage 5 left an unhealthy kernel: {final}")
         finally:
             process.terminate()

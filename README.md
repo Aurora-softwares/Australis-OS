@@ -85,9 +85,10 @@ The raw header is 16 bytes: `AUKR`, version `1`, code length, and entry offset
 `16`, all little endian. The code is position independent.
 The ISO is hybrid: it contains an El Torito UEFI boot entry for optical media,
 a GPT EFI System Partition, and a 4 MiB read-only HyFS partition for the kernel
-root. `tools/make_user_programs.py` adds deterministic AUEX samples to a
-generated root tree, then `tools/make_hyfs_image.py` packs it into that
-partition. Its GPT type GUID is `9f5eb82e-692e-5a8f-b968-adaaa349dd93`.
+root. Hydrogen compiles the projects in `applications/Applications.hyproj`
+directly to `.exec` files in the generated root tree, then
+`tools/make_hyfs_image.py` packs it into that partition. Its GPT type GUID is
+`9f5eb82e-692e-5a8f-b968-adaaa349dd93`.
 The ISO can also be written directly to a USB drive or disk. It is not a
 virtual-disk format.
 
@@ -351,6 +352,13 @@ Every user pointer is range checked and copied through `UserAddressSpace`, so
 an AUEX instruction cannot name kernel physical memory or modify its code.
 The scheduler applies an instruction limit and closes descriptors on exit,
 fault, or exhaustion.
+
+Bundled programs are Hylang `type = "exec"` projects under `applications`.
+The compiler lays out their literals and read buffer, emits AUEX bytecode, and
+writes both CRCs. `applications/README.md` lists the supported source calls and
+the aggregate project workflow for applications kept in separate repositories.
+Use `make iso APPLICATIONS_PROJECT=/path/to/MyApplications.hyproj` for another
+source aggregate, or pass ready artifacts through `APPLICATION_ARTIFACTS`.
 
 This is software enforced isolation for the AUEX instruction set. Native x86-64
 ring-3 execution, hardware page-table privilege separation, and preemptive

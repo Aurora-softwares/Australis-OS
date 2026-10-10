@@ -13,7 +13,12 @@ IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
 EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
 HYFS_IMAGE := $(BUILD_DIR)/boot/root.hyfs.img
 GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
-USER_PROGRAM_STAMP := $(GENERATED_ROOTFS)/.user-programs
+APPLICATIONS_PROJECT ?= applications/Applications.hyproj
+APPLICATIONS_DIR := $(BUILD_DIR)/applications
+APPLICATIONS_STAMP := $(APPLICATIONS_DIR)/.built
+# Space separated, prebuilt .exec files from independently versioned app repos.
+APPLICATION_ARTIFACTS ?=
+ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged
 HYFS_GPT_TYPE := 9f5eb82e-692e-5a8f-b968-adaaa349dd93
 ISO_ROOT := $(BUILD_DIR)/iso-root
 ISO := $(BUILD_DIR)/australis-hylang.iso
@@ -23,7 +28,7 @@ NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -d
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
-.PHONY: all build test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-stage5-ahci test-stage5-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-stage5-ahci test-stage5-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -169,14 +174,29 @@ $(EFI_BOOT_IMAGE): build | check-image-tools
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
 
-$(USER_PROGRAM_STAMP): tools/make_user_programs.py $(wildcard rootfs/*)
+force-applications:
+
+applications: $(APPLICATIONS_STAMP)
+
+$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) | check-build-tools
+	@rm -rf "$(APPLICATIONS_DIR)"
+	@mkdir -p "$(APPLICATIONS_DIR)"
+	"$(HYDROGEN)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
+	@touch "$@"
+
+$(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(wildcard rootfs/*) $(APPLICATION_ARTIFACTS)
 	@rm -rf "$(GENERATED_ROOTFS)"
 	@mkdir -p "$(GENERATED_ROOTFS)"
 	@cp rootfs/* "$(GENERATED_ROOTFS)/"
-	python3 tools/make_user_programs.py "$(GENERATED_ROOTFS)"
+	@cp "$(APPLICATIONS_DIR)"/*.exec "$(GENERATED_ROOTFS)/"
+	@for artifact in $(APPLICATION_ARTIFACTS); do \
+		name=$$(basename "$$artifact"); \
+		test ! -e "$(GENERATED_ROOTFS)/$$name" || { echo "duplicate root executable: $$name"; exit 1; }; \
+		cp "$$artifact" "$(GENERATED_ROOTFS)/$$name"; \
+	done
 	@touch "$@"
 
-$(HYFS_IMAGE): tools/make_hyfs_image.py $(USER_PROGRAM_STAMP)
+$(HYFS_IMAGE): tools/make_hyfs_image.py $(ROOTFS_STAMP)
 	python3 tools/make_hyfs_image.py "$(GENERATED_ROOTFS)" "$@"
 
 $(ISO): $(EFI_BOOT_IMAGE) $(HYFS_IMAGE) | check-image-tools
