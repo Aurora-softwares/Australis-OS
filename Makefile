@@ -18,8 +18,9 @@ ISO := $(BUILD_DIR)/australis-hylang.iso
 PROJECT := src/australlis.hyproj
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
+USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
 
-.PHONY: all build test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-serial-ahci test-serial-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -29,6 +30,27 @@ build: check-build-tools
 #
 # TESTS
 #
+test-stage2: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/kernel/Stage2.hyproj -o "$(BUILD_DIR)/stage2-tests"
+	"$(BUILD_DIR)/stage2-tests"
+
+test-stage2-boot: test-stage2-boot-ahci test-stage2-boot-nvme
+
+test-stage2-boot-ahci: iso | check-run-tools
+	python3 tests/kernel/stage2_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage2-boot-nvme: iso | check-run-tools
+	python3 tests/kernel/stage2_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage3: test-stage3-ahci test-stage3-nvme
+
+test-stage3-ahci: iso | check-run-tools
+	python3 tests/usb/xhci_keyboard_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage3-nvme: iso | check-run-tools
+	python3 tests/usb/xhci_keyboard_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
 test-usb: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/usb/UsbDrivers.hyproj -o "$(BUILD_DIR)/usb-tests"
@@ -68,8 +90,19 @@ test-ahci-boot: iso | check-run-tools
 test-serial-ahci: iso | check-run-tools
 	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
 
+test-terminal: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/console/Terminal.hyproj -o "$(BUILD_DIR)/terminal-tests"
+	"$(BUILD_DIR)/terminal-tests"
+
 test-serial-nvme: iso | check-run-tools
 	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-storage-failure-ahci: iso | check-run-tools
+	python3 tests/console/storage_failure_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-storage-failure-nvme: iso | check-run-tools
+	python3 tests/console/storage_failure_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
 
 test-partitions: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
@@ -129,7 +162,12 @@ image: $(IMAGE)
 # publishes EFI_GRAPHICS_OUTPUT_PROTOCOL for this device, which lets the
 # post-handoff kernel use its direct framebuffer console.
 run: iso | check-run-tools
-	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) -net none
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+
+# Show the scrolling framebuffer while accepting shell input through COM1 on
+# the launching terminal. The USB keyboard and COM1 share the shell input path.
+run-gop: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none -monitor none -serial stdio
 
 run-serial: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio

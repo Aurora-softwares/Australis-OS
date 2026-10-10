@@ -6,6 +6,7 @@ public class KernelAddressSpace {
     private static long EntriesPerTable() { return 512; }
     private static long Gigabyte() { return 1073741824; }
     private static long Pml4Stride() { return Gigabyte() * EntriesPerTable(); }
+    private static long DynamicBaseOffset() { return 1216; }
 
     private static bool PageAligned(long value) {
         return value >= PageSize() && value % PageSize() == 0;
@@ -24,6 +25,7 @@ public class KernelAddressSpace {
     }
     public static long ReadOnly() { return 1; }
     public static long ReadWrite() { return 3; }
+    public static long DeviceReadWrite() { return 27; } // present, writable, PWT, PCD
 
     private static long Index(long address, long shift) {
         return (address / shift) % EntriesPerTable();
@@ -33,7 +35,30 @@ public class KernelAddressSpace {
         return address >= PageSize() && address % PageSize() == 0;
     }
 
-    private static bool ValidFlags(long flags) { return flags == ReadOnly() || flags == ReadWrite(); }
+    private static bool ValidFlags(long flags) {
+        return flags == ReadOnly() || flags == ReadWrite() || flags == DeviceReadWrite();
+    }
+
+    private static bool Empty(long table) {
+        long index = 0;
+        while (index < EntriesPerTable()) {
+            if (Present(System.Kernel.Memory.Read64(table + index * 8))) { return false; }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    // The dynamic hierarchy is rooted in one initially-empty PML4 slot. This
+    // keeps its table-page lifetime separate from the cloned boot hierarchy.
+    private static bool ClaimDynamicBase(long bootInfo, long root, long virtualPage) {
+        long dynamicBase = System.Kernel.Memory.Read64(bootInfo + DynamicBaseOffset());
+        long candidate = (virtualPage / Pml4Stride()) * Pml4Stride();
+        if (dynamicBase != 0) { return dynamicBase == candidate; }
+        long slot = root + Index(virtualPage, Pml4Stride()) * 8;
+        if (Present(System.Kernel.Memory.Read64(slot))) { return false; }
+        System.Kernel.Memory.Write64(bootInfo + DynamicBaseOffset(), candidate);
+        return true;
+    }
 
     private static long EnsureChild(long bootInfo, long table, long index) {
         long slot = table + index * 8;
@@ -95,14 +120,35 @@ public class KernelAddressSpace {
         return 0;
     }
 
-    // Maps an unmapped kernel virtual page to an owned physical page. Callers
-    // retain physical-page ownership and must unmap before freeing that page.
+    // Finds contiguous free pages inside the one kernel-owned dynamic PML4
+    // slot. This lets independent MMIO owners coexist without expanding the
+    // mutable part of the bootstrap hierarchy.
+    public static long FindUnmappedRange(long bootInfo, int pages) {
+        if (!ValidPage(bootInfo) || pages < 1 || pages > 16384) { return 0; }
+        long dynamicBase = System.Kernel.Memory.Read64(bootInfo + DynamicBaseOffset());
+        if (dynamicBase == 0) { dynamicBase = FindUnmappedPml4Base(bootInfo); }
+        if (dynamicBase == 0) { return 0; }
+        int first = 0;
+        while (first <= 16384 - pages) {
+            int free = 0;
+            while (free < pages && Translate(bootInfo, dynamicBase + (first + free) * PageSize()) == 0) {
+                free = free + 1;
+            }
+            if (free == pages) { return dynamicBase + first * PageSize(); }
+            first = first + free + 1;
+        }
+        return 0;
+    }
+
+    // Maps an unmapped kernel virtual page to a caller-owned physical frame or
+    // MMIO page. Unmap releases page tables, never the mapped frame itself.
     public static bool MapPage(long bootInfo, long virtualPage, long physicalPage, long flags) {
         if (!ValidPage(bootInfo) || !ValidPage(virtualPage) || !ValidPage(physicalPage) || !ValidFlags(flags)) {
             return false;
         }
         long root = System.Kernel.Memory.Read64(bootInfo + 64);
         if (!ValidPage(root)) { return false; }
+        if (!ClaimDynamicBase(bootInfo, root, virtualPage)) { return false; }
         long pdpt = EnsureChild(bootInfo, root, Index(virtualPage, Pml4Stride()));
         if (pdpt == 0) { return false; }
         long pd = EnsureChild(bootInfo, pdpt, Index(virtualPage, Gigabyte()));
@@ -122,6 +168,8 @@ public class KernelAddressSpace {
         if (!ValidPage(bootInfo) || !ValidPage(virtualPage)) { return false; }
         long root = System.Kernel.Memory.Read64(bootInfo + 64);
         if (!ValidPage(root)) { return false; }
+        long dynamicBase = System.Kernel.Memory.Read64(bootInfo + DynamicBaseOffset());
+        if (dynamicBase == 0 || dynamicBase != (virtualPage / Pml4Stride()) * Pml4Stride()) { return false; }
         long entry = System.Kernel.Memory.Read64(root + Index(virtualPage, Pml4Stride()) * 8);
         if (!Present(entry) || Large(entry) || !ValidPage(Frame(entry))) { return false; }
         long pdpt = Frame(entry);
@@ -157,6 +205,8 @@ public class KernelAddressSpace {
         if (!ValidPage(bootInfo) || !ValidPage(virtualPage)) { return false; }
         long root = System.Kernel.Memory.Read64(bootInfo + 64);
         if (!ValidPage(root)) { return false; }
+        long dynamicBase = System.Kernel.Memory.Read64(bootInfo + DynamicBaseOffset());
+        if (dynamicBase == 0 || dynamicBase != (virtualPage / Pml4Stride()) * Pml4Stride()) { return false; }
         long entry = System.Kernel.Memory.Read64(root + Index(virtualPage, Pml4Stride()) * 8);
         if (!Present(entry) || Large(entry) || !ValidPage(Frame(entry))) { return false; }
         long pdpt = Frame(entry);
@@ -170,6 +220,19 @@ public class KernelAddressSpace {
         if (!Present(System.Kernel.Memory.Read64(slot))) { return false; }
         System.Kernel.Memory.Write64(slot, 0);
         System.Kernel.Cpu.InvalidatePage(virtualPage);
+        if (Empty(pt)) {
+            System.Kernel.Memory.Write64(pd + Index(virtualPage, 2097152) * 8, 0);
+            if (!PhysicalPages.Free(bootInfo, pt)) { return false; }
+            if (Empty(pd)) {
+                System.Kernel.Memory.Write64(pdpt + Index(virtualPage, Gigabyte()) * 8, 0);
+                if (!PhysicalPages.Free(bootInfo, pd)) { return false; }
+                if (Empty(pdpt)) {
+                    System.Kernel.Memory.Write64(root + Index(virtualPage, Pml4Stride()) * 8, 0);
+                    if (!PhysicalPages.Free(bootInfo, pdpt)) { return false; }
+                    System.Kernel.Memory.Write64(bootInfo + DynamicBaseOffset(), 0);
+                }
+            }
+        }
         return true;
     }
 }

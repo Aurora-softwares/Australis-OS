@@ -9,6 +9,10 @@ namespace Australis.Kernel.Storage {
         void WriteDma(int page, int offset, byte[] source, int count);
         void ReadDma(int page, int offset, byte[] destination, int count);
         void Pause();
+        long Deadline(int milliseconds);
+        bool Expired(long deadline);
+        long CompletionEpoch();
+        void ReportFailure(int cause, int state);
     }
 
     public class Nvme {
@@ -141,6 +145,9 @@ namespace Australis.Kernel.Storage {
         private int sectorSize;
         private long sectorCount;
         private bool ready;
+        private int lastError;
+        private int recoveryState;
+        private int retries;
 
         public NvmeController(INvmeControllerIo inputIo, int inputMaximumPolls) {
             io = inputIo;
@@ -150,17 +157,18 @@ namespace Australis.Kernel.Storage {
             ioTail = 0; ioHead = 0; ioPhase = 1;
             nextCommandId = 1;
             sectorSize = 0; sectorCount = 0; ready = false;
+            lastError = 0; recoveryState = 0; retries = 0;
         }
 
         private bool WaitReady(bool expected) {
-            int poll = 0;
-            while (poll < maximumPolls) {
+            long deadline = io.Deadline(maximumPolls);
+            while (!io.Expired(deadline)) {
                 long status = io.Read32(28);
-                if ((status / 2) % 2 != 0) { return false; } // CSTS.CFS
+                if ((status / 2) % 2 != 0) { lastError = 2; return false; } // CSTS.CFS
                 if (Nvme.IsReady(status) == expected) { return true; }
-                io.Pause(); poll = poll + 1;
+                io.Pause();
             }
-            return false;
+            lastError = 1; return false;
         }
 
         private bool Submit(bool admin, byte[] command) {
@@ -176,12 +184,17 @@ namespace Australis.Kernel.Storage {
             command[3] = (byte)(commandId / 256);
             io.WriteDma(sqPage, tail * 64, command, 64);
             tail = (tail + 1) % 2;
+            long epoch = -1;
+            if (!admin) { epoch = io.CompletionEpoch(); }
             io.Write32(4096 + 2 * queueId * stride, tail);
 
             byte[] completion = new byte[16];
-            int poll = 0;
-            while (poll < maximumPolls) {
-                if ((io.Read32(28) / 2) % 2 != 0) { return false; }
+            long deadline = io.Deadline(maximumPolls);
+            while (!io.Expired(deadline)) {
+                if ((io.Read32(28) / 2) % 2 != 0) { lastError = 2; return false; }
+                if (epoch >= 0 && io.CompletionEpoch() == epoch) {
+                    io.Pause(); continue;
+                }
                 io.ReadDma(cqPage, head * 16, completion, 16);
                 int status = completion[14] + completion[15] * 256;
                 if (status % 2 == phase) {
@@ -192,11 +205,14 @@ namespace Australis.Kernel.Storage {
                     io.Write32(4096 + (2 * queueId + 1) * stride, head);
                     if (admin) { adminTail = tail; adminHead = head; adminPhase = phase; }
                     else { ioTail = tail; ioHead = head; ioPhase = phase; }
-                    return completedId == commandId && completedQueue == queueId && status / 2 == 0;
+                    if (completedId != commandId || completedQueue != queueId || status / 2 != 0) {
+                        lastError = 3; return false;
+                    }
+                    lastError = 0; return true;
                 }
-                io.Pause(); poll = poll + 1;
+                io.Pause();
             }
-            return false;
+            lastError = 1; return false;
         }
 
         public bool Initialize() {
@@ -256,7 +272,7 @@ namespace Australis.Kernel.Storage {
             long address = pages[3] / 256;
             int addressByte = 25;
             while (addressByte < 32) { command[addressByte] = (byte)(address % 256); address = address / 256; addressByte = addressByte + 1; }
-            command[40] = 1; command[42] = 1; command[44] = 1; // QID=1, QSIZE=1, PC=1
+            command[40] = 1; command[42] = 1; command[44] = 3; // QID=1, QSIZE=1, PC=1, IEN=1
             if (!Submit(true, command)) { return false; }
             command = new byte[64];
             command[0] = 1; // Create I/O Submission Queue
@@ -272,8 +288,11 @@ namespace Australis.Kernel.Storage {
         public int SectorSize() { return sectorSize; }
         public long SectorCount() { return sectorCount; }
         public bool Flush() { return ready; } // read-only bootstrap
+        public int LastError() { return lastError; }
+        public int RecoveryState() { return recoveryState; }
+        public int RetryCount() { return retries; }
 
-        public bool Read(long lba, int sectors, byte[] destination) {
+        private bool ReadOnce(long lba, int sectors, byte[] destination) {
             if (!ready || lba < 0 || sectors < 1 || destination == null ||
                 lba >= sectorCount || sectors > sectorCount - lba || sectors > destination.Length / sectorSize) { return false; }
             byte[] staged = new byte[sectors * sectorSize];
@@ -296,6 +315,29 @@ namespace Australis.Kernel.Storage {
             int byteIndex = 0;
             while (byteIndex < copied) { destination[byteIndex] = staged[byteIndex]; byteIndex = byteIndex + 1; }
             return true;
+        }
+
+        // Controller fatal status and command timeout are recovered once by a
+        // full queue/controller rebuild. A second failed attempt is reported
+        // to BlockDevice, which keeps caller data unchanged.
+        public bool Read(long lba, int sectors, byte[] destination) {
+            if (destination == null || lba < 0 || sectors < 1 ||
+                (ready && (lba >= sectorCount || sectors > sectorCount - lba ||
+                sectors > destination.Length / sectorSize))) { return false; }
+            if (ReadOnce(lba, sectors, destination)) {
+                recoveryState = 0; io.ReportFailure(0, 0); return true;
+            }
+            int cause = lastError;
+            recoveryState = 2;
+            if (cause == 1) { recoveryState = 1; }
+            io.ReportFailure(cause, recoveryState);
+            recoveryState = 3; retries = retries + 1; io.ReportFailure(cause, recoveryState);
+            if (!Initialize()) { recoveryState = 4; io.ReportFailure(lastError, recoveryState); return false; }
+            if (ReadOnce(lba, sectors, destination)) {
+                recoveryState = 0; io.ReportFailure(0, 0); return true;
+            }
+            recoveryState = 4; io.ReportFailure(lastError, recoveryState);
+            return false;
         }
     }
 }

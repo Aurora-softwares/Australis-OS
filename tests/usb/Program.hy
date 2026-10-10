@@ -74,8 +74,22 @@ public class Program {
         if (interfaceOffset != 9) { return 4; }
         if (UsbDescriptors.FindEndpoint(config, 32, interfaceOffset, 1, 2) != 129) { return 5; }
         if (UsbDescriptors.FindEndpoint(config, 32, interfaceOffset, 0, 2) != 2) { return 6; }
+        int endpointOffset = UsbDescriptors.FindEndpointOffset(config, 32, interfaceOffset, 1, 2);
+        config[22] = 64; config[23] = 0; config[24] = 9;
+        if (endpointOffset != 18 || UsbDescriptors.EndpointMaxPacket(config, 32, endpointOffset) != 64 ||
+            UsbDescriptors.EndpointInterval(config, 32, endpointOffset) != 9 ||
+            UsbDescriptors.ConfigurationValue(config, 32) != 0 ||
+            UsbDescriptors.InterfaceNumber(config, 32, interfaceOffset) != 0) { return 20; }
+        config[22] = 0; config[23] = 4;
+        if (UsbDescriptors.EndpointMaxPacket(config, 32, endpointOffset) != 1024) { return 22; }
         config[18] = 0;
         if (UsbDescriptors.FindEndpoint(config, 32, interfaceOffset, 1, 2) != -1) { return 7; }
+
+        long eventControl = XhciTrb.Control(32, 1) + 3 * 65536 + 7 * 16777216;
+        long eventStatus = 123 + 13 * 16777216;
+        if (XhciTrb.Type(eventControl) != 32 || XhciTrb.Cycle(eventControl) != 1 ||
+            XhciTrb.EndpointId(eventControl) != 3 || XhciTrb.SlotId(eventControl) != 7 ||
+            XhciTrb.CompletionCode(eventStatus) != 13 || XhciTrb.TransferLength(eventStatus) != 123) { return 21; }
 
         byte[] cdb = new byte[10];
         if (!UsbMassStorage.BuildRead10(cdb, 305419896, 2)) { return 8; }
@@ -103,7 +117,9 @@ public class Program {
         after[2] = 4;
         if (UsbHidBoot.NewKey(before, after) != 4 || UsbHidBoot.NewKey(after, after) != 0) { return 14; }
         if (UsbHidBoot.UsAscii(4, 0) != 97 || UsbHidBoot.UsAscii(4, 2) != 65 ||
-            UsbHidBoot.UsAscii(39, 0) != 48 || UsbHidBoot.UsAscii(40, 0) != 13) { return 18; }
+            UsbHidBoot.UsAscii(39, 0) != 48 || UsbHidBoot.UsAscii(40, 0) != 13 ||
+            UsbHidBoot.UsAscii(56, 0) != 47 || UsbHidBoot.UsAscii(55, 0) != 46 ||
+            UsbHidBoot.UsAscii(45, 2) != 95) { return 18; }
         byte[] mouse = new byte[3]; mouse[0] = 1; mouse[1] = 254; mouse[2] = 3;
         if (UsbHidBoot.MouseButtons(mouse) != 1 || UsbHidBoot.MouseX(mouse) != -2 || UsbHidBoot.MouseY(mouse) != 3) { return 15; }
         System.Console.WriteLine("Australis USB protocol tests passed");

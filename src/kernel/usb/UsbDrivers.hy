@@ -128,7 +128,7 @@ namespace Australis.Kernel.Usb {
 
         // Endpoint address, or -1. direction is 0 for OUT and 1 for IN;
         // transferType is 2 for bulk or 3 for interrupt.
-        public static int FindEndpoint(byte[] data, int length, int interfaceOffset, int direction, int transferType) {
+        public static int FindEndpointOffset(byte[] data, int length, int interfaceOffset, int direction, int transferType) {
             if (interfaceOffset < 0 || interfaceOffset + 9 > length || data[interfaceOffset + 1] != 4) { return -1; }
             int total = data[2] + data[3] * 256;
             if (total > length) { return -1; }
@@ -139,11 +139,58 @@ namespace Australis.Kernel.Usb {
                 if (data[offset + 1] == 4) { return -1; }
                 if (data[offset + 1] == 5 && size >= 7) {
                     int address = data[offset + 2];
-                    if ((address / 128) % 2 == direction && data[offset + 3] % 4 == transferType) { return address; }
+                    if ((address / 128) % 2 == direction && data[offset + 3] % 4 == transferType) { return offset; }
                 }
                 offset = offset + size;
             }
             return -1;
+        }
+
+        public static int FindEndpoint(byte[] data, int length, int interfaceOffset, int direction, int transferType) {
+            int offset = FindEndpointOffset(data, length, interfaceOffset, direction, transferType);
+            if (offset < 0) { return -1; }
+            return data[offset + 2];
+        }
+
+        public static int ConfigurationValue(byte[] data, int length) {
+            if (length < 9 || length > data.Length || data[0] < 9 || data[1] != 2) { return -1; }
+            return data[5];
+        }
+
+        public static int InterfaceNumber(byte[] data, int length, int interfaceOffset) {
+            if (interfaceOffset < 0 || interfaceOffset + 9 > length || data[interfaceOffset] < 9 ||
+                data[interfaceOffset + 1] != 4) { return -1; }
+            return data[interfaceOffset + 2];
+        }
+
+        public static int EndpointMaxPacket(byte[] data, int length, int endpointOffset) {
+            if (endpointOffset < 0 || endpointOffset + 7 > length || data[endpointOffset] < 7 ||
+                data[endpointOffset + 1] != 5) { return -1; }
+            int low = data[endpointOffset + 4];
+            int high = data[endpointOffset + 5];
+            return low + high * 256;
+        }
+
+        public static int EndpointInterval(byte[] data, int length, int endpointOffset) {
+            if (endpointOffset < 0 || endpointOffset + 7 > length || data[endpointOffset] < 7 ||
+                data[endpointOffset + 1] != 5) { return -1; }
+            return data[endpointOffset + 6];
+        }
+    }
+
+    // Pure xHCI TRB helpers are shared by host tests and the native driver.
+    // Keeping the field arithmetic here makes cycle and event decoding testable
+    // without exposing controller MMIO to the hosted test process.
+    public class XhciTrb {
+        public static int Type(long control) { return (int)(control / 1024 % 64); }
+        public static int Cycle(long control) { return (int)(control % 2); }
+        public static int CompletionCode(long status) { return (int)(status / 16777216 % 256); }
+        public static int TransferLength(long status) { return (int)(status % 16777216); }
+        public static int EndpointId(long control) { return (int)(control / 65536 % 32); }
+        public static int SlotId(long control) { return (int)(control / 16777216 % 256); }
+        public static long Control(int type, int cycle) {
+            if (type < 0 || type > 63 || (cycle != 0 && cycle != 1)) { return 0; }
+            return type * 1024 + cycle;
         }
     }
 
@@ -284,6 +331,17 @@ namespace Australis.Kernel.Usb {
             if (usage == 42) { return 8; }
             if (usage == 43) { return 9; }
             if (usage == 44) { return 32; }
+            if (usage == 45) { if (shift) { return 95; } return 45; }
+            if (usage == 46) { if (shift) { return 43; } return 61; }
+            if (usage == 47) { if (shift) { return 123; } return 91; }
+            if (usage == 48) { if (shift) { return 125; } return 93; }
+            if (usage == 49) { if (shift) { return 124; } return 92; }
+            if (usage == 51) { if (shift) { return 58; } return 59; }
+            if (usage == 52) { if (shift) { return 34; } return 39; }
+            if (usage == 53) { if (shift) { return 126; } return 96; }
+            if (usage == 54) { if (shift) { return 60; } return 44; }
+            if (usage == 55) { if (shift) { return 62; } return 46; }
+            if (usage == 56) { if (shift) { return 63; } return 47; }
             return 0;
         }
 

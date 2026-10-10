@@ -31,8 +31,14 @@ public class MockFileSystem : IFileSystem {
     }
     public int ReadFile(string path, long offset, byte[] destination) {
         readCalls = readCalls + 1;
-        if (path != "/shell.hy" || offset != 0 || destination.Length < 2) { return VfsStatus.InvalidArgument(); }
-        destination[0] = 72; destination[1] = 121;
+        if (path != "/shell.hy" || offset < 0 || offset > 2 || destination.Length > 2 - offset) {
+            return VfsStatus.InvalidArgument();
+        }
+        int i = 0;
+        while (i < destination.Length) {
+            if (offset + i == 0) { destination[i] = 72; } else { destination[i] = 121; }
+            i = i + 1;
+        }
         return VfsStatus.Ok();
     }
     public int DirectorySlotCount() { return 1; }
@@ -66,6 +72,10 @@ public class Program {
         if (!vfs.Exists("/shell.hy") || vfs.Exists("/missing")) { return 5; }
         if (vfs.StatRootFile("/shell.hy").ByteLength() != 2 || vfs.StatRootFile("/missing").Status() != VfsStatus.NotFound()) { return 51; }
         if (vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.Ok() || bytes[0] != 72 || bytes[1] != 121 || mounted.ReadCalls() != 1) { return 6; }
+        VfsFileHandle handle = vfs.OpenRootFile("/shell.hy");
+        byte[] first = new byte[1];
+        if (!handle.IsOpen() || handle.MountIdentity() != 1 || handle.Read(first) != VfsStatus.Ok() ||
+            first[0] != 72 || handle.Position() != 1) { return 62; }
         byte[] name = new byte[32];
         if (vfs.RootDirectorySlotCount() != 1 || vfs.CopyRootDirectoryEntryName(0, name) != 8 ||
             name[0] != 115 || name[7] != 121 || vfs.CopyRootDirectoryEntryName(1, name) >= 0) { return 61; }
@@ -73,6 +83,7 @@ public class Program {
         MockFileSystem failedRemount = new MockFileSystem(true);
         if (vfs.MountRoot(failedRemount, device, root) != VfsStatus.MountFailed() || vfs.IsRootMounted() ||
             vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.NotMounted()) { return 8; }
+        if (handle.Read(first) != VfsStatus.NotMounted()) { return 9; }
         System.Console.WriteLine("Australis VFS tests passed");
         return 0;
     }

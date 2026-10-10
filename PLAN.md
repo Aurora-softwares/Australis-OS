@@ -28,8 +28,9 @@ COM1 shell uses PIC IRQ4 to fill a bounded receive ring and runs `help`,
 `echo`, `ls`, `cat`, and `version` against the mounted root. Each shell
 command reclaims its temporary allocations after completing.
 Only the bootloader remains a UEFI PE image in this path. The kernel is a
-position-independent `AUKR` binary and calls no firmware service. Reclaimable
-memory, file handles, process loading, and user programs remain later work.
+position-independent `AUKR` binary and calls no firmware service. Individual
+managed allocations can be released; persistent file handles, process loading,
+and user programs remain later work.
 
 ## Full subsystem completion gate
 
@@ -41,21 +42,19 @@ coverage needs separate hardware validation.
 
 | Subsystem | Current gap before completion |
 | --- | --- |
-| Compiler and runtime | Reachable methods, objects, arrays, strings, direct memory access, and byte port I/O run after UEFI handoff. Allocation failures are recorded before trapping, and the shell reclaims a scoped transient tail. Add reusable boot-information types, general allocation/free, and bounded recovery. |
-| Physical and virtual memory | The active PML4 is audited before driver startup: the boot record is mapped and virtual page zero is unmapped. A kernel page pool reuses explicitly returned pages, and a 4 KiB map/unmap interface uses a free PML4 slot and invalidates the local TLB. Add memory-descriptor ownership, allocation for managed objects, page-table reclamation, cache policy, and allocator stress tests. |
-| Exceptions, interrupts, and timer | Exception vectors record state and the generated handlers preserve all general registers. COM1 uses a PIC IRQ4 receive ring. Add IRQ registration, calibrated timeouts, and device interrupts for storage and USB. |
-| PCI, MMIO, and DMA | Size BARs, map complete register ranges dynamically, define cache and DMA synchronization rules, and handle platforms with an IOMMU or explicitly reject unsupported configurations. |
-| AHCI and NVMe | Reusable polling controllers now read live QEMU devices through the common block interface. Add enumeration beyond the selected device, timeout recovery, real flush/write behavior, and broader hardware validation. |
+| Compiler and runtime | Objects, arrays, and strings now carry ownership metadata and support explicit individual release; shell temporaries still use a command marker. Add reusable boot-information types and automatic lifetime management. |
+| Physical and virtual memory | The active PML4 is audited; page tables are reclaimed after unmap, released pages are reused, and live stress checks repeat mapping and managed release. Add memory-descriptor ownership and broader cache policy. |
+| Exceptions, interrupts, and timer | Exception vectors record state, COM1 uses PIC IRQ4, storage uses APIC vector `0x31`, and xHCI uses deferred vector `0x32` events with calibrated deadlines. Add vector allocation beyond the current fixed assignments. |
+| PCI, MMIO, and DMA | BARs are sized and fully mapped, xHCI DMA ownership is explicit, and unsupported IOMMU translation is rejected. Add translated DMA support and broader cache-policy validation. |
+| AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Add enumeration beyond the selected device, real flush/write behavior, and broader hardware validation. |
 | Partition discovery | The Hylang GPT reader now runs on live AHCI and NVMe, checks CRCs with backup-header recovery, and selects HyFS by full type GUID. Add partition selection by unique identity and a live damaged-primary integration test. |
-| VFS and HyFS | A read-only HyFS root now mounts on live AHCI/NVMe; verified reads cross sector boundaries and the shell lists root names. Add persistent file handles and nested directory traversal, then exercise live corruption and I/O failures. |
-| Interactive console | A COM1 shell accepts bounded, editable lines from a 1024-byte IRQ-fed receive ring and reads the real mounted root on AHCI/NVMe. Add terminal control and scheduled input dispatch. |
-| USB | Install xHCI rings and contexts, enumerate ports/devices, perform control/bulk/interrupt transfers, and connect MSC/HID to block/input services. |
+| VFS and HyFS | A read-only HyFS root mounts on live AHCI/NVMe; reads cross sector boundaries and QEMU injects file I/O failures. Add persistent file handles, nested directory traversal, and live corruption tests. |
+| Interactive console | COM1 and a USB boot keyboard feed the shared line editor; output is mirrored to a scrolling framebuffer, and QEMU verifies live root reads, repeat, and editing from both input paths. Add layout selection and user-space terminal semantics. |
+| USB | One live xHCI root device supports EP0 and interrupt transfers, a US boot keyboard, and bounded hotplug recovery. Add hubs, multiple devices, live bulk transfers, and MSC block devices. |
 
-The compiler/runtime row gates live use of the host-tested Hydrogen drivers.
-The immediate engineering sequence is compiler/runtime ABI, memory ownership,
-live block and GPT adapters, live VFS file operations, interrupt-driven storage/input,
-then xHCI enumeration and transfers. Each row stays open until its stated
-integration path exists.
+The next engineering sequence is live USB mass storage, persistent VFS handles,
+and mounted removable volumes. Each row stays open until its stated integration
+path exists.
 
 ## Completed
 
@@ -74,13 +73,99 @@ integration path exists.
 - [x] Bring up a post-handoff COM1 console and run a kernel shell with bounded
   editing and `help`, `echo`, `ls`, `cat`, and `version` on AHCI and NVMe roots.
 
-## Next kernel milestones
+## Roadmap: interactive terminal and USB
 
-- [ ] Give temporary allocations a reclaimable lifetime, including repeated
-  shell file reads.
-- [ ] Add persistent VFS file handles and nested directory traversal.
-- [ ] Add a program format, loader, and a first user program.
-- [ ] Add input queues and device IRQ handling beyond the timer.
+Work through these milestones in order. Each has a runnable exit check, so the
+serial shell remains usable while new input and storage paths are brought up.
+
+### 1. Shared terminal and input (complete)
+
+- [x] Separate the shell from COM1 through input and output interfaces. Keep
+  COM1's bounded IRQ-fed ring, count dropped bytes, and execute commands in
+  normal kernel context. QEMU covers command editing and repeated root reads.
+- [x] Mirror shell output to a scrolling GOP framebuffer terminal. QEMU checks
+  that a bottom-row newline moves earlier pixels up one glyph row.
+- [x] Add a bounded shared key-event queue for non-serial devices, ANSI cursor
+  controls, clear-screen support, and a visible framebuffer cursor.
+- [x] Move line editing into a reusable line discipline: arrow-key movement,
+  delete, bounded history, and clean redraw after asynchronous output. Keep
+  the existing shell commands working on either console.
+- **Exit check passed:** In QEMU, edit commands over serial and read a root file on
+  both COM1 and the framebuffer without dropped characters, mixed output, or
+  execution inside an IRQ. Keyboard input joins the same path in milestone 3.
+
+### 2. Kernel services needed by live USB (complete)
+
+- [x] Calibrate a monotonic timer and use deadline-based waits for controller
+  commands, transfers, and key-repeat timing.
+- [x] Add per-device IRQ registration and vector ownership, acknowledge device
+  status in the handler, and queue completion work for normal kernel context.
+  Reserve a vector distinct from storage vector `0x31` for xHCI.
+- [x] Size PCI BARs, map their full MMIO ranges with the right cache attributes,
+  and define DMA buffer ownership and synchronization. Reject unsupported IOMMU
+  configurations explicitly until translation support exists.
+- [x] Add a small event loop or scheduler so a blocked device operation does
+  not stall serial input. Release command, transfer, and event allocations on
+  both success and error paths.
+- **Exit check passed:** Repeated IRQ registration, DMA allocation/release, MMIO
+  map/unmap, and timeout cycles leave page counts stable. AHCI and NVMe QEMU
+  runs retain COM1 input during intentionally delayed and failed requests while
+  a complete xHCI BAR mapping remains owned for Stage 3.
+
+### 3. Live xHCI and USB keyboard
+
+- [x] Claim the PCI xHCI function, map its BAR, stop/reset it, and initialize
+  DCBAA, scratchpads, command ring, event ring, and interrupter. Start with one
+  controller and one device; report unsupported topology clearly.
+- [x] Handle port changes, reset and enable a port, address a device, and make
+  endpoint-zero control transfers. Read descriptors and select a configuration.
+  Extend to interrupt endpoints, hotplug/unplug, and bounded controller reset
+  and retry paths.
+- [x] Connect the host-tested boot HID report parser to scheduled keyboard
+  reports. Translate key down/up, modifiers, and repeat into the common input
+  queue; make layout selection explicit (initially US).
+- **Exit check passed:** QEMU `qemu-xhci` plus `usb-kbd` accepts shell input on the
+  framebuffer while COM1 also works. Repeated plug/unplug and failed or delayed
+  transfers recover without lost interrupts, leaked pages, or a stuck shell.
+  The AHCI and NVMe matrix also queues USB input during a throttled root read,
+  verifies deferred command execution, key repeat, framebuffer mirroring, three
+  controller rebuilds, interrupt progress, and stable owned-page counts.
+
+### 4. USB mass storage and mounted volumes
+
+- [ ] Implement live bulk endpoints and connect the existing MSC BOT protocol
+  code to them. Discover capacity, read blocks through the common block-device
+  interface, and handle SCSI sense, stalls, reset recovery, and removal.
+- [ ] Extend VFS with persistent file handles, mount identities, and streaming
+  reads. Keep active reads safe when a USB device disappears. Add a read-only
+  filesystem path for removable media; HyFS v1 has a flat directory, so nested
+  paths require a filesystem extension or another filesystem driver.
+- [ ] Add shell commands for device listing, mounts, current directory, and
+  incremental file display. Keep writes and safe eject as separate later work.
+- **Exit check:** QEMU `usb-storage` mounts a second read-only volume, reads a
+  multi-sector file, and survives repeated attach/detach and injected read
+  failures without partial buffers or page leaks. The boot root stays mounted.
+
+### 5. User-facing terminal and programs
+
+- [ ] Finish nested path traversal, file descriptors, and consistent terminal
+  read/write semantics. Add a basic command registry and useful inspection
+  commands before introducing pipelines or background jobs.
+- [ ] Define a user program format, loader, syscall boundary, address-space
+  isolation, and scheduling. Then move the shell out of the kernel.
+- **Exit check:** A user program reads terminal input and a mounted file, exits
+  cleanly, and cannot overwrite kernel memory; serial recovery remains possible
+  after a user program or USB device failure.
+
+Use [QEMU's USB device guide](https://www.qemu.org/docs/master/system/devices/usb.html)
+for the emulated `qemu-xhci`, `usb-kbd`, and `usb-storage` integration matrix.
+Keep host protocol tests for malformed descriptors, HID reports, BOT status,
+timeouts, and transfer errors alongside the QEMU tests.
+
+After these milestones, extend the same input path to a USB mouse and pointer
+events, add hub and multi-device support to xHCI, then consider writable USB
+media with flush and safe removal. Networking and a graphical window system
+depend on the same scheduling, memory ownership, and device recovery work.
 
 ## Kernel transition
 
@@ -147,6 +232,14 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
 - [x] Add a reusable zeroed physical-page pool with duplicate-free protection,
   and map, translate, unmap, and reuse a page through a kernel-owned 4 KiB
   PML4 slot on the live AHCI/NVMe paths.
+- [x] Add managed allocation ownership headers and explicit object, array,
+  and string release, with page reuse and multi-page release stress checks.
+- [x] Route AHCI MSI and NVMe MSI-X to storage vector `0x31`, acknowledge
+  controller completions, and verify live QEMU read interrupt counters.
+- [x] Track timeout, device error, reset, and retry exhaustion states; inject
+  failed QEMU reads on both controllers and keep the serial shell responsive.
+- [x] Stress repeated mapping, allocation/release, serial input, and root
+  reads, including QEMU-throttled completion waits.
 - [ ] Add VFS file handles and nested directory traversal, then test live corrupt-media
   and I/O failure paths.
 - [ ] Establish keyboard and storage drivers.
@@ -161,9 +254,9 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
   the system matures.
 
 The running kernel is already independent of firmware boot services after the
-handoff. These remaining stages turn its bootstrap into a fuller OS. The
-sequence matters: extend and test compiler/runtime contracts before moving
-more subsystem code into the live kernel.
+handoff. These remaining stages turn its bootstrap into a fuller OS. Grow the
+shared kernel services and their integration tests before adding more live
+device drivers.
 
 ## Bootstrap note
 

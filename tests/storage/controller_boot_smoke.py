@@ -84,6 +84,10 @@ def boot_record(path):
                         "root_readme_crc": u64(1128),
                         "root_readme_status": u32(1136),
                         "mapping_self_test": u32(1200),
+                        "storage_cause": u32(1236),
+                        "storage_state": u32(1240),
+                        "storage_mode": u32(1244),
+                        "storage_irqs": u64(1224),
                         "hydrogen_page_value": struct.unpack_from("<Q", memory, u64(480) + 8)[0]
                         if u64(480) + 16 <= len(memory) else 0,
                     }
@@ -161,6 +165,8 @@ def main():
                             record["hydrogen_heap_result"] != 99 or record["hydrogen_string_length"] != 9 or
                             record["hydrogen_gpt_open"] != 1 or record["hydrogen_gpt_status"] != 0 or
                             record["hydrogen_block_status"] != 0 or
+                            record["storage_irqs"] == 0 or record["storage_cause"] != 0 or
+                            record["storage_state"] != 0 or record["storage_mode"] == 0 or
                             record["root_state"] != 7 or record["root_mount_status"] != 0 or
                             record["root_read_status"] != 0 or
                             record["root_file_length"] != len(hello) or

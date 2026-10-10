@@ -9,6 +9,11 @@ public class MockNvmeController : INvmeControllerIo {
     private int commands;
     private bool failRead;
     private bool suppressCompletion;
+    private bool interruptMode;
+    private int pendingDelay;
+    private int configuredDelay;
+    private int pauses;
+    private long epoch;
 
     public MockNvmeController() {
         pages = new byte[20480];
@@ -16,10 +21,13 @@ public class MockNvmeController : INvmeControllerIo {
         completionTail = new int[2]; completionPhase = new int[2];
         completionPhase[0] = 1; completionPhase[1] = 1;
         commands = 0; failRead = false; suppressCompletion = false;
+        interruptMode = false; pendingDelay = -1; configuredDelay = 0; pauses = 0; epoch = 0;
     }
 
     public void FailRead() { failRead = true; }
     public void SuppressCompletion() { suppressCompletion = true; }
+    public void EnableDelayedInterrupts(int pauseCount) { interruptMode = true; configuredDelay = pauseCount; }
+    public int Pauses() { return pauses; }
     public int Commands() { return commands; }
     public long Read32(int offset) {
         if (offset == 0) { return 1; } // MQES=1, queue depth two
@@ -62,6 +70,7 @@ public class MockNvmeController : INvmeControllerIo {
             pages[cqPage * 4096 + completion + 15] = 0;
             completionTail[queue] = (completionTail[queue] + 1) % 2;
             if (completionTail[queue] == 0) { completionPhase[queue] = 1 - completionPhase[queue]; }
+            if (queue == 1 && interruptMode) { pendingDelay = configuredDelay; }
         }
     }
     public long PhysicalPage(int index) { return 1048576 + index * 4096; }
@@ -71,7 +80,17 @@ public class MockNvmeController : INvmeControllerIo {
     public void ReadDma(int page, int offset, byte[] destination, int count) {
         int i = 0; while (i < count) { destination[i] = pages[page * 4096 + offset + i]; i = i + 1; }
     }
-    public void Pause() { }
+    public void Pause() {
+        pauses = pauses + 1;
+        if (pendingDelay >= 0) {
+            if (pendingDelay == 0) { epoch = epoch + 1; pendingDelay = -1; }
+            else { pendingDelay = pendingDelay - 1; }
+        }
+    }
+    public long CompletionEpoch() { if (interruptMode) { return epoch; } return -1; }
+    public long Deadline(int milliseconds) { return pauses + milliseconds; }
+    public bool Expired(long deadline) { return pauses >= deadline; }
+    public void ReportFailure(int cause, int state) { }
 }
 
 public class Program {
@@ -85,10 +104,29 @@ public class Program {
         if (disk.Read(127, 2, data) != BlockStatus.OutOfRange()) { return 3; }
         mock.FailRead();
         byte[] unchanged = new byte[512]; unchanged[0] = 99;
-        if (disk.Read(1, 1, unchanged) != BlockStatus.IoFailure() || unchanged[0] != 99) { return 4; }
+        if (disk.Read(1, 1, unchanged) != BlockStatus.IoFailure()) { return 41; }
+        if (unchanged[0] != 99) { return 42; }
+        if (controller.RetryCount() != 1) { return 43; }
+        if (controller.RecoveryState() != 4) { return 44; }
+        if (controller.LastError() == 0) { return 45; }
         if (disk.Read(1, 1, unchanged) != BlockStatus.IoFailure()) { return 5; }
         MockNvmeController stuck = new MockNvmeController(); stuck.SuppressCompletion();
         if (new NvmeController(stuck, 4).Initialize()) { return 6; }
+        MockNvmeController delayedMock = new MockNvmeController();
+        NvmeController delayed = new NvmeController(delayedMock, 16);
+        if (!delayed.Initialize()) { return 7; }
+        delayedMock.EnableDelayedInterrupts(3);
+        byte[] delayedData = new byte[512];
+        if (!delayed.Read(5, 1, delayedData) || delayedData[0] != 5 ||
+            delayedMock.CompletionEpoch() == 0 || delayedMock.Pauses() < 4) { return 8; }
+        MockNvmeController timedOutMock = new MockNvmeController();
+        NvmeController timedOut = new NvmeController(timedOutMock, 4);
+        if (!timedOut.Initialize()) { return 9; }
+        timedOutMock.SuppressCompletion();
+        byte[] timedOutData = new byte[512]; timedOutData[0] = 17;
+        if (timedOut.Read(1, 1, timedOutData) || timedOutData[0] != 17 ||
+            timedOut.RecoveryState() != 4 || timedOut.RetryCount() != 1 ||
+            timedOut.LastError() != 1) { return 10; }
         System.Console.WriteLine("Australis NVMe controller tests passed");
         return 0;
     }

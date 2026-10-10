@@ -127,8 +127,9 @@ make run-serial
 
 Wait for `australis> `, then type `help`. `ls` lists the flat HyFS root and
 `cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
-echoes input and accepts Enter, Backspace/Delete, Ctrl-C, and Ctrl-U. Its line
-buffer holds 256 bytes. `cat` accepts file names up to 32 bytes and files up to
+echoes input and accepts Enter, Backspace/Delete, arrow keys, Home/End,
+Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, Ctrl-U, and eight entries of command history.
+Its line buffer holds 256 bytes. `cat` accepts file names up to 32 bytes and files up to
 64 KiB. The UART uses COM1 at 115200 baud, 8 data bits, no parity, and one stop
 bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
 then the shell drains that ring after it wakes. A full ring drops new input and
@@ -141,9 +142,12 @@ VGA device:
 make run-gop
 ```
 
-This opens QEMU's GTK window with an EFI Graphics Output Protocol (GOP)
-framebuffer. VT-x/KVM is optional: without it QEMU uses software emulation,
-which is slower but has the same GOP behavior.
+This opens QEMU's graphical window with an EFI Graphics Output Protocol (GOP)
+framebuffer. Type shell commands into the launching terminal's COM1 session;
+the framebuffer mirrors output and scrolls as it fills. The QEMU window's USB
+keyboard and the launching terminal's COM1 session both edit the same command
+line. VT-x/KVM is optional: without it QEMU uses software
+emulation, which is slower but has the same GOP behavior.
 
 Override the
 default locations when needed:
@@ -205,32 +209,41 @@ checked reusable 4 KiB page pool for explicit kernel owners. `KernelAddressSpace
 maps and unmaps explicit pages only in an unused lower-half PML4 slot, preserves
 the bootstrap hierarchy, rejects large bootstrap leaves, invalidates the local
 TLB after each change, and sets NX on every dynamic data mapping. Managed
-objects still use the runtime's monotonic allocation path.
+objects, arrays, and strings can release their owned page spans individually
+through `System.Kernel.Managed.Release`.
 
 The interrupt sequence installs a ring-0 GDT, then an IDT with dedicated stubs
-for CPU exceptions, legacy PIC vectors `0x20`–`0x2f`, and local-APIC timer
-vector `0x30`. CPU exceptions save their vector in `KernelBootInfo` and halt.
+for CPU exceptions, legacy PIC vectors `0x20`–`0x2f`, local-APIC timer vector
+`0x30`, storage vector `0x31`, and reusable device vector `0x32`. CPU
+exceptions save their vector in `KernelBootInfo` and halt.
 The PIC is remapped and masked, so it cannot deliver device IRQs before a driver
 has registered ownership. The local APIC is enabled in either xAPIC or x2APIC
 mode; xAPIC receives an uncached identity mapping when its page is absent from
 the cloned firmware hierarchy. The timer runs periodically and increments a raw
-monotonic tick counter. Its rate is deliberately not treated as milliseconds or
-seconds until the kernel calibrates it against a stable platform clock.
+monotonic tick counter. The kernel calibrates the TSC against a 50 ms PIT
+channel-2 interval and gives AHCI, NVMe, and future USB work checked deadlines.
+The reusable device stub acknowledges a registered W1C status register and
+only queues completion metadata; command work remains outside the IRQ handler.
 
 `Pci.Initialize()` scans every PCI bus, device, and function through
 configuration mechanism #1 (`0xcf8`/`0xcfc`) and records the first xHCI, AHCI,
 and NVMe controllers. `Mmio.Initialize()` reads their memory BARs and maps a
-fixed 64 KiB high virtual aperture for each valid controller BAR. These leaves
-are writable, non-cacheable (PCD/PWT), and non-executable. The mapping is for
-controller registers; later storage and USB drivers must validate controller
-specific register layouts and map any additional BAR extent they require.
+fixed 64 KiB high virtual aperture for each valid controller BAR. The kernel
+then probes the complete xHCI BAR size with memory decode disabled, restores
+the PCI command and BAR values, and maps the complete range into its owned
+lower-half aperture. BAR physical addresses above 4 GiB are supported. These
+leaves are writable, non-cacheable (PCD/PWT), and non-executable.
 `Dma.Initialize()` selects the largest usable conventional-memory interval below
 4 GiB and reserves the literal DMA requests emitted in this kernel from its
 high end. It removes that slice from the main physical allocator when both use
 the same descriptor. `Dma.AllocatePages()` returns contiguous, zero-filled
 physical pages from the reserved slice and records the latest allocation. This
-bootstrap has no IOMMU programming yet, so device-specific DMA address-width
-and cache coherency rules still belong to each driver.
+bootstrap has no IOMMU programming yet. The live image reserves 64 contiguous
+pages: storage owns the first sixteen and a checked runtime allocator manages
+the remaining forty-eight. Each allocation has explicit ownership, supports
+individual release and reuse, and uses memory fences when ownership crosses
+the CPU/device boundary. The allocator rejects configurations that require
+IOMMU translation until translation support exists.
 
 `Storage.Initialize()` prefers a mapped NVMe controller and uses AHCI when NVMe
 is absent. The NVMe path uses the 16-page DMA allocation for depth-two admin
@@ -271,15 +284,15 @@ Run its simulated PCI, register, descriptor, storage, and HID checks with:
 make test-usb
 ```
 
-The kernel image includes these USB sources but does not yet call them from its
-post-handoff method graph. It therefore cannot access USB hardware yet.
-Before a keyboard, mouse, or flash drive can work after `ExitBootServices`, the
-kernel needs freestanding PCI port I/O, MMIO mapping, DMA-safe allocation,
-timeouts, xHCI command/event/transfer rings and port enumeration, USB control,
-bulk and interrupt transfer scheduling, and input/block-device queues. The
-mass-storage code can exercise a mocked block read, but it cannot yet read a
-physical USB disk. The HID code decodes boot reports; it does not yet poll a
-device or feed a console.
+The kernel now owns one live xHCI controller and one root-port device. It
+configures MSI or MSI-X vector `0x32`, initializes DCBAA and scratchpads plus
+command, event, EP0, and interrupt rings, enumerates a boot keyboard, and keeps
+32 reports in flight. US-layout key down, key up, modifiers, editing keys, and
+repeat enter the same normal-context console path as COM1. Disconnects and
+transfer failures trigger a bounded controller rebuild while COM1 remains the
+recovery path. Multiple simultaneous devices, hubs, non-US layouts, and live
+USB mass storage remain later work; the mass-storage protocol currently runs
+only over its injected host-test transport.
 
 ## Storage protocol layer
 
@@ -303,6 +316,9 @@ Run the executable Hydrogen protocol tests with:
 
 ```bash
 make test-storage
+make test-stage2
+make test-stage2-boot
+make test-stage3
 make test-ahci
 make test-nvme
 make test-nvme-controller
@@ -311,9 +327,16 @@ make test-ahci-boot
 make test-partitions
 make test-vfs
 make test-hyfs
+make test-terminal
 make test-serial-ahci
 make test-serial-nvme
 ```
+
+`make test-stage2` stress tests deadlines, vector ownership, deferred-event
+overflow, PCI BAR probing, and DMA allocation/release on the host. The Stage 2
+QEMU target boots both AHCI and NVMe with `qemu-xhci`, verifies the retained full
+BAR mapping and calibrated clock, then repeats root reads while checking that
+page, DMA, and MMIO ownership remain stable.
 
 The boot emitter initializes either controller when `Main` calls
 `System.Kernel.Storage.Initialize()`. The compiled Hylang method graph then
@@ -324,9 +347,22 @@ HyFS mount and checksummed reads of `/hello.txt` and the multi-sector
 `/readme.txt` under QEMU Q35/OVMF. Physical controller validation remains
 outstanding. The serial smoke tests send commands over COM1 and verify line
 editing, root listing, file content, errors, and the prompt on both controllers.
-They also verify PIC IRQ4 delivery, an empty non-overflowed receive ring, and
-that repeated file reads return the page-allocation cursor to its shell
-transient boundary.
+They verify PIC IRQ4 delivery, an empty receive ring after repeated reads, and
+that those reads return the page-allocation cursor to its shell transient
+boundary. A separate burst during a delayed read verifies that ring drops are
+counted and that the shell still accepts commands afterward.
+
+The kernel shell depends on a bounded `ConsoleEventQueue` and `ConsoleWriter`,
+not on the COM1 driver. COM1 remains the first input source; its IRQ4 handler
+only fills the receive ring and counts drops. A normal-context decoder turns
+serial bytes and ANSI escape sequences into shared key events. The reusable
+line editor handles insertion, deletion, cursor movement, history, and redraw;
+command parsing and file reads also run in the shell loop. `ConsoleWriter`
+mirrors serial bytes to a framebuffer terminal with a visible cursor, basic
+ANSI clearing and movement, and pixel-row scrolling. The QEMU serial tests
+decode framebuffer screenshots to verify root-file text and the prompt, compare
+screenshots across a bottom-row scroll, and assert that ordinary concurrent
+serial/storage work loses no ring or event-queue input.
 
 `src/kernel/vfs/Vfs.hy` defines the VFS boundary: filesystem drivers receive a
 validated `BlockDevice` plus a bounded `Partition`, expose mount, file metadata,
@@ -348,14 +384,33 @@ corrupted metadata, and media I/O failure.
 The mounted root is read-only. File reads stream over bounded sector buffers
 and check the complete stored data CRC before returning bytes. The VFS exposes
 root directory names to the serial shell. Persistent file handles, nested
-directory traversal, general allocation reclamation, and executable loading remain
-future work.
+directory traversal, and executable loading remain future work.
 
 Before mounting storage, the kernel verifies the handoff's active four-level
 page tables: the boot record must be mapped and virtual page zero must remain
 unmapped. Shell commands mark and rewind a transient allocation region, so
 their path strings, file buffers, and validation buffers do not consume memory
-permanently. This scoped reclamation does not replace a general allocator.
+permanently. Freestanding managed objects, arrays, and strings carry a 16-byte
+ownership header before the payload. `System.Kernel.Managed.Release(value)`
+retires one allocation, rejects a duplicate release, and returns its backing
+pages to the physical free list. Subsequent one-page allocations reuse released
+pages. The command marker keeps shell temporaries out of that free list until
+the command rewind completes. Boot checks cycle all three managed kinds,
+release a multi-page array, and repeat map/unmap operations 64 times.
+
+The live AHCI and NVMe transports route PCI MSI/MSI-X to vector `0x31`.
+The APIC handler increments a completion counter; each controller waits for
+that counter to change, checks completion status, and acknowledges the device
+before reusing the command slot. Native waits sleep for interrupts and are
+bounded by timer wakeups. Failed requests record timeout or device error,
+controller reset, and exhausted retry states. The serial shell stays available
+after a failed file read. `make test-storage-failure-ahci` and
+`make test-storage-failure-nvme` inject real QEMU block I/O errors after boot.
+AHCI cause codes distinguish task readiness timeout (`1`), task/interrupt
+error (`2`), short DMA (`3`), late task error (`4`), completion timeout (`5`),
+command validation (`6`), and setup failure (`7`). NVMe codes distinguish
+timeout (`1`), fatal controller status (`2`), completion error (`3`), and
+setup failure (`4`).
 
 ## KernelBootInfo ABI
 
@@ -480,7 +535,46 @@ the four-level paging mode accepted by the current kernel handoff.
 | `1184` | `uint64` | Head of the reusable physical-page free list; zero before the first page is returned |
 | `1192` | `uint64` | Number of pages in that free list |
 | `1200` | `uint32` | Kernel map/unmap and page-reuse self-test status; zero means it passed |
+| `1204` | `uint32` | Managed allocation/release stress status; zero means it passed |
+| `1208` | `uint64` | Active shell command allocation marker; zero outside a command |
+| `1216` | `uint64` | Kernel-owned dynamic PML4 base; zero when all dynamic mappings have been released |
+| `1224` | `uint64` | Storage MSI/MSI-X vector `0x31` delivery count |
+| `1232` | `uint32` | Interrupt-backed storage kind: `1` AHCI, `2` NVMe, zero until configured |
+| `1236` | `uint32` | Last storage failure cause; zero after a successful read |
+| `1240` | `uint32` | Recovery state: `0` healthy, `1` timeout, `2` device error, `3` resetting, `4` retry exhausted |
+| `1244` | `uint32` | PCI interrupt mode: `1` MSI, `2` MSI-X |
+| `1248` | `uint64` | Optional mapped MSI-X table page |
+| `1256` | `uint32` | Shared console event-queue dropped-event count |
 | `1280`–`2303` | `uint8` | 1024-byte COM1 interrupt receive ring |
+| `2304` | `uint64` | Reusable device vector `0x32` delivery count |
+| `2312` | `uint32` | Registered reusable device vector; zero while unowned |
+| `2316` | `uint32` | Reusable vector owner identifier |
+| `2320` | `uint64` | Device interrupt status and W1C acknowledgement address |
+| `2328` | `uint32` | Device interrupt pending-status mask |
+| `2332` | `uint32` | Raw status observed by the device interrupt stub |
+| `2336` | `uint32` | Device completions pending normal-context dispatch |
+| `2340` | `uint32` | Device completions dropped by the normal-context event queue |
+| `2344` | `uint64` | Calibrated TSC ticks per millisecond |
+| `2352` | `uint32` | Clock calibration state: `1` ready, `2` failed |
+| `2356` | `uint32` | Full xHCI BAR mapping retained for Stage 3 |
+| `2360` | `uint32` | Stage 2 service self-test status; zero means it passed |
+| `2368` | `uint64` | Kernel virtual address of the complete xHCI BAR mapping |
+| `2376` | `uint64` | Complete xHCI BAR byte length |
+| `2384` | `uint32` | xHCI lifecycle state (`10` means keyboard ready) |
+| `2388` | `uint32` | Last xHCI failure cause; zero while healthy |
+| `2392` | `uint32` | Active xHCI root-port number |
+| `2396` | `uint32` | Addressed xHCI slot identifier |
+| `2400` | `uint64` | xHCI command completion count |
+| `2408` | `uint64` | xHCI transfer completion count |
+| `2416` | `uint64` | xHCI port-status-change count |
+| `2424` | `uint64` | Boot-keyboard reports consumed in normal context |
+| `2432` | `uint32` | Bounded xHCI recovery-attempt count |
+| `2440` | `uint64` | Owned xHCI DMA allocation base |
+| `2448` | `uint32` | xHCI PCI message mode: `1` MSI, `2` MSI-X |
+| `2452` | `uint32` | Packed USB configuration, interface, and endpoint identifiers |
+| `2456` | `uint32` | Number of xHCI scratchpad buffers initialized |
+| `2460` | `uint32` | Keyboard layout identifier (`1` US) |
+| `2464` | `uint64` | USB keyboard removal count |
 
 ## UEFI Framebuffer offsets
 

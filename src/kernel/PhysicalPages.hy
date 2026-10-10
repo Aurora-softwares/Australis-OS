@@ -99,6 +99,7 @@ public class PhysicalPages {
         long limit = System.Kernel.Memory.Read64(bootInfo + 48);
         if (!ValidRange(next, limit)) { RecordError(bootInfo, 2); return false; }
         System.Kernel.Memory.Write64(bootInfo + TransientFloorOffset(), next);
+        System.Kernel.Memory.Write64(bootInfo + 1208, 0);
         RecordError(bootInfo, 0);
         return true;
     }
@@ -110,6 +111,7 @@ public class PhysicalPages {
         if (!ValidRange(next, limit) || floor < PageSize() || floor % PageSize() != 0 || floor > next) {
             RecordError(bootInfo, 3); return 0;
         }
+        System.Kernel.Memory.Write64(bootInfo + 1208, next);
         return next;
     }
 
@@ -122,6 +124,7 @@ public class PhysicalPages {
             RecordError(bootInfo, 4); return false;
         }
         System.Kernel.Memory.Write64(bootInfo + 40, marker);
+        System.Kernel.Memory.Write64(bootInfo + 1208, 0);
         return true;
     }
 }

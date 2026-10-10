@@ -1,0 +1,12 @@
+format = 2
+name = "australlis.stage2.tests"
+version = "0.0.1"
+type = "exe"
+sources = ["./Stage2Program.hy", "../../src/kernel/time/KernelClock.hy", "../../src/kernel/events/KernelEventLoop.hy", "../../src/kernel/interrupts/DeviceInterrupts.hy", "../../src/kernel/dma/DmaPool.hy", "../../src/kernel/pci/PciConfig.hy"]
+project_references = []
+
+[package]
+id = "australlis.stage2.tests"
+description = "Australis kernel USB prerequisite service tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

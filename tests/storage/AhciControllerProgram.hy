@@ -9,14 +9,22 @@ public class MockAhciControllerIo : IAhciControllerIo {
     private int shortReadCommand;
     private bool stuckBusy;
     private int pauses;
+    private bool interruptMode;
+    private long epoch;
+    private int pendingDelay;
+    private int configuredDelay;
+    private bool failAllReads;
 
     public MockAhciControllerIo() {
         dma = new byte[4 * 4096]; command = 17; interruptStatus = 0;
         readCommands = 0; failReadCommand = 0; shortReadCommand = 0; stuckBusy = false; pauses = 0;
+        interruptMode = false; epoch = 0; pendingDelay = -1; configuredDelay = 0; failAllReads = false;
     }
     public void SetFailReadCommand(int number) { failReadCommand = number; }
     public void SetShortReadCommand(int number) { shortReadCommand = number; }
     public void SetStuckBusy(bool value) { stuckBusy = value; }
+    public void SetFailAllReads(bool value) { failAllReads = value; }
+    public void EnableDelayedInterrupts(int pauseCount) { interruptMode = true; configuredDelay = pauseCount; }
     public int ReadCommands() { return readCommands; }
     public int Pauses() { return pauses; }
 
@@ -46,7 +54,7 @@ public class MockAhciControllerIo : IAhciControllerIo {
         }
         if (opcode != 37) { interruptStatus = 1073741824; return; }
         readCommands = readCommands + 1;
-        if (readCommands == failReadCommand) { interruptStatus = 1073741824; return; }
+        if (readCommands == failReadCommand || failAllReads) { interruptStatus = 1073741824; return; }
         long lba = dma[2 * 4096 + 4] + dma[2 * 4096 + 5] * 256 +
             dma[2 * 4096 + 6] * 65536 + dma[2 * 4096 + 8] * 16777216;
         int blocks = dma[2 * 4096 + 12] + dma[2 * 4096 + 13] * 256;
@@ -63,6 +71,7 @@ public class MockAhciControllerIo : IAhciControllerIo {
             }
             block = block + 1;
         }
+        if (interruptMode) { pendingDelay = configuredDelay; }
     }
 
     public long PhysicalPage(int index) { return 1048576 + index * 4096; }
@@ -74,7 +83,17 @@ public class MockAhciControllerIo : IAhciControllerIo {
         int i = 0;
         while (i < count) { destination[i] = dma[page * 4096 + offset + i]; i = i + 1; }
     }
-    public void Pause() { pauses = pauses + 1; }
+    public void Pause() {
+        pauses = pauses + 1;
+        if (pendingDelay >= 0) {
+            if (pendingDelay == 0) { epoch = epoch + 1; pendingDelay = -1; }
+            else { pendingDelay = pendingDelay - 1; }
+        }
+    }
+    public long CompletionEpoch() { if (interruptMode) { return epoch; } return -1; }
+    public long Deadline(int milliseconds) { return pauses + milliseconds; }
+    public bool Expired(long deadline) { return pauses >= deadline; }
+    public void ReportFailure(int cause, int state) { }
 }
 
 public class Program {
@@ -94,20 +113,43 @@ public class Program {
         if (!failed.Initialize()) { return 4; }
         failedIo.SetFailReadCommand(2);
         byte[] unchanged = new byte[10 * 512]; unchanged[0] = 91; unchanged[9 * 512] = 92;
-        if (failed.Read(3, 10, unchanged) || failedIo.ReadCommands() != 2 ||
-            unchanged[0] != 91 || unchanged[9 * 512] != 92 || failed.Flush()) { return 5; }
+        if (!failed.Read(3, 10, unchanged) || failedIo.ReadCommands() <= 2 ||
+            unchanged[0] != 3 || unchanged[9 * 512] != 12 || !failed.Flush()) { return 5; }
 
         MockAhciControllerIo shortIo = new MockAhciControllerIo();
         AhciController shortController = new AhciController(shortIo, 100);
         if (!shortController.Initialize()) { return 7; }
         shortIo.SetShortReadCommand(1);
         byte[] shortDestination = new byte[512]; shortDestination[0] = 77;
-        if (shortController.Read(3, 1, shortDestination) || shortDestination[0] != 77 ||
-            shortController.Flush()) { return 8; }
+        if (!shortController.Read(3, 1, shortDestination) || shortDestination[0] != 3 ||
+            !shortController.Flush()) { return 8; }
 
         MockAhciControllerIo busyIo = new MockAhciControllerIo();
         busyIo.SetStuckBusy(true);
         if (new AhciController(busyIo, 3).Initialize() || busyIo.Pauses() != 3) { return 6; }
+        MockAhciControllerIo delayedIo = new MockAhciControllerIo();
+        AhciController delayed = new AhciController(delayedIo, 16);
+        if (!delayed.Initialize()) { return 9; }
+        delayedIo.EnableDelayedInterrupts(3);
+        byte[] delayedData = new byte[512];
+        if (!delayed.Read(4, 1, delayedData) || delayedData[0] != 4 ||
+            delayedIo.CompletionEpoch() == 0 || delayedIo.Pauses() < 4) { return 10; }
+        MockAhciControllerIo exhaustedIo = new MockAhciControllerIo();
+        AhciController exhausted = new AhciController(exhaustedIo, 8);
+        if (!exhausted.Initialize()) { return 11; }
+        exhaustedIo.SetFailAllReads(true);
+        byte[] untouched = new byte[512]; untouched[0] = 61;
+        if (exhausted.Read(2, 1, untouched) || untouched[0] != 61 ||
+            exhausted.RetryCount() != 1 || exhausted.RecoveryState() != 4 ||
+            exhausted.LastError() != 2) { return 12; }
+        MockAhciControllerIo timedOutIo = new MockAhciControllerIo();
+        AhciController timedOut = new AhciController(timedOutIo, 3);
+        if (!timedOut.Initialize()) { return 13; }
+        timedOutIo.SetStuckBusy(true);
+        byte[] timedOutData = new byte[512]; timedOutData[0] = 17;
+        if (timedOut.Read(1, 1, timedOutData) || timedOutData[0] != 17 ||
+            timedOut.RecoveryState() != 4 || timedOut.RetryCount() != 1 ||
+            timedOut.LastError() != 1) { return 14; }
         System.Console.WriteLine("Australis AHCI controller tests passed");
         return 0;
     }

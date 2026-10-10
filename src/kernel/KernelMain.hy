@@ -11,16 +11,24 @@
 //       through the VFS on both AHCI and NVMe, including multiple sectors.
 //   [x] Bring up COM1 after handoff and run an interactive kernel shell with
 //       bounded line editing, help, echo, ls, cat, and version over serial.
+//   [x] Route COM1 through a shared event queue and reusable line editor, then
+//       mirror output to a cursor-controlled scrolling framebuffer terminal.
 //   [x] Protect persistent kernel allocations from shell temporaries, record
 //       allocation faults, and wake COM1 input through a PIC IRQ handler.
 //   [x] Reuse freed physical pages and map/unmap explicit 4 KiB kernel pages
 //       with a local TLB invalidation after every mapping transition.
+//   [x] Release individual managed objects, arrays, and strings; stress page
+//       reuse and repeated map/unmap cycles before mounting the root.
+//   [x] Wait for AHCI MSI or NVMe MSI-X completions on vector 0x31, recover
+//       one failed request through a controller reset, and retain diagnostics.
 //   [ ] Add reusable file handles and nested directory traversal to the VFS.
 //   [ ] Add FAT/FAT32 and NTFS drivers if those volumes become boot requirements.
-//   [ ] Add general allocation/free, dynamic mappings, and bounded recovery
-//       for faults beyond the shell's scoped transient allocation region.
-//   [ ] Add device IRQ handling beyond COM1 to kernel drivers.
-//   [ ] Bring up xHCI, USB devices, HID input, and mass storage on live hardware.
+//   [x] Calibrate the TSC and replace controller poll budgets with deadlines.
+//   [x] Add reusable IRQ ownership, acknowledgement, and deferred device events.
+//   [ ] Add automatic managed lifetime tracking.
+//   [x] Bring up one live xHCI root device and route boot-keyboard reports into
+//       the shared COM1/framebuffer shell input path with bounded recovery.
+//   [ ] Connect live USB mass storage to the existing BOT protocol layer.
 //   [ ] Add an executable format and program loader.
 //   [ ] Add threads, scheduling, processes, privilege separation, system calls,
 //       a user-space runtime, and an initial user-space shell.
@@ -104,6 +112,31 @@ public class KernelMain {
         if (reusedPage != mappingPage || !PhysicalPages.Free(bootInfo, reusedPage)) {
             System.Kernel.Memory.Write32(bootInfo + 1200, 9); return 22;
         }
+        long stableNext = 0;
+        long stableFree = 0;
+        int mappingCycle = 0;
+        while (mappingCycle < 64) {
+            long frame = PhysicalPages.AllocateZeroed(bootInfo);
+            if (frame == 0 || !KernelAddressSpace.MapPage(bootInfo, mappingAddress,
+                frame, KernelAddressSpace.ReadWrite())) {
+                System.Kernel.Memory.Write32(bootInfo + 1200, 11); return 22;
+            }
+            System.Kernel.Memory.Write64(mappingAddress + 8, mappingCycle + 1);
+            if (System.Kernel.Memory.Read64(frame + 8) != mappingCycle + 1 ||
+                !KernelAddressSpace.UnmapPage(bootInfo, mappingAddress) ||
+                KernelAddressSpace.Translate(bootInfo, mappingAddress) != 0 ||
+                !PhysicalPages.Free(bootInfo, frame)) {
+                System.Kernel.Memory.Write32(bootInfo + 1200, 12); return 22;
+            }
+            long cycleNext = System.Kernel.Memory.Read64(bootInfo + 40);
+            long cycleFree = System.Kernel.Memory.Read64(bootInfo + 1192);
+            if (mappingCycle == 0) { stableNext = cycleNext; stableFree = cycleFree; }
+            else if (cycleNext != stableNext || cycleFree != stableFree ||
+                System.Kernel.Memory.Read64(bootInfo + 1216) != 0) {
+                System.Kernel.Memory.Write32(bootInfo + 1200, 13); return 22;
+            }
+            mappingCycle = mappingCycle + 1;
+        }
         byte[] scratch = new byte[16];
         scratch[0] = 42;
         scratch[15] = 99;
@@ -112,12 +145,143 @@ public class KernelMain {
         if (counter.Value() != 57) { return 10; }
         string greeting = "Australis";
         if (greeting.Length != 9) { return 11; }
+        // Each managed kind owns its page span and can hand it back for reuse.
+        KernelCounter ownedObject = new KernelCounter(7);
+        long ownedPage = System.Kernel.Memory.Read64(bootInfo + 72);
+        if (!System.Kernel.Managed.Release(ownedObject) ||
+            System.Kernel.Managed.Release(ownedObject)) {
+            System.Kernel.Memory.Write32(bootInfo + 1204, 1); return 24;
+        }
+        byte[] ownedArray = new byte[64];
+        if (System.Kernel.Memory.Read64(bootInfo + 72) != ownedPage ||
+            ownedArray.Length != 64 || !System.Kernel.Managed.Release(ownedArray)) {
+            System.Kernel.Memory.Write32(bootInfo + 1204, 2); return 24;
+        }
+        string ownedString = "managed release";
+        if (System.Kernel.Memory.Read64(bootInfo + 72) != ownedPage ||
+            ownedString.Length != 15 || !System.Kernel.Managed.Release(ownedString)) {
+            System.Kernel.Memory.Write32(bootInfo + 1204, 3); return 24;
+        }
+        long managedNext = System.Kernel.Memory.Read64(bootInfo + 40);
+        long managedFree = System.Kernel.Memory.Read64(bootInfo + 1192);
+        int allocationCycle = 0;
+        while (allocationCycle < 128) {
+            KernelCounter temporaryObject = new KernelCounter(allocationCycle);
+            if (temporaryObject.Value() != allocationCycle ||
+                !System.Kernel.Managed.Release(temporaryObject)) {
+                System.Kernel.Memory.Write32(bootInfo + 1204, 4); return 24;
+            }
+            byte[] temporaryArray = new byte[64];
+            temporaryArray[63] = (byte)(allocationCycle % 256);
+            if (temporaryArray[63] != allocationCycle % 256 ||
+                !System.Kernel.Managed.Release(temporaryArray)) {
+                System.Kernel.Memory.Write32(bootInfo + 1204, 5); return 24;
+            }
+            string temporaryString = "reuse";
+            if (temporaryString.Length != 5 || !System.Kernel.Managed.Release(temporaryString) ||
+                System.Kernel.Memory.Read64(bootInfo + 40) != managedNext ||
+                System.Kernel.Memory.Read64(bootInfo + 1192) != managedFree) {
+                System.Kernel.Memory.Write32(bootInfo + 1204, 6); return 24;
+            }
+            allocationCycle = allocationCycle + 1;
+        }
+        byte[] largeManagedArray = new byte[1024];
+        long largeBase = System.Kernel.Memory.Read64(bootInfo + 72);
+        largeManagedArray[1023] = 73;
+        if (largeManagedArray[1023] != 73 || !System.Kernel.Managed.Release(largeManagedArray)) {
+            System.Kernel.Memory.Write32(bootInfo + 1204, 7); return 24;
+        }
+        long released2 = PhysicalPages.AllocateZeroed(bootInfo);
+        long released1 = PhysicalPages.AllocateZeroed(bootInfo);
+        long released0 = PhysicalPages.AllocateZeroed(bootInfo);
+        if (released2 != largeBase + 8192 || released1 != largeBase + 4096 ||
+            released0 != largeBase || !PhysicalPages.Free(bootInfo, released2) ||
+            !PhysicalPages.Free(bootInfo, released1) || !PhysicalPages.Free(bootInfo, released0)) {
+            System.Kernel.Memory.Write32(bootInfo + 1204, 8); return 24;
+        }
+        // Calibrate the invariant TSC against PIT channel 2 before any live
+        // controller starts a deadline-based wait.
+        if (!Australis.Kernel.Time.KernelClock.Calibrate(bootInfo)) { return 25; }
+
+        // The bootloader reserves 64 contiguous low pages. Storage retains the
+        // first sixteen; runtime USB owners allocate and release the remainder.
+        Australis.Kernel.Dma.DmaAllocator dmaPool =
+            Australis.Kernel.Dma.NativeDmaPool.Create(bootInfo, false);
+        if (!dmaPool.Supported() || dmaPool.CapacityPages() != 48) {
+            System.Kernel.Memory.Write32(bootInfo + 2360, 1); return 26;
+        }
+        int dmaCycle = 0;
+        while (dmaCycle < 128) {
+            Australis.Kernel.Dma.DmaAllocation commandDma = dmaPool.Allocate(2);
+            Australis.Kernel.Dma.DmaAllocation transferDma = dmaPool.Allocate(8);
+            if (commandDma == null || transferDma == null || dmaPool.AllocatedPages() != 10) {
+                System.Kernel.Memory.Write32(bootInfo + 2360, 2); return 26;
+            }
+            Australis.Kernel.Dma.NativeDmaPool.PrepareForDevice(commandDma);
+            Australis.Kernel.Dma.NativeDmaPool.CompleteFromDevice(transferDma);
+            if (!dmaPool.Release(commandDma) || !dmaPool.Release(transferDma) ||
+                dmaPool.AllocatedPages() != 0 || !System.Kernel.Managed.Release(commandDma) ||
+                !System.Kernel.Managed.Release(transferDma)) {
+                System.Kernel.Memory.Write32(bootInfo + 2360, 3); return 26;
+            }
+            dmaCycle = dmaCycle + 1;
+        }
+
+        // Size the complete xHCI BAR instead of assuming the bootstrap's 64 KiB
+        // aperture. Its retained uncached mapping is the handoff to Stage 3.
+        int xhciBdf = System.Kernel.Memory.Read32(bootInfo + 204);
+        if (xhciBdf >= 0) {
+            Australis.Kernel.Pci.NativePciConfigAccess pci =
+                new Australis.Kernel.Pci.NativePciConfigAccess();
+            Australis.Kernel.Pci.PciBarInfo xhciBar =
+                Australis.Kernel.Pci.PciBars.Probe(pci, xhciBdf, 0);
+            if (!xhciBar.IsValid()) { System.Kernel.Memory.Write32(bootInfo + 2360, 4); return 26; }
+            int mmioCycle = 0;
+            long stableMmioNext = 0; long stableMmioFree = 0;
+            while (mmioCycle < 32) {
+                MmioRegion testRegion = MmioMapper.Map(bootInfo, xhciBar.Address(), xhciBar.Size());
+                if (testRegion == null || !testRegion.IsMapped() || !testRegion.Release() ||
+                    !System.Kernel.Managed.Release(testRegion)) {
+                    System.Kernel.Memory.Write32(bootInfo + 2360, 5); return 26;
+                }
+                long mmioNext = System.Kernel.Memory.Read64(bootInfo + 40);
+                long mmioFree = System.Kernel.Memory.Read64(bootInfo + 1192);
+                if (mmioCycle == 0) { stableMmioNext = mmioNext; stableMmioFree = mmioFree; }
+                else if (mmioNext != stableMmioNext || mmioFree != stableMmioFree ||
+                    System.Kernel.Memory.Read64(bootInfo + 1216) != 0) {
+                    System.Kernel.Memory.Write32(bootInfo + 2360, 6); return 26;
+                }
+                mmioCycle = mmioCycle + 1;
+            }
+            MmioRegion xhciRegion = MmioMapper.Map(bootInfo, xhciBar.Address(), xhciBar.Size());
+            if (xhciRegion == null) { System.Kernel.Memory.Write32(bootInfo + 2360, 7); return 26; }
+            System.Kernel.Memory.Write64(bootInfo + 2368, xhciRegion.Address());
+            System.Kernel.Memory.Write64(bootInfo + 2376, xhciRegion.ByteLength());
+            int irqCycle = 0;
+            while (irqCycle < 128) {
+                if (!Australis.Kernel.Interrupts.NativeDeviceInterrupts.Register(
+                    bootInfo, 1, xhciRegion.Address(), 1) ||
+                    !Australis.Kernel.Interrupts.NativeDeviceInterrupts.Unregister(bootInfo, 1)) {
+                    System.Kernel.Memory.Write32(bootInfo + 2360, 8); return 26;
+                }
+                irqCycle = irqCycle + 1;
+            }
+            System.Kernel.Memory.Write32(bootInfo + 2356, 1);
+        }
+        System.Kernel.Memory.Write32(bootInfo + 2360, 0);
         System.Kernel.Memory.Write32(bootInfo + 496, 0);
         Australis.Kernel.Storage.BlockDevice disk = null;
         if (System.Kernel.Memory.Read32(bootInfo + 304) == 2) {
             Australis.Kernel.Storage.NativeNvmeIo io = new Australis.Kernel.Storage.NativeNvmeIo(bootInfo);
-            Australis.Kernel.Storage.NvmeController controller = new Australis.Kernel.Storage.NvmeController(io, 5000000);
-            if (!controller.Initialize()) { return 12; }
+            Australis.Kernel.Storage.NvmeController controller = new Australis.Kernel.Storage.NvmeController(io, 512);
+            if (!StorageInterrupts.Configure(bootInfo, 2)) { return 23; }
+            System.Kernel.Cpu.EnableInterrupts();
+            if (!controller.Initialize()) {
+                int cause = controller.LastError();
+                if (cause == 0) { cause = 4; }
+                io.ReportFailure(cause, 2);
+                return 12;
+            }
             disk = new Australis.Kernel.Storage.BlockDevice(controller);
             byte[] gptHeader = new byte[512];
             if (disk.Read(1, 1, gptHeader) != 0) { return 13; }
@@ -127,8 +291,15 @@ public class KernelMain {
             System.Kernel.Memory.Write32(bootInfo + 496, 1);
         } else {
             Australis.Kernel.Storage.NativeAhciIo io = new Australis.Kernel.Storage.NativeAhciIo(bootInfo);
-            Australis.Kernel.Storage.AhciController controller = new Australis.Kernel.Storage.AhciController(io, 1000000);
-            if (!controller.Initialize()) { return 17; }
+            Australis.Kernel.Storage.AhciController controller = new Australis.Kernel.Storage.AhciController(io, 512);
+            if (!StorageInterrupts.Configure(bootInfo, 1)) { return 23; }
+            System.Kernel.Cpu.EnableInterrupts();
+            if (!controller.Initialize()) {
+                int cause = controller.LastError();
+                if (cause == 0) { cause = 7; }
+                io.ReportFailure(cause, 2);
+                return 17;
+            }
             disk = new Australis.Kernel.Storage.BlockDevice(controller);
             byte[] ahciHeader = new byte[512];
             if (disk.Read(1, 1, ahciHeader) != 0 || ahciHeader[0] != 69 || controller.LastError() != 0) { return 18; }
@@ -196,9 +367,47 @@ public class KernelMain {
             System.Kernel.Memory.Write32(bootInfo + 1140, serialFlags);
         }
         System.Kernel.Cpu.EnableInterrupts();
+        Australis.Kernel.Usb.NativeXhci usbKeyboard = null;
+        bool usbKeyboardReady = false;
+        Australis.Kernel.Vfs.Vfs removableVfs = new Australis.Kernel.Vfs.Vfs();
+        if (xhciBdf >= 0 && System.Kernel.Memory.Read32(bootInfo + 2356) == 1) {
+            usbKeyboard = new Australis.Kernel.Usb.NativeXhci(bootInfo, xhciBdf,
+                System.Kernel.Memory.Read64(bootInfo + 2368),
+                System.Kernel.Memory.Read64(bootInfo + 2376), dmaPool);
+            usbKeyboardReady = usbKeyboard.Initialize();
+            if (!usbKeyboardReady) {
+                System.Kernel.Memory.Write32(bootInfo + 2432, 1);
+                usbKeyboardReady = usbKeyboard.Initialize();
+            }
+            if (usbKeyboardReady && usbKeyboard.IsStorage()) {
+                Australis.Kernel.Storage.BlockDevice usbDisk =
+                    new Australis.Kernel.Storage.BlockDevice(usbKeyboard);
+                Australis.Kernel.Storage.GptDisk usbGpt = new Australis.Kernel.Storage.GptDisk();
+                int usbGptStatus = usbGpt.Open(usbDisk);
+                System.Kernel.Memory.Write32(bootInfo + 2512, usbGptStatus);
+                if (usbGptStatus == Australis.Kernel.Storage.GptDiskStatus.Ok()) {
+                    Australis.Kernel.Storage.Partition usbRoot =
+                        usbGpt.FirstWithTypeGuid(HyfsTypeGuid());
+                    if (usbRoot.Present()) {
+                        int usbMount = removableVfs.MountRootAs(
+                            new Australis.Kernel.Vfs.Hyfs(), usbDisk, usbRoot, 2);
+                        System.Kernel.Memory.Write32(bootInfo + 2516, usbMount);
+                    }
+                }
+            }
+        }
         if (serialReady) {
-            Australis.Kernel.Console.SerialShell shell =
-                new Australis.Kernel.Console.SerialShell(serial, vfs, bootInfo);
+            Australis.Kernel.Console.FramebufferTerminal framebuffer =
+                new Australis.Kernel.Console.FramebufferTerminal(bootInfo);
+            Australis.Kernel.Console.ConsoleWriter output =
+                new Australis.Kernel.Console.ConsoleWriter(serial, framebuffer);
+            Australis.Kernel.Console.IConsoleInput shellInput = serial;
+            if (usbKeyboardReady && usbKeyboard.IsKeyboard()) {
+                shellInput = new Australis.Kernel.Console.ConsoleInputMux(serial, usbKeyboard);
+            }
+            Australis.Kernel.Console.ConsoleShell shell =
+                new Australis.Kernel.Console.ConsoleShell(shellInput, output, vfs,
+                    removableVfs, usbKeyboard, bootInfo);
             shell.Run();
         }
         while (true) { System.Kernel.Cpu.Halt(); }
