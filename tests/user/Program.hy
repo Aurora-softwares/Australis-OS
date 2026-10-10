@@ -188,6 +188,13 @@ public class Program {
         UserShellCommand parsed = new UserShellRegistry().Parse(command, command.Length);
         if (parsed.Identifier() != UserShellCommandId.Run() || parsed.ArgumentStart() != 8 ||
             parsed.ArgumentLength() != 10) { return 6; }
+        byte[] panicCommand = new byte[10];
+        panicCommand[0] = 112; panicCommand[1] = 97; panicCommand[2] = 110;
+        panicCommand[3] = 105; panicCommand[4] = 99; panicCommand[5] = 45;
+        panicCommand[6] = 116; panicCommand[7] = 101; panicCommand[8] = 115;
+        panicCommand[9] = 116;
+        parsed = new UserShellRegistry().Parse(panicCommand, panicCommand.Length);
+        if (parsed.Identifier() != UserShellCommandId.PanicTest() || parsed.HasArgument()) { return 7; }
         System.Console.WriteLine("Australis user runtime tests passed");
         return 0;
     }

@@ -103,6 +103,15 @@ def kernel_record(path):
                     "user_fault": struct.unpack_from("<I", memory, position + 2584)[0],
                     "user_runs": struct.unpack_from("<I", memory, position + 2588)[0],
                     "user_instructions": struct.unpack_from("<Q", memory, position + 2592)[0],
+                    "panic_vector": struct.unpack_from("<I", memory, position + 2600)[0],
+                    "panic_error_valid": struct.unpack_from("<I", memory, position + 2604)[0],
+                    "panic_error": struct.unpack_from("<Q", memory, position + 2608)[0],
+                    "panic_rip": struct.unpack_from("<Q", memory, position + 2616)[0],
+                    "panic_cs": struct.unpack_from("<Q", memory, position + 2624)[0],
+                    "panic_rflags": struct.unpack_from("<Q", memory, position + 2632)[0],
+                    "panic_rsp": struct.unpack_from("<Q", memory, position + 2640)[0],
+                    "panic_cr2": struct.unpack_from("<Q", memory, position + 2648)[0],
+                    "panic_state": struct.unpack_from("<I", memory, position + 2672)[0],
                     "dma_reservation_pages": struct.unpack_from("<I", memory, position + 296)[0],
                 }
             position += 4
@@ -184,6 +193,7 @@ def command(connection, process, input_bytes, expected_output):
         raise AssertionError(
             f"command {input_bytes!r} expected {expected_output!r}; got {response!r}"
         )
+    return response
 
 
 def main():
@@ -259,7 +269,7 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version\r\n")
+                        b"Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")
@@ -270,7 +280,11 @@ def main():
                 command(connection, process, b"\x1b[A", b"\r\nend\r\n")
                 command(connection, process, b"\x0cecho clear", b"\r\nclear\r\n")
                 command(connection, process, b"x" * 257, b"Input line is too long.\r\n")
-                command(connection, process, b"ls", b"/fault.txt\r\n/hello.txt\r\n/readme.txt\r\n")
+                listing = command(connection, process, b"ls", b"/fault.txt\r\n")
+                for entry in (b"/hello.txt\r\n", b"/readme.txt\r\n",
+                              b"/user-demo.exec\r\n", b"/user-fault.exec\r\n"):
+                    if entry not in listing:
+                        raise AssertionError(f"root listing missing {entry!r}: {listing!r}")
                 command(connection, process, b"cat /hello.txt", hello)
                 command(connection, process, b"cat /readme.txt", readme)
                 command(connection, process, b"cat /missing.txt", b"File not found.\r\n")

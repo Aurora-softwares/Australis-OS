@@ -195,6 +195,9 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
 - [x] Install a ring-0 GDT and IDT, capture fatal exception vectors, remap and
   mask the legacy PIC, enable the local APIC, and dispatch periodic timer IRQs
   into an uncalibrated monotonic tick counter.
+- [x] Capture fatal CPU error codes, return state, `CR2`, and all general
+  registers in an allocation-free panic path; mirror the report directly to
+  COM1 and the framebuffer and verify a real QEMU page fault.
 - [x] Enumerate PCI functions through configuration-space port I/O, retain the
   first xHCI, AHCI, and NVMe function addresses, and map fixed uncached high
   MMIO register apertures for valid controller BARs.

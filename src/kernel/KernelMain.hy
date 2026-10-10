@@ -29,7 +29,7 @@
 //   [x] Bring up one live xHCI root device and route boot-keyboard reports into
 //       the shared COM1/framebuffer shell input path with bounded recovery.
 //   [x] Connect live USB mass storage to the existing BOT protocol layer.
-//   [x] Add the AUEX format, checked loader, file descriptors, system calls,
+//   [x] Add the `exec` format, checked loader, file descriptors, system calls,
 //       bounded cooperative scheduling, and a user shell command registry.
 //   [ ] Add native ring-3 processes and preemptive threads after the checked
 //       AUEX boundary has established the user-facing contracts.

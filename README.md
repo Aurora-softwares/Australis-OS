@@ -246,7 +246,11 @@ through `System.Kernel.Managed.Release`.
 The interrupt sequence installs a ring-0 GDT, then an IDT with dedicated stubs
 for CPU exceptions, legacy PIC vectors `0x20`–`0x2f`, local-APIC timer vector
 `0x30`, storage vector `0x31`, and reusable device vector `0x32`. CPU
-exceptions save their vector in `KernelBootInfo` and halt.
+exceptions enter a common allocation-free panic path. It disables interrupts,
+captures the error code, return frame, `CR2`, and all general registers, then
+writes the same hexadecimal report directly to polled COM1 and the GOP
+framebuffer before halting. The `panic-test` shell command deliberately reads
+the protected null page so this path can be exercised under QEMU.
 The PIC is remapped and masked, so it cannot deliver device IRQs before a driver
 has registered ownership. The local APIC is enabled in either xAPIC or x2APIC
 mode; xAPIC receives an uncached identity mapping when its page is absent from
@@ -381,6 +385,7 @@ Run the executable Hydrogen protocol tests with:
 
 ```bash
 make test-storage
+make test-kernel-panic
 make test-stage2
 make test-stage2-boot
 make test-stage3
@@ -655,6 +660,16 @@ the four-level paging mode accepted by the current kernel handoff.
 | `2584` | `uint32` | Last AUEX fault (`3` protected memory access) |
 | `2588` | `uint32` | Number of user-program launch attempts |
 | `2592` | `uint64` | Instructions executed by the last AUEX process |
+| `2600` | `uint32` | Fatal panic vector |
+| `2604` | `uint32` | Nonzero when the CPU supplied an exception error code |
+| `2608` | `uint64` | Fatal exception error code, or zero when absent |
+| `2616` | `uint64` | Interrupted instruction pointer (`RIP`) |
+| `2624` | `uint64` | Interrupted code segment (`CS`) |
+| `2632` | `uint64` | Interrupted `RFLAGS` |
+| `2640` | `uint64` | Stack pointer immediately before the CPU exception frame |
+| `2648` | `uint64` | Captured `CR2` fault address |
+| `2672` | `uint32` | Panic state: `1` rendering, `2` report complete and halted |
+| `2688`–`3457` | `uint8` | Fixed allocation-free NUL-terminated ASCII panic report buffer |
 
 ## UEFI Framebuffer offsets
 

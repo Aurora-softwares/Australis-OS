@@ -61,7 +61,7 @@ namespace Australis.Kernel.Console {
             lastProgramState = 0; lastProgramExit = 0; lastProgramFault = 0;
             banner = "Australis serial console ready. Type help.";
             versionText = "version: 0.0.1";
-            helpText = "Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version";
+            helpText = "Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test";
             unknownText = "Unknown command. Type help.";
             usageText = "Usage: cat /filename";
             notFoundText = "File not found.";
@@ -135,7 +135,8 @@ namespace Australis.Kernel.Console {
             if (path == null || path.Length < 1 || System.Kernel.String.ByteAt(path, 0) != 47) {
                 output.WriteLine("Usage: run /program.exec"); return;
             }
-            output.WriteLine("Starting user program.");
+            // Print that it is running a program
+			output.WriteLine("Starting user program.");
             UserProgramResult result = programHost.Run(path);
             lastProgramState = result.State(); lastProgramExit = result.ExitCode();
             lastProgramFault = result.Fault();
@@ -145,6 +146,7 @@ namespace Australis.Kernel.Console {
             System.Kernel.Memory.Write32(bootInfo + 2588,
                 System.Kernel.Memory.Read32(bootInfo + 2588) + 1);
             System.Kernel.Memory.Write64(bootInfo + 2592, result.Instructions());
+            // Print the status around the program execution
             if (lastProgramState == UserProgramState.Exited()) {
                 if (lastProgramExit == 0) { output.WriteLine("User program exited cleanly."); }
                 else { output.WriteLine("User program exited with an error."); }
@@ -152,7 +154,9 @@ namespace Australis.Kernel.Console {
                 output.WriteLine("User program blocked from kernel memory.");
             } else if (lastProgramFault == UserFault.InvalidImage()) {
                 output.WriteLine("Invalid user executable.");
-            } else { output.WriteLine("User program faulted."); }
+            } else {
+				output.WriteLine("User program faulted.");
+			}
         }
 
         private void Processes() {
@@ -213,6 +217,12 @@ namespace Australis.Kernel.Console {
             if (identifier == UserShellCommandId.Run()) { RunProgram(command); return; }
             if (identifier == UserShellCommandId.Processes() && !command.HasArgument()) {
                 Processes(); return;
+            }
+            if (identifier == UserShellCommandId.PanicTest() && !command.HasArgument()) {
+                output.WriteLine("Triggering kernel page fault for panic diagnostics.");
+                long unreachable = System.Kernel.Memory.Read64(0);
+                if (unreachable == 1) { output.WriteLine("Panic test unexpectedly returned."); }
+                return;
             }
             output.WriteLine(unknownText);
         }

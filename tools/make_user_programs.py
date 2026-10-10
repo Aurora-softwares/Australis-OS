@@ -79,11 +79,13 @@ def demo_program():
 def fault_program():
     data = bytearray(64)
     message = put(data, 0, b"requesting protected write\r\n")
+	# Attempt to write outside of the user writable range, which should trigger a fault.
     code = write(*message) + store_byte(0x1000, 0x41) + b"\x01\x00"
     return image(code, data, 256)
 
 
 def main():
+	## Build the user programs and write them to the output directory.
     if len(sys.argv) != 2:
         raise SystemExit("usage: make_user_programs.py OUTPUT_DIRECTORY")
     output = Path(sys.argv[1])

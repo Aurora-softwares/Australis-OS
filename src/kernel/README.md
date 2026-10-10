@@ -9,10 +9,9 @@ Status key: `[x]` implemented and exercised, `[~]` partially implemented, and
 
 Current assessment:
 
-- Stage 1: 8 complete, 1 partial. The remaining gap is a first-class panic
-  report; fatal exceptions are captured and halted, but they do not yet render
-  a complete diagnostic on the terminal.
-- Stage 2: 33 complete, 20 partial, 5 open. Storage, filesystems, USB, console,
+- Stage 1: 9 complete. A real page fault is covered in QEMU and produces the
+  same allocation-free diagnostic on COM1 and the framebuffer before halting.
+- Stage 2: 35 complete, 18 partial, 5 open. Storage, filesystems, USB, console,
   interrupts, and kernel memory ownership have live QEMU coverage. Native
   ring-3 execution, hardware context switching, preemptive threads, user time
   services, and CPU privilege separation remain open.
@@ -29,7 +28,7 @@ Current assessment:
 | [x] | CPU initialization | Configure essential processor state. |
 | [x] | Memory map | Understand usable and reserved physical memory. |
 | [x] | Exception handling | Catch CPU exceptions rather than silently crashing. |
-| [~] | Panic handling | Fatal exceptions record their vector and halt; a complete terminal panic report is still needed. |
+| [x] | Panic handling | Fatal exceptions print the CPU frame and register state to COM1 and the framebuffer, then halt. |
 | [x] | Basic memory allocation | Allocate memory for initial kernel structures. |
 | [x] | Kernel idle | Remain operational after initialization. |
 
@@ -46,7 +45,7 @@ Current assessment:
 | [x] | Hardware interrupts | Receive and dispatch device interrupts. |
 | [x] | Timer | Support periodic or one-shot timer interrupts. |
 | [~] | CPU identification | Required paging and APIC capabilities are detected; a reusable CPU feature inventory is still needed. |
-| [~] | Kernel panic | Fatal paths halt predictably and retain cause data; a full panic report and stack trace are still needed. |
+| [x] | Kernel panic | Fatal CPU exceptions print a complete allocation-free register report, retain the frame, and halt. |
 
 ### B. Memory management
 
@@ -123,7 +122,7 @@ Current assessment:
 | [x] | Error handling | Invalid system calls don't crash the kernel. |
 | [x] | Fault containment | Faulty AUEX programs terminate without taking down the shell. |
 | [x] | Kernel logging | Record useful diagnostic information. |
-| [~] | Kernel panic | Fatal vector and subsystem causes are recorded; richer terminal diagnostics remain. |
+| [x] | Kernel panic | Fatal CPU state is recorded and rendered on both kernel terminals before the system halts. |
 | [x] | Input validation | Validate user-provided pointers, lengths and arguments. |
 | [~] | Synchronization | IRQ queues, ownership, and memory fences are bounded; general locks and multicore support remain. |
 | [x] | Automated testing | Test essential kernel functionality. |
