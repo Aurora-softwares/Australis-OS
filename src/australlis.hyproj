@@ -1,0 +1,11 @@
+format = 2
+name = "Australlis.OS"
+version = "0.1.0"
+type = "os"
+project_references = ["bootloader/australlis.bootloader.hyproj", "kernel/australlis.kernel.hyproj", "system/australlis.system.hyproj"]
+
+[package]
+id = "Australlis-OS"
+description = ""
+authors = ["Aurora Softwares"]
+license = "MIT"

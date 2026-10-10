@@ -1,55 +1,273 @@
-BFLAT ?= $(shell command -v bflat 2>/dev/null || printf '%s' tools/bflat/bflat)
+HYDROGEN ?= ../Hylang-Compiler/build/self_hosting/hydrogen-stage1
 QEMU ?= qemu-system-x86_64
+XORRISO ?= xorriso
 OVMF_CODE ?= /usr/share/OVMF/OVMF_CODE_4M.fd
-LOCAL_LIB_DIR := $(CURDIR)/tools/lib
-LLVM_LIB_DIR := $(CURDIR)/tools/libroot/usr/lib/llvm-18/lib
-BFLAT_DIR := $(dir $(abspath $(BFLAT)))
-# System paths must come before tools/lib, which contains bflat stub files that the
-# OS dynamic linker cannot load. The real libc++ is provided by the system package.
-SYS_LLVM_LIB_DIR := /usr/lib/llvm-18/lib
-SYS_LIB_DIR := /usr/lib/x86_64-linux-gnu
-RUN_WITH_LOCAL_LIBS := LD_LIBRARY_PATH=$(BFLAT_DIR):$(SYS_LLVM_LIB_DIR):$(SYS_LIB_DIR):$(LOCAL_LIB_DIR):$(LLVM_LIB_DIR):$$LD_LIBRARY_PATH
 
 BUILD_DIR := build
 EFI_DIR := $(BUILD_DIR)/efi
 EFI_BOOT_DIR := $(EFI_DIR)/EFI/BOOT
 EFI_BINARY := $(EFI_BOOT_DIR)/BOOTX64.EFI
-IMAGE := $(BUILD_DIR)/australis-uefi.img
-KERNEL_SRC := src/boot/Program.cs
+KERNEL_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/KERNEL.BIN
+SYSTEM_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/SYSTEM.EFI
+IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
+EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
+HYFS_IMAGE := $(BUILD_DIR)/boot/root.hyfs.img
+GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
+APPLICATIONS_PROJECT ?= applications/Applications.hyproj
+APPLICATIONS_DIR := $(BUILD_DIR)/applications
+APPLICATIONS_STAMP := $(APPLICATIONS_DIR)/.built
+# Space separated, prebuilt .exec files from independently versioned app repos.
+APPLICATION_ARTIFACTS ?=
+ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged
+HYFS_GPT_TYPE := 9f5eb82e-692e-5a8f-b968-adaaa349dd93
+ISO_ROOT := $(BUILD_DIR)/iso-root
+ISO := $(BUILD_DIR)/australis-hylang.iso
+PROJECT := src/australlis.hyproj
+AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
+NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
+USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
+USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
-.PHONY: all build image run clean check-tools
+.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-stage5-ahci test-stage5-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 
-all: build
+all: build image iso
 
-check-tools:
-	@test -x "$(BFLAT)" || { echo "bflat was not found. Install bflat or place it at tools/bflat/bflat."; exit 1; }
+build: check-build-tools
+	"$(HYDROGEN)" build "$(PROJECT)" -o "$(EFI_DIR)"
+
+#
+# TESTS
+#
+test-stage2: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/kernel/Stage2.hyproj -o "$(BUILD_DIR)/stage2-tests"
+	"$(BUILD_DIR)/stage2-tests"
+
+test-kernel-panic: iso | check-run-tools
+	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)"
+
+test-stage2-boot: test-stage2-boot-ahci test-stage2-boot-nvme
+
+test-stage2-boot-ahci: iso | check-run-tools
+	python3 tests/kernel/stage2_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage2-boot-nvme: iso | check-run-tools
+	python3 tests/kernel/stage2_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage3: test-stage3-ahci test-stage3-nvme
+
+test-stage3-ahci: iso | check-run-tools
+	python3 tests/usb/xhci_keyboard_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage3-nvme: iso | check-run-tools
+	python3 tests/usb/xhci_keyboard_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage4: test-stage4-ahci test-stage4-nvme
+
+test-stage4-ahci: iso | check-run-tools
+	python3 tests/usb/xhci_storage_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage4-nvme: iso | check-run-tools
+	python3 tests/usb/xhci_storage_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage5: test-stage5-host test-stage5-ahci test-stage5-nvme
+
+test-stage5-host: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	"$(BUILD_DIR)/user-runtime-tests"
+
+test-stage5-ahci: iso | check-run-tools
+	python3 tests/user/user_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage5-nvme: iso | check-run-tools
+	python3 tests/user/user_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-usb: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/usb/UsbDrivers.hyproj -o "$(BUILD_DIR)/usb-tests"
+	"$(BUILD_DIR)/usb-tests"
+
+test-storage: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/BlockDevice.hyproj -o "$(BUILD_DIR)/storage-tests"
+	"$(BUILD_DIR)/storage-tests"
+
+test-ahci: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/Ahci.hyproj -o "$(BUILD_DIR)/ahci-tests"
+	"$(BUILD_DIR)/ahci-tests"
+
+test-ahci-controller: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/AhciController.hyproj -o "$(BUILD_DIR)/ahci-controller-tests"
+	"$(BUILD_DIR)/ahci-controller-tests"
+
+test-nvme: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/Nvme.hyproj -o "$(BUILD_DIR)/nvme-tests"
+	"$(BUILD_DIR)/nvme-tests"
+
+test-nvme-controller: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/NvmeController.hyproj -o "$(BUILD_DIR)/nvme-controller-tests"
+	"$(BUILD_DIR)/nvme-controller-tests"
+
+test-nvme-boot: iso | check-run-tools
+	python3 tests/storage/controller_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)"
+
+test-ahci-boot: iso | check-run-tools
+	python3 tests/storage/controller_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-serial-ahci: iso | check-run-tools
+	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-terminal: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/console/Terminal.hyproj -o "$(BUILD_DIR)/terminal-tests"
+	"$(BUILD_DIR)/terminal-tests"
+
+test-serial-nvme: iso | check-run-tools
+	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-storage-failure-ahci: iso | check-run-tools
+	python3 tests/console/storage_failure_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-storage-failure-nvme: iso | check-run-tools
+	python3 tests/console/storage_failure_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-partitions: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/storage/Partitions.hyproj -o "$(BUILD_DIR)/partition-tests"
+	"$(BUILD_DIR)/partition-tests"
+
+test-vfs: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/vfs/Vfs.hyproj -o "$(BUILD_DIR)/vfs-tests"
+	"$(BUILD_DIR)/vfs-tests"
+
+test-hyfs: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/vfs/Hyfs.hyproj -o "$(BUILD_DIR)/hyfs-tests"
+	"$(BUILD_DIR)/hyfs-tests"
+
+#
+# Tools
+#
+$(IMAGE): build | check-image-tools
+	@mkdir -p "$(BUILD_DIR)"
+	@rm -f "$(IMAGE)"
+	truncate -s 64M "$(IMAGE)"
+	mformat -i "$(IMAGE)" -F ::
+	mmd -i "$(IMAGE)" ::/EFI ::/EFI/BOOT ::/EFI/AUSTRALIS
+	mcopy -i "$(IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
+	mcopy -i "$(IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
+	mcopy -i "$(IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
+
+$(EFI_BOOT_IMAGE): build | check-image-tools
+	@mkdir -p "$(dir $(EFI_BOOT_IMAGE))"
+	@rm -f "$(EFI_BOOT_IMAGE)"
+	truncate -s 8M "$(EFI_BOOT_IMAGE)"
+	mformat -i "$(EFI_BOOT_IMAGE)" ::
+	mmd -i "$(EFI_BOOT_IMAGE)" ::/EFI ::/EFI/BOOT ::/EFI/AUSTRALIS
+	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
+	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
+	mcopy -i "$(EFI_BOOT_IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
+
+force-applications:
+
+applications: $(APPLICATIONS_STAMP)
+
+$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) | check-build-tools
+	@rm -rf "$(APPLICATIONS_DIR)"
+	@mkdir -p "$(APPLICATIONS_DIR)"
+	"$(HYDROGEN)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
+	@touch "$@"
+
+$(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(wildcard rootfs/*) $(APPLICATION_ARTIFACTS)
+	@rm -rf "$(GENERATED_ROOTFS)"
+	@mkdir -p "$(GENERATED_ROOTFS)"
+	@cp rootfs/* "$(GENERATED_ROOTFS)/"
+	@cp "$(APPLICATIONS_DIR)"/*.exec "$(GENERATED_ROOTFS)/"
+	@for artifact in $(APPLICATION_ARTIFACTS); do \
+		name=$$(basename "$$artifact"); \
+		test ! -e "$(GENERATED_ROOTFS)/$$name" || { echo "duplicate root executable: $$name"; exit 1; }; \
+		cp "$$artifact" "$(GENERATED_ROOTFS)/$$name"; \
+	done
+	@touch "$@"
+
+$(HYFS_IMAGE): tools/make_hyfs_image.py $(ROOTFS_STAMP)
+	python3 tools/make_hyfs_image.py "$(GENERATED_ROOTFS)" "$@"
+
+$(ISO): $(EFI_BOOT_IMAGE) $(HYFS_IMAGE) | check-image-tools
+	@rm -rf "$(ISO_ROOT)"
+	@mkdir -p "$(ISO_ROOT)/EFI/BOOT"
+	cp "$(EFI_BOOT_IMAGE)" "$(ISO_ROOT)/EFI/BOOT/efiboot.img"
+	"$(XORRISO)" -as mkisofs -R -J \
+		-eltorito-alt-boot -e EFI/BOOT/efiboot.img -no-emul-boot \
+		-efi-boot-part --efi-boot-image \
+		-append_partition 4 "$(HYFS_GPT_TYPE)" "$(HYFS_IMAGE)" -appended_part_as_gpt \
+		-o "$@" "$(ISO_ROOT)"
+
+iso: $(ISO)
+image: $(IMAGE)
+
+# Start QEMU with its graphical window and the standard VGA device. OVMF
+# publishes EFI_GRAPHICS_OUTPUT_PROTOCOL for this device, which lets the
+# post-handoff kernel use its direct framebuffer console.
+run: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+
+# Show the scrolling framebuffer while accepting shell input through COM1 on
+# the launching terminal. The USB keyboard and COM1 share the shell input path.
+run-gop: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none -monitor none -serial stdio
+
+run-serial: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
+
+run-disk: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+
+run-disk-serial: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
+
+run-nvme: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+
+run-nvme-serial: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) -net none -display none -monitor none -serial stdio
+
+run-serial-nvme: run-nvme-serial
+
+# The live controller currently owns one root-port device. Use COM1 for input
+# while the xHCI device is occupied by the removable mass-storage volume.
+run-usb-storage: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
+
+run-usb-storage-nvme: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
+
+
+#
+# Utilities
+#
+check-build-tools:
+	@command -v "$(HYDROGEN)" >/dev/null 2>&1 || { \
+		echo "Hydrogen compiler '$(HYDROGEN)' was not found."; \
+		echo "Build hydrogen-stage1 or run: make HYDROGEN=/path/to/hydrogen-stage1"; \
+		exit 1; \
+	}
+
+check-image-tools:
 	@command -v mformat >/dev/null || { echo "mformat was not found."; exit 1; }
 	@command -v mmd >/dev/null || { echo "mmd was not found."; exit 1; }
 	@command -v mcopy >/dev/null || { echo "mcopy was not found."; exit 1; }
+	@command -v "$(XORRISO)" >/dev/null || { echo "$(XORRISO) was not found."; exit 1; }
+
+check-run-tools:
 	@command -v "$(QEMU)" >/dev/null || { echo "$(QEMU) was not found."; exit 1; }
 	@test -f "$(OVMF_CODE)" || { echo "OVMF firmware was not found at $(OVMF_CODE)."; exit 1; }
-
-build: check-tools $(EFI_BINARY)
-
-$(EFI_BINARY): $(KERNEL_SRC)
-	@mkdir -p "$(EFI_BOOT_DIR)"
-	$(RUN_WITH_LOCAL_LIBS) "$(BFLAT)" build --stdlib:zero --os:uefi --arch:x64 -o "$@" "$<"
-
-image: build
-	@mkdir -p "$(BUILD_DIR)"
-	@rm -f "$(IMAGE)"
-	@truncate -s 64M "$(IMAGE)"
-	mformat -i "$(IMAGE)" -F ::
-	mmd -i "$(IMAGE)" ::/EFI ::/EFI/BOOT
-	mcopy -i "$(IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
-
-run: build
-	"$(QEMU)" \
-		-machine q35 \
-		-m 256M \
-		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
-		-drive format=raw,file=fat:rw:"$(EFI_DIR)" \
-		-net none
-
+#
 clean:
 	rm -rf "$(BUILD_DIR)"

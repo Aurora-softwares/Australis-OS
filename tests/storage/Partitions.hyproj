@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisPartitionTests"
+type = "exe"
+sources = ["../../src/kernel/storage/BlockDevice.hy", "../../src/kernel/storage/Partitions.hy", "../../src/kernel/storage/GptDisk.hy", "PartitionsProgram.hy"]
+
+[package]
+id = "AustralisPartitionTests"
+description = "Host-side GPT and MBR parser tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

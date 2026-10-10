@@ -1,234 +1,274 @@
 # Australis OS Active Plan
 
-This file tracks completed milestones and the active development plan for each phase.
-It is a companion to the Australis-Docs roadmap and the Hylang-Compiler OS_ROADMAP.md.
+This plan records the current, Hydrogen-first path. It is a companion to the
+Australis documentation and the Hylang compiler's OS roadmap.
 
-## Current Status
+## Current capability: freestanding kernel and serial shell
 
-- [x] Phase 0: Bootable UEFI application is complete
-- [ ] Phase 1: Keyboard input and character echo — implementation complete, pending QEMU verification
-- [ ] Phase 2: Minimal command prompt has not started
-- [ ] Phase 3: Diagnostics and panic handler has not started
-- [ ] Phase 4: Memory and runtime strategy has not started
-- [ ] Phase 5: Hydrogen rewrite is blocked on Hylang-Compiler OS_ROADMAP.md phases UEFI-A through OS-A
+Australis currently proves one narrow but important path end to end:
 
-## Phase 0 Closeout
+- `src/bootloader/program.hy` is compiled by the retained self-hosted
+  `hydrogen-stage1` compiler.
+- `--target uefi-x64` emits a PE32+ x86-64 EFI application with an EFI entry
+  point, UTF-16 output, and a direct UEFI text-console call.
+- `mtools` and `xorriso` package that application into either a FAT disk image
+  or an El Torito UEFI ISO. They do not compile Hydrogen.
+- QEMU with OVMF boots the ISO. The bootloader loads and validates
+  `EFI/AUSTRALIS/KERNEL.BIN`, ends boot services, switches stack, and enters
+  the raw kernel code.
 
-Status: complete
+The EFI target supports firmware console calls before `ExitBootServices`, then
+transfers to a compiled `KernelMain.Run(long bootInfo)` method graph. That graph
+uses kernel-owned physical pages for arrays, objects, and literal strings. It
+reinitializes AHCI or NVMe through Hylang MMIO/DMA adapters, reads sectors
+through the common block interface, validates GPT with the Hylang reader, and
+mounts the HyFS partition by its full GPT type GUID. It reads files through the
+VFS on both AHCI and NVMe, including a file spanning multiple sectors. Its
+COM1 shell uses PIC IRQ4 to fill a bounded receive ring and runs the user shell
+registry against the mounted namespace. Each shell command and AUEX process
+reclaims its temporary allocations after completing.
+Only the bootloader remains a UEFI PE image in this path. The kernel is a
+position-independent `AUKR` binary and calls no firmware service. Individual
+managed allocations can be released. Persistent file descriptors, AUEX process
+loading, bounded scheduling, and checked user code/data address spaces are live.
 
-- [x] Compile a C# source file to a native UEFI EFI binary with bflat `--stdlib:zero --os:uefi --arch:x64`
-- [x] Boot the binary in QEMU with OVMF firmware
-- [x] Clear the UEFI console on startup
-- [x] Print a fixed boot message
-- [x] Stay alive in an infinite loop after the message
-- [x] Produce a FAT disk image containing the EFI binary at the standard removable-media path
-- [x] `make build`, `make image`, `make run`, and `make clean` all work
-- [x] Confirm the binary is a well-formed PE32+ EFI application (verified with `file`)
+## Full subsystem completion gate
 
-## Phase 1: Keyboard Input and Character Echo
+The checked items below describe working bootstrap milestones. They do not
+mean the subsystem is complete. A completed subsystem must run in the
+freestanding kernel, expose a reusable interface, handle bounded failures and
+recovery, and have host tests plus a QEMU/OVMF integration test. Physical PC
+coverage needs separate hardware validation.
 
-Status: next
+| Subsystem | Current gap before completion |
+| --- | --- |
+| Compiler and runtime | Objects, arrays, and strings now carry ownership metadata and support explicit individual release; shell temporaries still use a command marker. Add reusable boot-information types and automatic lifetime management. |
+| Physical and virtual memory | The active PML4 is audited; page tables are reclaimed after unmap, released pages are reused, and live stress checks repeat mapping and managed release. Add memory-descriptor ownership and broader cache policy. |
+| Exceptions, interrupts, and timer | Exception vectors record state, COM1 uses PIC IRQ4, storage uses APIC vector `0x31`, and xHCI uses deferred vector `0x32` events with calibrated deadlines. Add vector allocation beyond the current fixed assignments. |
+| PCI, MMIO, and DMA | BARs are sized and fully mapped, xHCI DMA ownership is explicit, and unsupported IOMMU translation is rejected. Add translated DMA support and broader cache-policy validation. |
+| AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Add enumeration beyond the selected device, real flush/write behavior, and broader hardware validation. |
+| Partition discovery | The Hylang GPT reader now runs on live AHCI and NVMe, checks CRCs with backup-header recovery, and selects HyFS by full type GUID. Add partition selection by unique identity and a live damaged-primary integration test. |
+| VFS and HyFS | Persistent generation-checked handles and canonical namespace traversal cover `/` and `/usb`; HyFS v1 itself remains flat. Add an on-disk directory format and live corruption tests. |
+| Interactive console | COM1 and USB HID share line editing; AUEX fd 0/1/2 uses the same canonical read and mirrored write semantics. Add layout selection, pipelines, and background jobs. |
+| USB | One live xHCI root device supports either a US keyboard or MSC bulk storage with bounded hotplug recovery. Add hubs and multiple simultaneous devices. |
 
-Goal: replace the idle infinite loop with a keyboard polling loop so that keys pressed
-by the user appear on screen. This proves that Australis OS can receive and respond to
-input — the minimum bar for any interactive system.
+The next engineering sequence is preemptive native processes, a richer on-disk
+filesystem, and multi-device USB topology. Each row stays open until its stated
+integration path exists.
 
-Everything in this phase stays in C# via bflat. No kernel architecture changes are
-needed yet; this is purely an input/output loop.
+## Completed
 
-### How UEFI Keyboard Input Works
+- [x] Self-hosted compiler emits a PE32+ x86-64 UEFI image.
+- [x] UEFI entry-point ABI and firmware console function-pointer call.
+- [x] UTF-16 encoding for the firmware console string.
+- [x] Load and validate a separate raw kernel binary, capture the final memory
+  map, leave boot services, allocate a kernel stack, and jump to its entry.
+- [x] `src/bootloader/program.hy` is the current boot source; the old C# source
+  was removed.
+- [x] `make build`, `make image`, `make iso`, and `make run` use the
+  self-hosted compiler plus packaging tools.
+- [x] Boot the generated ISO in QEMU/OVMF and verify the text output.
+- [x] Capture a final UEFI memory map, call `ExitBootServices`, then enter the
+  raw kernel on its own stack; the kernel enables interrupts and idles.
+- [x] Bring up a post-handoff COM1 console and run a kernel shell with bounded
+  editing and `help`, `echo`, `ls`, `cat`, and `version` on AHCI and NVMe roots.
 
-UEFI provides keyboard access through `EFI_SIMPLE_TEXT_INPUT_PROTOCOL`, which is
-available at startup via `SystemTable->ConIn`. The protocol has two relevant members:
+## Roadmap: interactive terminal and USB
 
-- `ReadKeyStroke(protocol, out key)` — reads one key if available; returns
-  `EFI_SUCCESS` (0) if a key was ready, `EFI_NOT_READY` (0x80000006) if the
-  keyboard buffer was empty
-- `WaitForKey` — an EFI event handle that can be passed to `WaitForEvent` to block
-  until a key is pressed without busy-looping
+Work through these milestones in order. Each has a runnable exit check, so the
+serial shell remains usable while new input and storage paths are brought up.
 
-An `EFI_INPUT_KEY` has two fields: `ScanCode` (a UINT16 that is non-zero for
-special keys such as arrows, F-keys, and Escape) and `UnicodeChar` (a CHAR16 that
-holds the printable character, zero for special keys).
+### 1. Shared terminal and input (complete)
 
-In bflat's UEFI C# environment, `Console.ReadKey(intercept: true)` maps to
-`ReadKeyStroke` under the hood. `Console.ReadKey` is available with `--stdlib:zero`;
-however, `ConsoleKeyInfo.KeyChar` and several `ConsoleKey` named members (Enter,
-Backspace) are not exposed in the zero stdlib. The implementation uses `(int)key.Key`
-to read the raw character code and compares against integer char literals instead.
-`ConsoleKey.Escape` is available (scan-code-based) and is used directly.
-`Console.Write` only accepts `char` in the zero stdlib, so multi-character erase
-sequences are written as individual `Console.Write(char)` calls.
+- [x] Separate the shell from COM1 through input and output interfaces. Keep
+  COM1's bounded IRQ-fed ring, count dropped bytes, and execute commands in
+  normal kernel context. QEMU covers command editing and repeated root reads.
+- [x] Mirror shell output to a scrolling GOP framebuffer terminal. QEMU checks
+  that a bottom-row newline moves earlier pixels up one glyph row.
+- [x] Add a bounded shared key-event queue for non-serial devices, ANSI cursor
+  controls, clear-screen support, and a visible framebuffer cursor.
+- [x] Move line editing into a reusable line discipline: arrow-key movement,
+  delete, bounded history, and clean redraw after asynchronous output. Keep
+  the existing shell commands working on either console.
+- **Exit check passed:** In QEMU, edit commands over serial and read a root file on
+  both COM1 and the framebuffer without dropped characters, mixed output, or
+  execution inside an IRQ. Keyboard input joins the same path in milestone 3.
 
-The Makefile `RUN_WITH_LOCAL_LIBS` was also updated to place system libc++ paths
-before `tools/lib`, which contains bflat stub files the OS dynamic linker cannot load.
+### 2. Kernel services needed by live USB (complete)
 
-### Checklist
+- [x] Calibrate a monotonic timer and use deadline-based waits for controller
+  commands, transfers, and key-repeat timing.
+- [x] Add per-device IRQ registration and vector ownership, acknowledge device
+  status in the handler, and queue completion work for normal kernel context.
+  Reserve a vector distinct from storage vector `0x31` for xHCI.
+- [x] Size PCI BARs, map their full MMIO ranges with the right cache attributes,
+  and define DMA buffer ownership and synchronization. Reject unsupported IOMMU
+  configurations explicitly until translation support exists.
+- [x] Add a small event loop or scheduler so a blocked device operation does
+  not stall serial input. Release command, transfer, and event allocations on
+  both success and error paths.
+- **Exit check passed:** Repeated IRQ registration, DMA allocation/release, MMIO
+  map/unmap, and timeout cycles leave page counts stable. AHCI and NVMe QEMU
+  runs retain COM1 input during intentionally delayed and failed requests while
+  a complete xHCI BAR mapping remains owned for Stage 3.
 
-Input loop:
+### 3. Live xHCI and USB keyboard
 
-- [x] Replace the empty `while (true) { }` with a loop that polls `Console.ReadKey(intercept: true)` (or raw `ReadKeyStroke` if `ReadKey` is unavailable in `--stdlib:zero`)
-- [ ] Verify that key presses unblock the loop and return valid key data in QEMU
-- [x] Echo printable `UnicodeChar` values back to `Console.Write(char)` on screen
+- [x] Claim the PCI xHCI function, map its BAR, stop/reset it, and initialize
+  DCBAA, scratchpads, command ring, event ring, and interrupter. Start with one
+  controller and one device; report unsupported topology clearly.
+- [x] Handle port changes, reset and enable a port, address a device, and make
+  endpoint-zero control transfers. Read descriptors and select a configuration.
+  Extend to interrupt endpoints, hotplug/unplug, and bounded controller reset
+  and retry paths.
+- [x] Connect the host-tested boot HID report parser to scheduled keyboard
+  reports. Translate key down/up, modifiers, and repeat into the common input
+  queue; make layout selection explicit (initially US).
+- **Exit check passed:** QEMU `qemu-xhci` plus `usb-kbd` accepts shell input on the
+  framebuffer while COM1 also works. Repeated plug/unplug and failed or delayed
+  transfers recover without lost interrupts, leaked pages, or a stuck shell.
+  The AHCI and NVMe matrix also queues USB input during a throttled root read,
+  verifies deferred command execution, key repeat, framebuffer mirroring, three
+  controller rebuilds, interrupt progress, and stable owned-page counts.
 
-Cursor:
+### 4. USB mass storage and mounted volumes
 
-- [x] Print a blinking-style prompt character (underscore `_`) at the current cursor position before each read
-- [x] Erase the prompt character before echoing the typed character so they do not overlap
+- [x] Implement live bulk endpoints and connect the existing MSC BOT protocol
+  code to them. Discover capacity, read blocks through the common block-device
+  interface, and handle SCSI sense, stalls, reset recovery, and removal.
+- [x] Extend VFS with persistent file handles, mount identities, and streaming
+  reads. Keep active reads safe when a USB device disappears. Add a read-only
+  filesystem path for removable media; HyFS v1 has a flat directory, so nested
+  paths require a filesystem extension or another filesystem driver.
+- [x] Add shell commands for device listing, mounts, current directory, and
+  incremental file display. Keep writes and safe eject as separate later work.
+- **Exit check passed:** QEMU `usb-storage` mounts a second read-only volume and
+  reads a 2 KiB file through MSC BOT on both AHCI and NVMe boots. Delayed reads
+  retain queued COM1 input, and three attach/detach cycles fail atomically,
+  rebuild the controller, reuse its DMA pages, and leave the boot root mounted.
 
-Special key handling:
+### 5. User-facing terminal and programs (complete)
 
-- [x] Enter (`UnicodeChar == '\r'`): move the cursor to the start of the next line, reset the current line buffer
-- [x] Backspace (`UnicodeChar == '\b'`): if there is at least one character on the current line, move the cursor back one column, print a space to erase the character, move back again
-- [x] Escape (`ScanCode == 0x0017`): clear the screen and reset to the top-left, discarding the current line buffer
-- [x] Ignore all other non-zero `ScanCode` values (arrow keys, F-keys) for now
+- [x] Finish nested path traversal, file descriptors, and consistent terminal
+  read/write semantics. Add a basic command registry and useful inspection
+  commands before introducing pipelines or background jobs.
+- [x] Define the AUEX user program format, loader, syscall boundary, checked
+  code/data address spaces, and bounded cooperative scheduler. Move command
+  recognition into the user shell layer while the console supervisor retains
+  device ownership and privileged services.
+- **Exit check passed:** On AHCI and NVMe, an AUEX program reads edited terminal
+  input and `/hello.txt`, exits cleanly, and returns every command allocation.
+  A protected write faults without touching kernel memory. COM1 remains usable
+  after that fault and after live USB removal.
 
-Line buffer:
+Use [QEMU's USB device guide](https://www.qemu.org/docs/master/system/devices/usb.html)
+for the emulated `qemu-xhci`, `usb-kbd`, and `usb-storage` integration matrix.
+Keep host protocol tests for malformed descriptors, HID reports, BOT status,
+timeouts, and transfer errors alongside the QEMU tests.
 
-- [x] Keep a fixed-length character array (for example 160 chars, one screen width) representing the current input line
-- [x] Append printable characters to the buffer on echo
-- [x] Truncate input silently if the line buffer is full rather than overflowing
-- [x] Reset the buffer on Enter or Escape
+After these milestones, extend the same input path to a USB mouse and pointer
+events, add hub and multi-device support to xHCI, then consider writable USB
+media with flush and safe removal. Networking and a graphical window system
+depend on the same scheduling, memory ownership, and device recovery work.
 
-Boot message:
+## Kernel transition
 
-- [x] Update the boot message from `"Australis OS booted from C#"` to include a
-  brief prompt hint, for example `"Australis OS v1 — press keys to echo"`
-- [x] Print the message before entering the input loop
+Goal: make the boundaries explicit before calling `ExitBootServices`.
 
-Verification (requires QEMU with display):
+- [x] Preserve the UEFI memory map in `KernelBootInfo` and pass its pointer in
+  `RDI` to post-handoff Hydrogen code.
+- [x] Call `ExitBootServices` successfully and continue execution in an
+  interrupt-disabled halt loop.
+- [x] Retry the final `GetMemoryMap`/`ExitBootServices` pair with a fixed
+  descriptor reserve when the firmware updates its map key.
+- [x] Emit position-independent UEFI PE32+ images with a zero image base.
+- [x] Initialize a bootstrap physical-page range from the largest
+  `EfiConventionalMemory` descriptor.
+- [x] Clone every present PML4, PDPT, PD, and PT page into allocator-owned pages
+  and activate the resulting hierarchy through `CR3` while retaining current
+  leaf mappings.
+- [x] Keep virtual page zero unmapped, splitting only the required large leaf.
+- [x] Expose zero-filled 4 KiB page allocation through `KernelBootInfo`.
+- [x] Build a page-backed, 16-byte aligned bump heap over that allocator.
+- [x] Capture GOP framebuffer metadata before `ExitBootServices`, then clear and
+  render literal text through direct pixel writes without firmware services.
+- [x] Install a ring-0 GDT and IDT, capture fatal exception vectors, remap and
+  mask the legacy PIC, enable the local APIC, and dispatch periodic timer IRQs
+  into an uncalibrated monotonic tick counter.
+- [x] Capture fatal CPU error codes, return state, `CR2`, and all general
+  registers in an allocation-free panic path; mirror the report directly to
+  COM1 and the framebuffer and verify a real QEMU page fault.
+- [x] Enumerate PCI functions through configuration-space port I/O, retain the
+  first xHCI, AHCI, and NVMe function addresses, and map fixed uncached high
+  MMIO register apertures for valid controller BARs.
+- [x] Allocate contiguous, zero-filled DMA pages below 4 GiB and reserve their
+  requested slice from the primary physical allocator when both overlap.
+- [x] Define a synchronous, all-or-nothing block-device contract with checked
+  geometry, overflow-safe range validation, and explicit error status.
+- [x] Add host-tested AHCI SATA port discovery, bounded engine sequencing,
+  IDENTIFY parsing, and IDENTIFY/READ DMA EXT command layouts.
+- [x] Add a reusable host-tested Hydrogen AHCI polling controller with
+  page-bounded multi-sector reads, transfer-byte verification, and timeout
+  failure handling behind the common block transport.
+- [x] Add host-tested NVMe queue command layouts, namespace geometry parsing,
+  and one-page PRP read bounds.
+- [x] Add host-tested protective-MBR and CRC-checked GPT header and entry-array
+  parsing.
+- [x] Add a host-tested block-level GPT reader with streamed entry-array CRCs,
+  disk-bound checks, and backup-header recovery.
+- [x] Emit and execute bounded polling AHCI reads in the bootloader for the MBR,
+  GPT header, and primary GPT entry array; validate both GPT CRCs and publish
+  the first present partition.
+- [x] Define and host-test a VFS root-mount interface over a bounded partition.
+- [x] Implement and host-test a read-only HyFS v1 driver with superblock,
+  directory, and complete-file CRC validation.
+- [x] Emit and boot NVMe admin/I/O queues, Identify, bounded polling reads,
+  and the shared CRC-checked GPT discovery path under QEMU Q35/OVMF.
+- [x] Compile a reachable Hylang method graph for post-handoff execution with
+  kernel-owned object, array, and literal-string allocation.
+- [x] Connect the reusable Hylang AHCI and NVMe controllers to live MMIO/DMA
+  adapters, read through `BlockDevice`, and verify GPT with `GptDisk` under
+  QEMU/OVMF for both controller types.
+- [x] Connect live AHCI and NVMe block reads to VFS, select the HyFS GPT type,
+  mount the root, and verify single- and multi-sector file reads in QEMU/OVMF.
+- [x] Run an interactive serial shell with root listing and file display in
+  both AHCI and NVMe QEMU boots.
+- [x] Audit the live page tables, retain a protected persistent allocation
+  floor for the shell, and deliver COM1 input through a register-preserving
+  PIC IRQ4 handler on both QEMU storage paths.
+- [x] Add a reusable zeroed physical-page pool with duplicate-free protection,
+  and map, translate, unmap, and reuse a page through a kernel-owned 4 KiB
+  PML4 slot on the live AHCI/NVMe paths.
+- [x] Add managed allocation ownership headers and explicit object, array,
+  and string release, with page reuse and multi-page release stress checks.
+- [x] Route AHCI MSI and NVMe MSI-X to storage vector `0x31`, acknowledge
+  controller completions, and verify live QEMU read interrupt counters.
+- [x] Track timeout, device error, reset, and retry exhaustion states; inject
+  failed QEMU reads on both controllers and keep the serial shell responsive.
+- [x] Stress repeated mapping, allocation/release, serial input, and root
+  reads, including QEMU-throttled completion waits.
+- [x] Add VFS file handles and namespace traversal, then test live I/O failure
+  and removable-media invalidation paths. HyFS v1 remains a flat on-disk format.
+- [ ] Establish keyboard and storage drivers.
+- [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
+  controller stop/reset, descriptor selection, MSC BOT reads via a mock
+  transport, and boot HID reports with a basic US keymap.
+- [ ] Add driver-facing BAR sizing, dynamic MMIO mapping, IOMMU setup where
+  present, timer calibration, and cache/DMA synchronization rules.
+- [ ] Complete xHCI rings, port enumeration, control/bulk/interrupt transfers,
+  then connect MSC and HID to the kernel's block and input queues.
+- [x] Define the checked AUEX kernel/runtime boundary, loader, syscalls, and
+  cooperative scheduler.
+- [ ] Add native ring-3 processes, hardware privilege transitions, preemptive
+  threads, and a native user-space runtime.
 
-- [ ] Type a sequence of printable characters in QEMU and confirm they appear on screen
-- [ ] Press Backspace and confirm the last character is erased correctly
-- [ ] Press Enter and confirm the cursor moves to a new line
-- [ ] Press Escape and confirm the screen clears and the cursor returns to the top-left
-- [ ] Hold down a key and confirm the repeat stream is handled without hanging or corrupting the display
+The running kernel is already independent of firmware boot services after the
+handoff. These remaining stages turn its bootstrap into a fuller OS. Grow the
+shared kernel services and their integration tests before adding more live
+device drivers.
 
-### Exit Criteria
+## Bootstrap note
 
-- Any key pressed on the QEMU keyboard appears on the UEFI console immediately
-- Backspace, Enter, and Escape behave as specified
-- The display does not corrupt or freeze under rapid or held-key input
-
-## Phase 2: Minimal Command Prompt
-
-Status: not started
-
-Goal: give the keyboard echo loop a command parser so that typed lines are interpreted
-as commands rather than just echoed character by character. This turns Australis OS into
-an interactive — if minimal — system.
-
-Checklist:
-
-- [ ] On Enter, pass the accumulated line buffer to a command dispatcher
-- [ ] Implement `help` — print a list of available commands
-- [ ] Implement `clear` — clear the screen and reset the cursor
-- [ ] Implement `echo <text>` — print the rest of the line back
-- [ ] Implement `version` — print the OS version string
-- [ ] Implement `reboot` — call `EFI_RUNTIME_SERVICES.ResetSystem(EfiResetCold, ...)`
-- [ ] Implement `shutdown` — call `EFI_RUNTIME_SERVICES.ResetSystem(EfiResetShutdown, ...)`
-- [ ] Print an error message for unrecognised commands rather than silently ignoring them
-- [ ] Show a command prompt prefix (for example `A>`) before each input line
-- [ ] Update the boot message to reflect v2
-
-Exit criteria:
-
-- `help`, `clear`, `echo`, `version`, `reboot`, and `shutdown` all work in QEMU
-- Unrecognised input produces a short error line rather than corrupting the display
-
-## Phase 3: Diagnostics and Panic Handler
-
-Status: not started
-
-Goal: give the OS a controlled failure path. Right now any crash is silent and the
-machine hangs or resets with no information. A panic handler makes development
-significantly less painful from this point forward.
-
-Checklist:
-
-- [ ] Add a `Panic(string message)` function that:
-  - Clears the screen
-  - Prints `PANIC:` followed by the message in a distinct way (e.g. all-caps or with a border)
-  - Halts the system in a tight loop so the message stays on screen
-- [ ] Add a `Assert(bool condition, string message)` helper that calls `Panic` on failure
-- [ ] Verify the panic path works by triggering it deliberately from the command prompt (e.g. `panic` command)
-- [ ] Add a `meminfo` command that prints basic UEFI memory map information via `EFI_BOOT_SERVICES.GetMemoryMap`
-- [ ] Add a `firmware` command that prints the UEFI firmware vendor string and revision from `EFI_SYSTEM_TABLE`
-- [ ] Document in the Australis-Docs internals section how to read the panic output in QEMU
-
-Exit criteria:
-
-- A panic prints a message that stays on screen rather than hanging silently
-- `meminfo` and `firmware` commands run without crashing
-- Developers can distinguish a panic from a normal hang
-
-## Phase 4: Memory and Runtime Strategy
-
-Status: not started
-
-Goal: establish how Australis OS will own its own memory from this point forward. This
-is the last C# phase and its primary purpose is to design the memory model and prepare
-the codebase for the Hydrogen rewrite in Phase 5.
-
-Checklist:
-
-- [ ] Call `EFI_BOOT_SERVICES.GetMemoryMap` on startup and print a summary (total usable RAM, largest contiguous region)
-- [ ] Call `EFI_BOOT_SERVICES.ExitBootServices` to take ownership of the machine from the firmware
-- [ ] After `ExitBootServices`, confirm the OS continues to run (the idle loop or command prompt must still work)
-- [ ] Implement a trivial bump allocator over one of the usable memory regions identified from the memory map
-- [ ] Implement `memset` and `memcpy` as standalone unsafe functions that do not depend on bflat stdlib
-- [ ] Add a `heaptest` command that allocates, writes, reads back, and frees several blocks to verify the allocator
-- [ ] Document the memory map layout and chosen heap region in Australis-Docs
-- [ ] Review and remove any bflat stdlib features that will not be available after the Hydrogen rewrite (floating-point, reflection, threading, etc.)
-- [ ] Add a `Hydrogen integration ready` note to the Australis-Docs roadmap once this phase is done
-
-Exit criteria:
-
-- The OS takes ownership of memory from UEFI firmware and manages a basic heap
-- `ExitBootServices` succeeds and the OS continues operating normally afterwards
-- The codebase has no remaining dependency on bflat stdlib features that Hydrogen cannot replace
-
-## Phase 5: Hydrogen Rewrite
-
-Status: blocked — requires Hylang-Compiler OS_ROADMAP.md phases UEFI-A through OS-A
-
-Goal: replace every C# and bflat dependency with Hydrogen source. The output of
-`make build` becomes a Hydrogen-compiled EFI binary instead of a bflat-compiled one.
-This is the milestone where Australis OS is 100% Hydrogen, end to end.
-
-This phase cannot begin until the following are complete in the Hylang-Compiler
-repository (see `OS_ROADMAP.md` in that repo for the full plan):
-
-- Phase UEFI-A: Hydrogen native compiler can emit a valid PE32+ EFI binary
-- Phase UEFI-B: `[UefiEntry]` attribute and no-runtime mode are implemented
-- Phase UEFI-C: Unsafe struct bindings exist for core UEFI protocols
-- Phase UEFI-D: Minimal UEFI standard library (`UefiConsole`, `UefiMemory`, `UefiBootServices`)
-
-Once those are ready, this phase proceeds as follows:
-
-- [ ] Add a `.hyproj` manifest for the OS kernel source
-- [ ] Translate `src/boot/Program.cs` to `src/boot/Program.hy` using `[UefiEntry]`, `Hydrogen.Uefi.Console`, and `Hydrogen.Uefi.Memory`
-- [ ] Translate the command dispatcher, panic handler, and memory routines from Phase 1–4 into Hydrogen
-- [ ] Update the Makefile to invoke `hyc compile src/boot/Program.hy --target uefi-x64 -o build/efi/EFI/BOOT/BOOTX64.EFI` instead of bflat
-- [ ] Remove `tools/bflat/` and `tools/debs/` and `tools/lib/` from the repository
-- [ ] Remove `src/boot/Program.cs`
-- [ ] Boot the resulting image in QEMU/OVMF and confirm full feature parity with Phase 4
-- [ ] Update the README and Australis-Docs to document the Hydrogen build path
-- [ ] Update the boot message from `"Australis OS booted from C#"` to `"Australis OS booted from Hydrogen"`
-
-Exit criteria:
-
-- `make build` compiles Hydrogen source to `BOOTX64.EFI` with no C#, no bflat, and no external assembler or linker
-- The image boots in QEMU/OVMF and all Phase 1–4 features work as before
-- No C# or bflat files remain in the repository
-
-## Notes
-
-Phases 1 through 4 develop OS features in C# using bflat as the compiler bridge. This
-is intentional — it lets the OS grow in capability while the Hydrogen compiler finishes
-its UEFI output and no-runtime work in parallel. The two tracks are independent until
-Phase 5 joins them.
-
-The order within Phases 1–4 matters. The keyboard loop (Phase 1) proves interactive
-input before any parsing is added (Phase 2). The panic handler (Phase 3) makes memory
-work in Phase 4 far less painful to debug. Do not skip ahead.
+Once a verified `hydrogen-stage1` binary exists, supported compiler and OS
+builds do not require C++ or a host C compiler. A clean source-only compiler
+checkout still needs a trusted Hydrogen seed or the initial SDK bootstrap route.

@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisAhciTests"
+type = "exe"
+sources = ["../../src/kernel/storage/Ahci.hy", "AhciProgram.hy"]
+
+[package]
+id = "AustralisAhciTests"
+description = "Host-side AHCI protocol tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

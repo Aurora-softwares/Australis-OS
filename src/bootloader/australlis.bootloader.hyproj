@@ -1,0 +1,13 @@
+format = 2
+name = "australlis.bootloader"
+version = "0.0.1"
+type = "efi"
+output = "EFI/BOOT/BOOTX64.EFI"
+sources = ["program.hy"]
+project_references = []
+
+[package]
+id = "australlis.bootloader"
+description = ""
+authors = ["Aurora Softwares"]
+license = "MIT"

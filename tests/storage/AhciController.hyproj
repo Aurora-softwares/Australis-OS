@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisAhciControllerTests"
+type = "exe"
+sources = ["../../src/kernel/storage/BlockDevice.hy", "../../src/kernel/storage/Ahci.hy", "../../src/kernel/storage/AhciController.hy", "AhciControllerProgram.hy"]
+
+[package]
+id = "AustralisAhciControllerTests"
+description = "Host-side AHCI controller tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisNvmeTests"
+type = "exe"
+sources = ["../../src/kernel/storage/BlockDevice.hy", "../../src/kernel/storage/Nvme.hy", "NvmeProgram.hy"]
+
+[package]
+id = "AustralisNvmeTests"
+description = "Host-side NVMe protocol tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

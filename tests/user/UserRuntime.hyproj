@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisUserRuntimeTests"
+type = "exe"
+sources = ["../../src/kernel/storage/Partitions.hy", "../../src/kernel/user/UserRuntime.hy", "../../src/kernel/user/UserShell.hy", "Program.hy"]
+
+[package]
+id = "AustralisUserRuntimeTests"
+description = "Hosted AUEX loader, syscall, descriptor, and isolation tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisTerminalTests"
+type = "exe"
+sources = ["../../src/kernel/console/ConsoleEvents.hy", "../../src/kernel/console/LineEditor.hy", "TerminalProgram.hy"]
+
+[package]
+id = "AustralisTerminalTests"
+description = "Host-side terminal event and line-editor tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

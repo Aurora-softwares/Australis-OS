@@ -1,0 +1,11 @@
+format = 2
+name = "AustralisApplications"
+type = "os"
+sources = []
+project_references = ["Australis-HelloWorld/HelloWorld.hyproj", "Australis.Dev-user-demo/UserDemo.hyproj", "Australis.Dev-user-fault/UserFault.hyproj"]
+
+[package]
+id = "AustralisApplications"
+description = "Applications included in the Australis root filesystem"
+authors = ["Aurora Softwares"]
+license = "MIT"

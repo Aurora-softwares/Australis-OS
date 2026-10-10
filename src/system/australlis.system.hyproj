@@ -1,0 +1,13 @@
+format = 2
+name = "australlis.system"
+version = "0.1.0"
+type = "efi"
+output = "EFI/AUSTRALIS/SYSTEM.EFI"
+sources = ["./program.hy"]
+project_references = []
+
+[package]
+id = "australlis.system"
+description = ""
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -1,0 +1,2 @@
+This file is used to exercise failed storage completions after the shell is ready.
+If its data sector cannot be read, the shell must report an error and remain responsive.
