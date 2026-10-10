@@ -31,8 +31,8 @@ limits described below; it is not yet a general-purpose OS.
 ## Requirements
 
 - A built self-hosted Hylang compiler
-  (`../Hylang-Compiler/build/self_hosting/hydrogen-stage1` by default), or set
-  `HYDROGEN=/path/to/hydrogen-stage1`.
+  (`hy` by default), or set
+  `HYDROGEN=/path/to/hy`.
 - `mtools` (`mformat`, `mmd`, and `mcopy`).
 - `xorriso`.
 - For running the image: `qemu-system-x86_64` and OVMF firmware. The default
@@ -63,7 +63,7 @@ binary. Each manifest's `output` field places the artifact in the EFI tree.
 You can invoke the compiler directly:
 
 ```bash
-../Hylang-Compiler/build/self_hosting/hydrogen-stage1 build src/australlis.hyproj -o build/efi
+hy build src/australlis.hyproj -o build/efi
 ```
 
 `make build` runs that command. `make iso` builds and bundles these files:
@@ -185,7 +185,7 @@ Override the
 default locations when needed:
 
 ```bash
-make run HYDROGEN=/path/to/hydrogen-stage1 OVMF_CODE=/path/to/OVMF_CODE.fd
+make run HYDROGEN=/path/to/hy OVMF_CODE=/path/to/OVMF_CODE.fd
 ```
 
 ## Scope
@@ -364,6 +364,12 @@ This is software enforced isolation for the AUEX instruction set. Native x86-64
 ring-3 execution, hardware page-table privilege separation, and preemptive
 threads are later work. The current boundary establishes the executable,
 terminal, descriptor, failure, and scheduling contracts before that transition.
+
+The planned OS layer keeps the kernel, system userland, and application
+userland separate. The GUI is an optional userland subsystem. See
+`src/system/README.md` for the runtime and package model and
+`src/userland/README.md` for the staged process, command, service, IPC, session,
+and graphical-userland roadmap.
 
 Run the hosted runtime suite and live AHCI/NVMe matrix with:
 

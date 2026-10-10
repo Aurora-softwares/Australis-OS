@@ -52,9 +52,10 @@ coverage needs separate hardware validation.
 | Interactive console | COM1 and USB HID share line editing; AUEX fd 0/1/2 uses the same canonical read and mirrored write semantics. Add layout selection, pipelines, and background jobs. |
 | USB | One live xHCI root device supports either a US keyboard or MSC bulk storage with bounded hotplug recovery. Add hubs and multiple simultaneous devices. |
 
-The next engineering sequence is preemptive native processes, a richer on-disk
-filesystem, and multi-device USB topology. Each row stays open until its stated
-integration path exists.
+The next engineering sequence is the versioned process-start ABI, external
+userland commands, a directory-capable filesystem, and service supervision.
+Preemptive native processes and multi-device USB topology follow those
+contracts. Each row stays open until its stated integration path exists.
 
 ## Completed
 
@@ -170,6 +171,38 @@ After these milestones, extend the same input path to a USB mouse and pointer
 events, add hub and multi-device support to xHCI, then consider writable USB
 media with flush and safe removal. Networking and a graphical window system
 depend on the same scheduling, memory ownership, and device recovery work.
+
+## Roadmap: userland and OS services
+
+The kernel will remain separate from userland. The GUI is an optional userland
+subsystem alongside the command shell and system services. The architecture,
+filesystem layout, component types, and ownership rules are defined in
+`src/system/README.md`; detailed milestones and exit tests are in
+`src/userland/README.md`.
+
+- [ ] Define versioned process-start data for arguments, environment, working
+  directory, standard descriptors, and explicit syscall results.
+- [ ] Extend the AUEX compiler/runtime with arguments, locals, control flow,
+  bounded buffers, dynamic paths, process identifiers, spawn, and wait.
+- [ ] Move `cat`, `ls`, `version`, `echo`, and `pwd` into `.exec` projects and
+  add shell variables plus `PATH` lookup. Retain recovery built-ins until the
+  live matrix passes.
+- [ ] Add a directory-capable HyFS revision and create `/System`, `/Bin`,
+  `/Applications`, `/Users`, `/Volumes`, and `/Temporary`.
+- [ ] Replace the unused `SYSTEM.EFI` placeholder with `System.exec` as PID 1,
+  then add process supervision, service manifests, restart limits, and a
+  recovery-userland bypass.
+- [ ] Add versioned IPC, events, shared-buffer ownership, and capabilities for
+  system services and application manifests.
+- [ ] Add login and session management, then build the display server,
+  compositor, desktop shell, terminal, and explorer as userland components.
+- [ ] Move established process contracts to native ring 3 with per-process
+  page tables, guarded stacks, syscall entry, and user exception delivery.
+
+The first implementation slice is argument delivery plus dynamic read-only
+file open, ending with a source-built external `cat.exec` on AHCI and NVMe.
+The existing built-in command remains available as a recovery path during that
+transition.
 
 ## Kernel transition
 

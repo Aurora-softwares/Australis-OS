@@ -16,13 +16,13 @@ project_references = []
 Create a new project with:
 
 ```bash
-hydrogen-stage1 new exec Example
+hy new exec Example
 ```
 
 Build one application directly with:
 
 ```bash
-hydrogen-stage1 build Example/Example.hyproj -o example.exec
+hy build Example/Example.hyproj -o example.exec
 ```
 
 ## Available AUEX calls

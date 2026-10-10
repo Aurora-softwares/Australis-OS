@@ -1,0 +1,13 @@
+format = 2
+name = "australlis.userland"
+version = "0.0.1"
+type = "exec"
+output = "userland.exec"
+sources = ["./program.hy"]
+project_references = []
+
+[package]
+id = "australlis.userland"
+description = ""
+authors = ["Aurora Softwares"]
+license = "MIT"
