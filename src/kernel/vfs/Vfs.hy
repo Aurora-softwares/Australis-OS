@@ -58,6 +58,10 @@ namespace Australis.Kernel.Vfs {
         public int Status() { return status; }
         public long Position() { return position; }
         public long ByteLength() { return byteLength; }
+        public long Remaining() {
+            if (closed || position >= byteLength) { return 0; }
+            return byteLength - position;
+        }
         public int MountIdentity() { return mountIdentity; }
         public bool IsOpen() { return !closed && status == VfsStatus.Ok(); }
         public int Read(byte[] destination) {
@@ -70,6 +74,139 @@ namespace Australis.Kernel.Vfs {
             return status;
         }
         public void Close() { closed = true; owner = null; }
+    }
+
+    // A resolved namespace path keeps the mount selection separate from the
+    // path passed to the filesystem. HyFS v1 remains a flat filesystem, but
+    // the namespace can still canonicalize nested paths and cross the /usb
+    // mount without teaching individual drivers about mount points.
+    public class VfsPath {
+        private int status;
+        private Vfs volume;
+        private string localPath;
+        private string canonicalPath;
+        public VfsPath(int inputStatus, Vfs inputVolume, string inputLocal,
+            string inputCanonical) {
+            status = inputStatus; volume = inputVolume;
+            localPath = inputLocal; canonicalPath = inputCanonical;
+        }
+        public int Status() { return status; }
+        public bool IsValid() { return status == VfsStatus.Ok() && volume != null; }
+        public Vfs Volume() { return volume; }
+        public string LocalPath() { return localPath; }
+        public string CanonicalPath() { return canonicalPath; }
+    }
+
+    // The first mount namespace is deliberately small and deterministic:
+    // / names the boot volume and /usb names the removable volume. Path
+    // normalization is shared by the shell and user syscalls, so both observe
+    // the same handling of repeated separators, dot, and parent traversal.
+    public class VfsNamespace {
+        private Vfs root;
+        private Vfs removable;
+
+        public VfsNamespace(Vfs inputRoot, Vfs inputRemovable) {
+            root = inputRoot; removable = inputRemovable;
+        }
+
+        private int PathByte(string path, int index) {
+            return System.Kernel.String.ByteAt(path, index);
+        }
+
+        public VfsPath Resolve(string path) {
+            if (path == null || path.Length < 1 || path.Length > 255 || PathByte(path, 0) != 47) {
+                return new VfsPath(VfsStatus.InvalidArgument(), null, null, null);
+            }
+            byte[] normalized = new byte[256];
+            int[] restore = new int[64];
+            normalized[0] = 47;
+            int outputLength = 1;
+            int depth = 0;
+            int cursor = 1;
+            while (cursor < path.Length) {
+                while (cursor < path.Length && PathByte(path, cursor) == 47) { cursor = cursor + 1; }
+                if (cursor >= path.Length) { break; }
+                int start = cursor;
+                while (cursor < path.Length && PathByte(path, cursor) != 47) { cursor = cursor + 1; }
+                int componentLength = cursor - start;
+                bool dot = componentLength == 1 && PathByte(path, start) == 46;
+                bool parent = componentLength == 2 && PathByte(path, start) == 46 &&
+                    PathByte(path, start + 1) == 46;
+                if (dot) { continue; }
+                if (parent) {
+                    if (depth > 0) {
+                        depth = depth - 1;
+                        outputLength = restore[depth];
+                    }
+                    continue;
+                }
+                if (componentLength < 1 || componentLength > 63 || depth >= restore.Length) {
+                    return new VfsPath(VfsStatus.InvalidArgument(), null, null, null);
+                }
+                int oldLength = outputLength;
+                int required = componentLength;
+                if (outputLength > 1) { required = required + 1; }
+                if (required > normalized.Length - outputLength) {
+                    return new VfsPath(VfsStatus.InvalidArgument(), null, null, null);
+                }
+                restore[depth] = oldLength;
+                depth = depth + 1;
+                if (outputLength > 1) {
+                    normalized[outputLength] = 47;
+                    outputLength = outputLength + 1;
+                }
+                int i = 0;
+                while (i < componentLength) {
+                    int value = PathByte(path, start + i);
+                    if (value < 32 || value > 126) {
+                        return new VfsPath(VfsStatus.InvalidArgument(), null, null, null);
+                    }
+                    normalized[outputLength] = (byte)value;
+                    outputLength = outputLength + 1;
+                    i = i + 1;
+                }
+            }
+
+            string canonical = System.Kernel.String.FromBytes(normalized, outputLength);
+            bool usb = outputLength >= 4 && normalized[0] == 47 && normalized[1] == 117 &&
+                normalized[2] == 115 && normalized[3] == 98 &&
+                (outputLength == 4 || normalized[4] == 47);
+            if (!usb) {
+                if (root == null || !root.IsRootMounted()) {
+                    return new VfsPath(VfsStatus.NotMounted(), null, null, canonical);
+                }
+                return new VfsPath(VfsStatus.Ok(), root, canonical, canonical);
+            }
+            if (removable == null || !removable.IsRootMounted()) {
+                return new VfsPath(VfsStatus.NotMounted(), null, null, canonical);
+            }
+            if (outputLength == 4) {
+                return new VfsPath(VfsStatus.Ok(), removable, "/", canonical);
+            }
+            int localLength = outputLength - 4;
+            byte[] localBytes = new byte[localLength];
+            int localIndex = 0;
+            while (localIndex < localLength) {
+                localBytes[localIndex] = normalized[localIndex + 4];
+                localIndex = localIndex + 1;
+            }
+            string local = System.Kernel.String.FromBytes(localBytes, localLength);
+            return new VfsPath(VfsStatus.Ok(), removable, local, canonical);
+        }
+
+        public VfsFileInfo Stat(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return new VfsFileInfo(resolved.Status(), 0); }
+            return resolved.Volume().StatRootFile(resolved.LocalPath());
+        }
+
+        public VfsFileHandle Open(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) {
+                return new VfsFileHandle(null, path, 0, 0, 0, resolved.Status());
+            }
+            return resolved.Volume().OpenRootFile(resolved.LocalPath());
+        }
     }
 
     // The initial VFS has one root mount. It performs the common block-range

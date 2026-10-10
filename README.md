@@ -21,8 +21,11 @@ executes a compiled `KernelMain.Run(long bootInfo)` method graph after the
 bootloader calls `ExitBootServices`. It uses
 freestanding memory intrinsics, page-backed object/array allocation, and live
 Hylang AHCI or NVMe drivers to validate GPT, mount a read-only HyFS root, and
-read files through the VFS. A COM1 interrupt receive ring runs a small kernel shell
-with `help`, `echo`, `ls`, `cat`, and `version`. The bootstrap still has
+read files through the VFS. A COM1 interrupt receive ring runs the initial user
+shell registry with `help`, `echo`, `ls`, `cat`, `devices`, `mounts`, `pwd`,
+`run`, `ps`, and `version`. The console supervisor owns devices and privileged
+services; checked AUEX programs use terminal and file-descriptor syscalls.
+The bootstrap still has
 limits described below; it is not yet a general-purpose OS.
 
 ## Requirements
@@ -82,7 +85,8 @@ The raw header is 16 bytes: `AUKR`, version `1`, code length, and entry offset
 `16`, all little endian. The code is position independent.
 The ISO is hybrid: it contains an El Torito UEFI boot entry for optical media,
 a GPT EFI System Partition, and a 4 MiB read-only HyFS partition for the kernel
-root. `tools/make_hyfs_image.py` packs the flat files in `rootfs/` into that
+root. `tools/make_user_programs.py` adds deterministic AUEX samples to a
+generated root tree, then `tools/make_hyfs_image.py` packs it into that
 partition. Its GPT type GUID is `9f5eb82e-692e-5a8f-b968-adaaa349dd93`.
 The ISO can also be written directly to a USB drive or disk. It is not a
 virtual-disk format.
@@ -108,15 +112,21 @@ make run
 ```
 
 This boots `build/australis-hylang.iso` in QEMU with OVMF as optical media and
-attaches the same image as an AHCI disk for the kernel's live HyFS root. To
+attaches the same image as an AHCI disk for the kernel's live HyFS root. The
+QEMU window sends keyboard input through the emulated xHCI USB keyboard. To
 boot directly from the image's GPT EFI partition on AHCI, run:
 
 ```bash
 make run-disk
 ```
 
-For the NVMe storage path, run `make run-nvme`. The ISO remains optical boot
-media while the same image is attached as an NVMe namespace.
+`make run-disk` also attaches the xHCI USB keyboard. For the NVMe storage path,
+run `make run-nvme`; it provides the same graphical terminal and keyboard. The
+ISO remains optical boot media while the same image is attached as an NVMe
+namespace.
+
+Click the QEMU display once so it captures keyboard input. QEMU's default key
+combination for releasing the pointer and keyboard is Ctrl+Alt+G.
 
 For the interactive kernel console in the terminal, run:
 
@@ -125,15 +135,36 @@ make run-serial
 # or: make run-serial-nvme
 ```
 
+To attach the ISO as a second read-only USB mass-storage volume and use COM1
+for the shell, run `make run-usb-storage` (AHCI boot root) or
+`make run-usb-storage-nvme`. The removable HyFS volume appears at `/usb`; use
+`devices`, `mounts`, `ls /usb`, and `cat /usb/hello.txt` to inspect it.
+
 Wait for `australis> `, then type `help`. `ls` lists the flat HyFS root and
 `cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
 echoes input and accepts Enter, Backspace/Delete, arrow keys, Home/End,
 Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, Ctrl-U, and eight entries of command history.
-Its line buffer holds 256 bytes. `cat` accepts file names up to 32 bytes and files up to
-64 KiB. The UART uses COM1 at 115200 baud, 8 data bits, no parity, and one stop
+Its line buffer holds 256 bytes. Namespace paths canonicalize repeated `/`, `.`,
+and `..`, and cross the removable mount at `/usb`; HyFS v1 components remain
+limited to its flat 32-byte names. `cat` accepts files up to 64 KiB. The UART
+uses COM1 at 115200 baud, 8 data bits, no parity, and one stop
 bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
 then the shell drains that ring after it wakes. A full ring drops new input and
 records the drop count in `KernelBootInfo`.
+
+Run the included user program from either COM1 or the framebuffer terminal:
+
+```text
+australis> run /user-demo.exec
+Starting user program.
+user> hello
+input: hello
+file: Hello from Australis HyFS.
+User program exited cleanly.
+```
+
+`run /user-fault.exec` exercises the protected-write failure path and returns
+to the shell. `ps` reports the most recent program state.
 
 For the post-handoff framebuffer console, run QEMU with OVMF and its standard
 VGA device:
@@ -286,13 +317,47 @@ make test-usb
 
 The kernel now owns one live xHCI controller and one root-port device. It
 configures MSI or MSI-X vector `0x32`, initializes DCBAA and scratchpads plus
-command, event, EP0, and interrupt rings, enumerates a boot keyboard, and keeps
-32 reports in flight. US-layout key down, key up, modifiers, editing keys, and
-repeat enter the same normal-context console path as COM1. Disconnects and
-transfer failures trigger a bounded controller rebuild while COM1 remains the
-recovery path. Multiple simultaneous devices, hubs, non-US layouts, and live
-USB mass storage remain later work; the mass-storage protocol currently runs
-only over its injected host-test transport.
+command, event, EP0, interrupt, and bulk rings, then enumerates either a boot
+keyboard or a USB mass-storage device. Keyboard reports enter the same
+normal-context console path as COM1. USB storage uses BOT and SCSI READ CAPACITY,
+REQUEST SENSE, and READ(10), exposes the common block-device interface, and can
+mount a second read-only HyFS volume at `/usb`. Disconnects, stalls, transfer
+failures, and unit-attention responses have bounded recovery while COM1 and the
+boot root remain available. Multiple simultaneous devices, hubs, non-US
+layouts, and writable removable media remain later work.
+
+The live keyboard matrix is `make test-stage3`; the AHCI and NVMe USB-storage
+matrix is `make test-stage4`.
+
+## AUEX `.exec` user programs
+
+AUEX v1 is Australis's first user program format. Files use the `.exec`
+extension defined in `src/system/README.md`; `AUEX` remains the internal format
+magic and ABI name. Its 32-byte little-endian
+header contains `AUEX`, version and header size, code length, initialized data
+length, data capacity, entry offset, and separate CRC-32 values for code and
+data. The image exposes a read-only code region at `0x400000` and a bounded
+read/write data region at `0x500000`.
+
+The interpreter provides exit, terminal read/write, read-only open/read/close,
+checked byte stores, branches, and cooperative yield operations. Descriptors
+0, 1, and 2 have canonical terminal semantics; mounted files use descriptors
+3 through 15.
+Every user pointer is range checked and copied through `UserAddressSpace`, so
+an AUEX instruction cannot name kernel physical memory or modify its code.
+The scheduler applies an instruction limit and closes descriptors on exit,
+fault, or exhaustion.
+
+This is software enforced isolation for the AUEX instruction set. Native x86-64
+ring-3 execution, hardware page-table privilege separation, and preemptive
+threads are later work. The current boundary establishes the executable,
+terminal, descriptor, failure, and scheduling contracts before that transition.
+
+Run the hosted runtime suite and live AHCI/NVMe matrix with:
+
+```bash
+make test-stage5
+```
 
 ## Storage protocol layer
 
@@ -319,6 +384,8 @@ make test-storage
 make test-stage2
 make test-stage2-boot
 make test-stage3
+make test-stage4
+make test-stage5
 make test-ahci
 make test-nvme
 make test-nvme-controller
@@ -560,7 +627,7 @@ the four-level paging mode accepted by the current kernel handoff.
 | `2360` | `uint32` | Stage 2 service self-test status; zero means it passed |
 | `2368` | `uint64` | Kernel virtual address of the complete xHCI BAR mapping |
 | `2376` | `uint64` | Complete xHCI BAR byte length |
-| `2384` | `uint32` | xHCI lifecycle state (`10` means keyboard ready) |
+| `2384` | `uint32` | xHCI lifecycle state (`10` keyboard ready, `20` storage ready) |
 | `2388` | `uint32` | Last xHCI failure cause; zero while healthy |
 | `2392` | `uint32` | Active xHCI root-port number |
 | `2396` | `uint32` | Addressed xHCI slot identifier |
@@ -568,13 +635,26 @@ the four-level paging mode accepted by the current kernel handoff.
 | `2408` | `uint64` | xHCI transfer completion count |
 | `2416` | `uint64` | xHCI port-status-change count |
 | `2424` | `uint64` | Boot-keyboard reports consumed in normal context |
-| `2432` | `uint32` | Bounded xHCI recovery-attempt count |
+| `2432` | `uint32` | Cumulative xHCI recovery count; consecutive failures are bounded separately |
 | `2440` | `uint64` | Owned xHCI DMA allocation base |
 | `2448` | `uint32` | xHCI PCI message mode: `1` MSI, `2` MSI-X |
 | `2452` | `uint32` | Packed USB configuration, interface, and endpoint identifiers |
 | `2456` | `uint32` | Number of xHCI scratchpad buffers initialized |
 | `2460` | `uint32` | Keyboard layout identifier (`1` US) |
-| `2464` | `uint64` | USB keyboard removal count |
+| `2464` | `uint64` | USB device removal count |
+| `2472` | `uint32` | USB device kind (`1` keyboard, `2` mass storage) |
+| `2476` | `uint32` | Packed storage configuration, interface, and bulk endpoint identifiers |
+| `2480` | `uint32` | USB storage logical sector size |
+| `2488` | `uint64` | USB storage logical sector count |
+| `2496` | `uint64` | Successful USB block-read count |
+| `2504` | `uint32` | Last SCSI sense key |
+| `2512` | `uint32` | Removable-media GPT status |
+| `2516` | `uint32` | Removable HyFS mount status |
+| `2576` | `uint32` | Last AUEX process state (`2` exited, `3` faulted) |
+| `2580` | `uint32` | Last AUEX exit code |
+| `2584` | `uint32` | Last AUEX fault (`3` protected memory access) |
+| `2588` | `uint32` | Number of user-program launch attempts |
+| `2592` | `uint64` | Instructions executed by the last AUEX process |
 
 ## UEFI Framebuffer offsets
 

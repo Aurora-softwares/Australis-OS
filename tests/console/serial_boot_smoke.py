@@ -89,6 +89,20 @@ def kernel_record(path):
                     "xhci_message_mode": struct.unpack_from("<I", memory, position + 2448)[0],
                     "xhci_configuration": struct.unpack_from("<I", memory, position + 2452)[0],
                     "xhci_hotplug": struct.unpack_from("<Q", memory, position + 2464)[0],
+                    "usb_kind": struct.unpack_from("<I", memory, position + 2472)[0],
+                    "usb_configuration": struct.unpack_from("<I", memory, position + 2476)[0],
+                    "usb_sector_size": struct.unpack_from("<I", memory, position + 2480)[0],
+                    "usb_sector_count": struct.unpack_from("<Q", memory, position + 2488)[0],
+                    "usb_reads": struct.unpack_from("<Q", memory, position + 2496)[0],
+                    "usb_sense_key": struct.unpack_from("<I", memory, position + 2504)[0],
+                    "usb_gpt_status": struct.unpack_from("<I", memory, position + 2512)[0],
+                    "usb_mount_status": struct.unpack_from("<I", memory, position + 2516)[0],
+                    "usb_bot_stage": struct.unpack_from("<I", memory, position + 2524)[0],
+                    "user_state": struct.unpack_from("<I", memory, position + 2576)[0],
+                    "user_exit": struct.unpack_from("<I", memory, position + 2580)[0],
+                    "user_fault": struct.unpack_from("<I", memory, position + 2584)[0],
+                    "user_runs": struct.unpack_from("<I", memory, position + 2588)[0],
+                    "user_instructions": struct.unpack_from("<Q", memory, position + 2592)[0],
                     "dma_reservation_pages": struct.unpack_from("<I", memory, position + 296)[0],
                 }
             position += 4
@@ -245,7 +259,7 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo <text>, ls, cat <path>, version\r\n")
+                        b"Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")

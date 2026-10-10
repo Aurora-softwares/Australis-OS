@@ -12,6 +12,8 @@ SYSTEM_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/SYSTEM.EFI
 IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
 EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
 HYFS_IMAGE := $(BUILD_DIR)/boot/root.hyfs.img
+GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
+USER_PROGRAM_STAMP := $(GENERATED_ROOTFS)/.user-programs
 HYFS_GPT_TYPE := 9f5eb82e-692e-5a8f-b968-adaaa349dd93
 ISO_ROOT := $(BUILD_DIR)/iso-root
 ISO := $(BUILD_DIR)/australis-hylang.iso
@@ -19,8 +21,9 @@ PROJECT := src/australlis.hyproj
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
+USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
-.PHONY: all build test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-stage5-ahci test-stage5-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -50,6 +53,27 @@ test-stage3-ahci: iso | check-run-tools
 
 test-stage3-nvme: iso | check-run-tools
 	python3 tests/usb/xhci_keyboard_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage4: test-stage4-ahci test-stage4-nvme
+
+test-stage4-ahci: iso | check-run-tools
+	python3 tests/usb/xhci_storage_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage4-nvme: iso | check-run-tools
+	python3 tests/usb/xhci_storage_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage5: test-stage5-host test-stage5-ahci test-stage5-nvme
+
+test-stage5-host: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	"$(BUILD_DIR)/user-runtime-tests"
+
+test-stage5-ahci: iso | check-run-tools
+	python3 tests/user/user_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+
+test-stage5-nvme: iso | check-run-tools
+	python3 tests/user/user_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
 
 test-usb: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
@@ -142,8 +166,15 @@ $(EFI_BOOT_IMAGE): build | check-image-tools
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
 
-$(HYFS_IMAGE): tools/make_hyfs_image.py $(wildcard rootfs/*)
-	python3 tools/make_hyfs_image.py rootfs "$@"
+$(USER_PROGRAM_STAMP): tools/make_user_programs.py $(wildcard rootfs/*)
+	@rm -rf "$(GENERATED_ROOTFS)"
+	@mkdir -p "$(GENERATED_ROOTFS)"
+	@cp rootfs/* "$(GENERATED_ROOTFS)/"
+	python3 tools/make_user_programs.py "$(GENERATED_ROOTFS)"
+	@touch "$@"
+
+$(HYFS_IMAGE): tools/make_hyfs_image.py $(USER_PROGRAM_STAMP)
+	python3 tools/make_hyfs_image.py "$(GENERATED_ROOTFS)" "$@"
 
 $(ISO): $(EFI_BOOT_IMAGE) $(HYFS_IMAGE) | check-image-tools
 	@rm -rf "$(ISO_ROOT)"
@@ -173,16 +204,26 @@ run-serial: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
 
 run-disk: iso | check-run-tools
-	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(AHCI_DISK_ARGS) -net none
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
 
 run-disk-serial: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
 
 run-nvme: iso | check-run-tools
-	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) -net none
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) $(USB_INPUT_ARGS) -net none
 
 run-nvme-serial: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) -net none -display none -monitor none -serial stdio
+
+run-serial-nvme: run-nvme-serial
+
+# The live controller currently owns one root-port device. Use COM1 for input
+# while the xHCI device is occupied by the removable mass-storage volume.
+run-usb-storage: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(AHCI_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
+
+run-usb-storage-nvme: iso | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
 
 
 #

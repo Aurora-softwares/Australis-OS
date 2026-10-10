@@ -102,6 +102,17 @@ def main():
                 usb_read = read_until(connection, b"\n" + PROMPT, 20, process)
                 if hello not in usb_read:
                     raise AssertionError(f"USB root read failed: {usb_read!r}")
+
+                # The same decoded HID event path becomes AUEX fd 0 while a
+                # program is scheduled. Its writes remain mirrored to COM1
+                # and the framebuffer through fd 1.
+                send_text(monitor_path, "run /user-demo.exec\n")
+                read_until(connection, b"user> ", 20, process)
+                send_text(monitor_path, "usb input\n")
+                user_output = read_until(connection, b"\n" + PROMPT, 30, process)
+                if (b"input: usb input\r\n" not in user_output or hello not in user_output or
+                        b"User program exited cleanly.\r\n" not in user_output):
+                    raise AssertionError(f"USB user-terminal syscall failed: {user_output!r}")
                 command(connection, process, b"echo com1 alive", b"com1 alive\r\n")
 
                 # Hold a key longer than the initial repeat delay, then clear

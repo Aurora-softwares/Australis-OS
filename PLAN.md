@@ -24,13 +24,13 @@ reinitializes AHCI or NVMe through Hylang MMIO/DMA adapters, reads sectors
 through the common block interface, validates GPT with the Hylang reader, and
 mounts the HyFS partition by its full GPT type GUID. It reads files through the
 VFS on both AHCI and NVMe, including a file spanning multiple sectors. Its
-COM1 shell uses PIC IRQ4 to fill a bounded receive ring and runs `help`,
-`echo`, `ls`, `cat`, and `version` against the mounted root. Each shell
-command reclaims its temporary allocations after completing.
+COM1 shell uses PIC IRQ4 to fill a bounded receive ring and runs the user shell
+registry against the mounted namespace. Each shell command and AUEX process
+reclaims its temporary allocations after completing.
 Only the bootloader remains a UEFI PE image in this path. The kernel is a
 position-independent `AUKR` binary and calls no firmware service. Individual
-managed allocations can be released; persistent file handles, process loading,
-and user programs remain later work.
+managed allocations can be released. Persistent file descriptors, AUEX process
+loading, bounded scheduling, and checked user code/data address spaces are live.
 
 ## Full subsystem completion gate
 
@@ -48,13 +48,13 @@ coverage needs separate hardware validation.
 | PCI, MMIO, and DMA | BARs are sized and fully mapped, xHCI DMA ownership is explicit, and unsupported IOMMU translation is rejected. Add translated DMA support and broader cache-policy validation. |
 | AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Add enumeration beyond the selected device, real flush/write behavior, and broader hardware validation. |
 | Partition discovery | The Hylang GPT reader now runs on live AHCI and NVMe, checks CRCs with backup-header recovery, and selects HyFS by full type GUID. Add partition selection by unique identity and a live damaged-primary integration test. |
-| VFS and HyFS | A read-only HyFS root mounts on live AHCI/NVMe; reads cross sector boundaries and QEMU injects file I/O failures. Add persistent file handles, nested directory traversal, and live corruption tests. |
-| Interactive console | COM1 and a USB boot keyboard feed the shared line editor; output is mirrored to a scrolling framebuffer, and QEMU verifies live root reads, repeat, and editing from both input paths. Add layout selection and user-space terminal semantics. |
-| USB | One live xHCI root device supports EP0 and interrupt transfers, a US boot keyboard, and bounded hotplug recovery. Add hubs, multiple devices, live bulk transfers, and MSC block devices. |
+| VFS and HyFS | Persistent generation-checked handles and canonical namespace traversal cover `/` and `/usb`; HyFS v1 itself remains flat. Add an on-disk directory format and live corruption tests. |
+| Interactive console | COM1 and USB HID share line editing; AUEX fd 0/1/2 uses the same canonical read and mirrored write semantics. Add layout selection, pipelines, and background jobs. |
+| USB | One live xHCI root device supports either a US keyboard or MSC bulk storage with bounded hotplug recovery. Add hubs and multiple simultaneous devices. |
 
-The next engineering sequence is live USB mass storage, persistent VFS handles,
-and mounted removable volumes. Each row stays open until its stated integration
-path exists.
+The next engineering sequence is preemptive native processes, a richer on-disk
+filesystem, and multi-device USB topology. Each row stays open until its stated
+integration path exists.
 
 ## Completed
 
@@ -133,29 +133,33 @@ serial shell remains usable while new input and storage paths are brought up.
 
 ### 4. USB mass storage and mounted volumes
 
-- [ ] Implement live bulk endpoints and connect the existing MSC BOT protocol
+- [x] Implement live bulk endpoints and connect the existing MSC BOT protocol
   code to them. Discover capacity, read blocks through the common block-device
   interface, and handle SCSI sense, stalls, reset recovery, and removal.
-- [ ] Extend VFS with persistent file handles, mount identities, and streaming
+- [x] Extend VFS with persistent file handles, mount identities, and streaming
   reads. Keep active reads safe when a USB device disappears. Add a read-only
   filesystem path for removable media; HyFS v1 has a flat directory, so nested
   paths require a filesystem extension or another filesystem driver.
-- [ ] Add shell commands for device listing, mounts, current directory, and
+- [x] Add shell commands for device listing, mounts, current directory, and
   incremental file display. Keep writes and safe eject as separate later work.
-- **Exit check:** QEMU `usb-storage` mounts a second read-only volume, reads a
-  multi-sector file, and survives repeated attach/detach and injected read
-  failures without partial buffers or page leaks. The boot root stays mounted.
+- **Exit check passed:** QEMU `usb-storage` mounts a second read-only volume and
+  reads a 2 KiB file through MSC BOT on both AHCI and NVMe boots. Delayed reads
+  retain queued COM1 input, and three attach/detach cycles fail atomically,
+  rebuild the controller, reuse its DMA pages, and leave the boot root mounted.
 
-### 5. User-facing terminal and programs
+### 5. User-facing terminal and programs (complete)
 
-- [ ] Finish nested path traversal, file descriptors, and consistent terminal
+- [x] Finish nested path traversal, file descriptors, and consistent terminal
   read/write semantics. Add a basic command registry and useful inspection
   commands before introducing pipelines or background jobs.
-- [ ] Define a user program format, loader, syscall boundary, address-space
-  isolation, and scheduling. Then move the shell out of the kernel.
-- **Exit check:** A user program reads terminal input and a mounted file, exits
-  cleanly, and cannot overwrite kernel memory; serial recovery remains possible
-  after a user program or USB device failure.
+- [x] Define the AUEX user program format, loader, syscall boundary, checked
+  code/data address spaces, and bounded cooperative scheduler. Move command
+  recognition into the user shell layer while the console supervisor retains
+  device ownership and privileged services.
+- **Exit check passed:** On AHCI and NVMe, an AUEX program reads edited terminal
+  input and `/hello.txt`, exits cleanly, and returns every command allocation.
+  A protected write faults without touching kernel memory. COM1 remains usable
+  after that fault and after live USB removal.
 
 Use [QEMU's USB device guide](https://www.qemu.org/docs/master/system/devices/usb.html)
 for the emulated `qemu-xhci`, `usb-kbd`, and `usb-storage` integration matrix.
@@ -240,8 +244,8 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
   failed QEMU reads on both controllers and keep the serial shell responsive.
 - [x] Stress repeated mapping, allocation/release, serial input, and root
   reads, including QEMU-throttled completion waits.
-- [ ] Add VFS file handles and nested directory traversal, then test live corrupt-media
-  and I/O failure paths.
+- [x] Add VFS file handles and namespace traversal, then test live I/O failure
+  and removable-media invalidation paths. HyFS v1 remains a flat on-disk format.
 - [ ] Establish keyboard and storage drivers.
 - [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
   controller stop/reset, descriptor selection, MSC BOT reads via a mock
@@ -250,8 +254,10 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
   present, timer calibration, and cache/DMA synchronization rules.
 - [ ] Complete xHCI rings, port enumeration, control/bulk/interrupt transfers,
   then connect MSC and HID to the kernel's block and input queues.
-- [ ] Define a kernel/runtime boundary, then introduce userland and syscalls as
-  the system matures.
+- [x] Define the checked AUEX kernel/runtime boundary, loader, syscalls, and
+  cooperative scheduler.
+- [ ] Add native ring-3 processes, hardware privilege transitions, preemptive
+  threads, and a native user-space runtime.
 
 The running kernel is already independent of firmware boot services after the
 handoff. These remaining stages turn its bootstrap into a fuller OS. Grow the

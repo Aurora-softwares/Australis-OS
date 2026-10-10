@@ -21,17 +21,18 @@
 //       reuse and repeated map/unmap cycles before mounting the root.
 //   [x] Wait for AHCI MSI or NVMe MSI-X completions on vector 0x31, recover
 //       one failed request through a controller reset, and retain diagnostics.
-//   [ ] Add reusable file handles and nested directory traversal to the VFS.
+//   [x] Add generation-checked file handles and canonical mount traversal.
 //   [ ] Add FAT/FAT32 and NTFS drivers if those volumes become boot requirements.
 //   [x] Calibrate the TSC and replace controller poll budgets with deadlines.
 //   [x] Add reusable IRQ ownership, acknowledgement, and deferred device events.
 //   [ ] Add automatic managed lifetime tracking.
 //   [x] Bring up one live xHCI root device and route boot-keyboard reports into
 //       the shared COM1/framebuffer shell input path with bounded recovery.
-//   [ ] Connect live USB mass storage to the existing BOT protocol layer.
-//   [ ] Add an executable format and program loader.
-//   [ ] Add threads, scheduling, processes, privilege separation, system calls,
-//       a user-space runtime, and an initial user-space shell.
+//   [x] Connect live USB mass storage to the existing BOT protocol layer.
+//   [x] Add the AUEX format, checked loader, file descriptors, system calls,
+//       bounded cooperative scheduling, and a user shell command registry.
+//   [ ] Add native ring-3 processes and preemptive threads after the checked
+//       AUEX boundary has established the user-facing contracts.
 //
 // This method graph is compiled as position-independent freestanding x86-64
 // code. The handoff passes the writable KernelBootInfo address as a long.

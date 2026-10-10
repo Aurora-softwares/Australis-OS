@@ -77,6 +77,7 @@ namespace Australis.Kernel.Usb {
         private bool recoveryNeeded;
         private bool recovering;
         private int recoveryAttempts;
+        private int recoveryFailures;
         private int deviceKind;
         private int storageSectorSize;
         private long storageSectorCount;
@@ -99,7 +100,7 @@ namespace Australis.Kernel.Usb {
             previousReport = new byte[8]; keyboardBuffers = new int[255]; bytes = new int[64];
             byteHead = 0; byteTail = 0; dropped = 0; lastDelivery = 0;
             heldUsage = 0; heldModifiers = 0; repeatDeadline = 0;
-            recoveryNeeded = false; recovering = false; recoveryAttempts = 0;
+            recoveryNeeded = false; recovering = false; recoveryAttempts = 0; recoveryFailures = 0;
             deviceKind = 0; storageSectorSize = 0; storageSectorCount = 0; botTag = 1;
         }
 
@@ -670,6 +671,13 @@ namespace Australis.Kernel.Usb {
             byte[] cdb = new byte[10]; byte[] capacity = new byte[8];
             cdb[0] = 37;
             int result = BotCommand(cdb, 10, capacity, 8, true, NextTag());
+            // Removable media commonly reports UNIT ATTENTION on the first
+            // command after attachment. Consume its sense data, then retry
+            // capacity once without rebuilding a healthy controller.
+            if (result == 1) {
+                RequestSense();
+                result = BotCommand(cdb, 10, capacity, 8, true, NextTag());
+            }
             if (result != 0) {
                 if (result == 1) { RequestSense(); }
                 System.Kernel.Managed.Release(cdb); System.Kernel.Managed.Release(capacity);
@@ -741,7 +749,6 @@ namespace Australis.Kernel.Usb {
 
         public void ResetRecovery() {
             storageReady = false; recoveryNeeded = true; State(21, 63);
-            Pump();
         }
 
         public int SectorSize() { return storageSectorSize; }
@@ -750,7 +757,8 @@ namespace Australis.Kernel.Usb {
             Pump();
             if (!storageReady || destination == null || lba < 0 || sectors < 1 ||
                 sectors > 65535 || sectors > destination.Length / storageSectorSize ||
-                lba > UsbMassStorage.MaxU32()) { return false; }
+                lba > UsbMassStorage.MaxU32() || lba >= storageSectorCount ||
+                sectors > storageSectorCount - lba) { return false; }
             int bytesToRead = sectors * storageSectorSize;
             if (bytesToRead > 65536) { return false; }
             byte[] cdb = new byte[10]; byte[] staged = new byte[bytesToRead];
@@ -771,7 +779,7 @@ namespace Australis.Kernel.Usb {
         }
         public bool Flush() { return storageReady; }
         public bool IsKeyboard() { return deviceKind == 1 && keyboardReady; }
-        public bool IsStorage() { Pump(); return deviceKind == 2 && storageReady; }
+        public bool IsStorage() { return deviceKind == 2 && storageReady; }
 
         public bool Initialize() {
             State(1, 0);
@@ -835,7 +843,7 @@ namespace Australis.Kernel.Usb {
             if (!WaitClear(operational + 4, 1, 1000)) { State(4, 47); Release(); return false; }
             lastDelivery = System.Kernel.Memory.Read64(bootInfo + 2304);
             if (!ResetPort() || !AddressDevice() || !ConfigureDevice()) { Release(); return false; }
-            recoveryNeeded = false;
+            recoveryNeeded = false; recoveryFailures = 0;
             if (deviceKind == 2) {
                 storageReady = true; State(20, 0);
                 System.Kernel.Memory.Write64(bootInfo + 2440, dma);
@@ -856,10 +864,11 @@ namespace Australis.Kernel.Usb {
                 System.Kernel.Memory.Read32(bootInfo + 2336) > 0) { ServiceInterrupt(); }
             if (recoveryNeeded && !recovering && ConnectedPort() != 0) {
                 recovering = true; recoveryAttempts = recoveryAttempts + 1;
+                recoveryFailures = recoveryFailures + 1;
                 System.Kernel.Memory.Write32(bootInfo + 2432, recoveryAttempts);
                 Release(); port = 0; slot = 0; endpointId = 0;
                 bulkOutEndpoint = 0; bulkInEndpoint = 0; deviceKind = 0;
-                if (recoveryAttempts <= 3) {
+                if (recoveryFailures <= 3) {
                     Initialize();
                 } else {
                     State(13, 50);
