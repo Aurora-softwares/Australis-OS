@@ -1,23 +1,24 @@
 # Australis OS roadmap
 
 This file tracks **OS development milestones**, not component ABI versions or
-published releases. The detailed implementation plan is in [PLAN.md](PLAN.md);
-subsystem completion criteria are in the
-[bootloader](src/bootloader/README.md) and [kernel](src/kernel/README.md) notes.
+published releases. The detailed implementation plans are in [PLAN.md](PLAN.md)
+and the [userland plan](src/userland/README.md). Subsystem completion criteria
+are in the [bootloader](src/bootloader/README.md) and
+[kernel](src/kernel/README.md) notes.
 
 ## Current position
 
 **Recommended development version: `0.0.7`.** The working tree has a booting
 Hylang kernel, read-only HyFS, a terminal shell, USB input and storage, and
 checked AUEX programs with a cooperative scheduler. The next milestone is
-native user mode. This assessment describes source capability; it is not a
-claim that `0.0.7` has been tagged or released.
+arguments and external userland commands. This assessment describes source
+capability; it is not a claim that `0.0.7` has been tagged or released.
 
-Version metadata needs alignment when this milestone is adopted: the shell,
-kernel project, and bootloader project still report `0.0.1`, while the top-level
-OS project declares `0.1.0`. Neither currently identifies the development
-milestone accurately. AUKR, AUEX, HyFS, and boot-information ABI versions are
-separate format versions and should not be changed to match the OS version.
+Version metadata needs alignment when this milestone is adopted: the shell
+reports `0.0.1`, while the top-level OS project declares `0.1.0`. Neither
+currently identifies the development milestone accurately. Component package
+versions and the AUKR, AUEX, HyFS, and boot-information ABI versions are
+separate and should not be changed just to match the OS version.
 
 ## Milestones
 
@@ -34,15 +35,16 @@ complete or validated on physical hardware.
 | `0.0.5` | Implemented | Validate the kernel image before entry. | Read AHCI/NVMe block devices, discover GPT partitions, and expose a VFS. |
 | `0.0.6` | Implemented | Boot the storage-backed kernel under QEMU/OVMF. | Mount read-only HyFS, read files, and accept USB keyboard input and USB storage through xHCI. |
 | `0.0.7` | Current development milestone | Maintain the existing handoff. | Run an initial shell and checked AUEX programs with file descriptors, terminal calls, bounded cooperative scheduling, and fault cleanup. |
-| `0.0.8` | Next | Keep the handoff compatible with native processes. | Execute native programs in ring 3 with hardware-enforced address spaces, a native system-call entry, and context switching. |
-| `0.0.9` | Planned | Add selectable debug/silent modes and boot configuration. | Add writable HyFS operations, flush/recovery semantics, and a usable persistent shell environment. |
-| `0.1.0` | Planned stable baseline | Pass negative-path boot tests and supported physical UEFI boot checks. | Pass the release test matrix and provide a stable foundational kernel and basic usable environment. |
+| `0.0.8` | Next | Preserve the existing handoff and recovery console. | Pass arguments to AUEX programs, add process start/wait results, and run source-built external commands from the shell. |
+| `0.0.9` | Planned | Add selectable debug/silent modes and boot configuration. | Add directory-capable writable HyFS with flush/recovery semantics, then start and supervise `System.exec` as PID 1. |
+| `0.1.0` | Planned stable baseline | Pass negative-path boot tests and supported physical UEFI boot checks. | Run native user programs in ring 3 with hardware-enforced isolation and system calls, and pass the release test matrix. |
 
 ## Outstanding work before `0.1.0`
 
-- **Processes and isolation:** AUEX currently runs in a checked interpreter.
-  Native ring-3 execution, hardware privilege separation, native system calls,
-  context switching, and preemptive threads remain open.
+- **Userland and isolation:** AUEX currently runs in a checked interpreter.
+  Process arguments, external shell commands, PID 1, native ring-3 execution,
+  hardware privilege separation, native system calls, context switching, and
+  preemptive threads remain open.
 - **Writable storage:** HyFS and removable USB volumes are read-only. On-disk
   directories, write and flush support, recovery, and safe removal remain open.
 - **Boot experience:** Boot progress output is always enabled. Selectable
