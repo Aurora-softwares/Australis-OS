@@ -778,6 +778,7 @@ namespace Australis.Kernel.Usb {
             return true;
         }
         public bool Flush() { return storageReady; }
+        public bool Write(long lba, int sectors, byte[] source) { return false; }
         public bool IsKeyboard() { return deviceKind == 1 && keyboardReady; }
         public bool IsStorage() { return deviceKind == 2 && storageReady; }
 

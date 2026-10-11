@@ -104,6 +104,25 @@ namespace Australis.Kernel.Storage {
             return true;
         }
 
+        public static bool BuildWrite(byte[] command, int commandId, int namespaceId,
+            long dataPhysical, long lba, int blocks, int sectorSize) {
+            if (!BuildRead(command, commandId, namespaceId, dataPhysical,
+                lba, blocks, sectorSize)) { return false; }
+            command[0] = 1; // NVM Write
+            return true;
+        }
+
+        public static bool BuildFlush(byte[] command, int commandId, int namespaceId) {
+            if (command == null || command.Length < 64 || commandId < 0 ||
+                commandId > 65535 || namespaceId < 1) { return false; }
+            int i = 0;
+            while (i < 64) { command[i] = 0; i = i + 1; }
+            command[2] = (byte)(commandId % 256);
+            command[3] = (byte)(commandId / 256);
+            Write32(command, 4, namespaceId);
+            return true; // opcode 0 is NVM Flush
+        }
+
         // Parse the active namespace format. `NSZE` must be positive and only
         // 512..4096-byte logical blocks enter the common bootstrap block layer.
         public static int NamespaceSectorSize(byte[] identifyNamespace) {
@@ -127,9 +146,8 @@ namespace Australis.Kernel.Storage {
         }
     }
 
-    // Synchronous, polling NVMe 1.x bootstrap for namespace 1. Queue depth is
-    // two and every transfer uses one page-aligned PRP, so no PRP list is
-    // needed. Interrupts and writes are intentionally outside this reader.
+    // Synchronous NVMe 1.x transport for namespace 1. Queue depth is two and
+    // every transfer uses one page-aligned PRP, so no PRP list is needed.
     public class NvmeController : IBlockTransport {
         private static long U32Base() { long high = 65536; return high * high; }
         private INvmeControllerIo io;
@@ -287,7 +305,63 @@ namespace Australis.Kernel.Storage {
 
         public int SectorSize() { return sectorSize; }
         public long SectorCount() { return sectorCount; }
-        public bool Flush() { return ready; } // read-only bootstrap
+        public bool Flush() {
+            if (!ready) { return false; }
+            byte[] command = new byte[64];
+            if (!Nvme.BuildFlush(command, 0, 1) || !Submit(false, command)) {
+                recoveryState = 4; io.ReportFailure(lastError, recoveryState);
+                ready = false; return false;
+            }
+            return true;
+        }
+
+        public bool Write(long lba, int sectors, byte[] source) {
+            if (!ready || lba < 0 || sectors < 1 || source == null ||
+                lba >= sectorCount || sectors > sectorCount - lba ||
+                sectors > source.Length / sectorSize) { return false; }
+            byte[] page = new byte[4096];
+            int remaining = sectors;
+            int copied = 0;
+            while (remaining > 0) {
+                int blocks = 4096 / sectorSize;
+                if (blocks > remaining) { blocks = remaining; }
+                int count = blocks * sectorSize;
+                int index = 0;
+                while (index < count) {
+                    page[index] = source[copied + index]; index = index + 1;
+                }
+                io.WriteDma(4, 0, page, count);
+                byte[] command = new byte[64];
+                if (!Nvme.BuildWrite(command, 0, 1, io.PhysicalPage(4), lba,
+                    blocks, sectorSize) || !Submit(false, command)) {
+                    recoveryState = 4; io.ReportFailure(lastError, recoveryState);
+                    ready = false; return false;
+                }
+                // Some emulated backends can complete a write command even
+                // when the underlying write was discarded after an injected
+                // I/O error. Confirm each DMA chunk before reporting success.
+                byte[] verify = new byte[4096];
+                command = new byte[64];
+                if (!Nvme.BuildRead(command, 0, 1, io.PhysicalPage(4), lba,
+                    blocks, sectorSize) || !Submit(false, command)) {
+                    recoveryState = 4; io.ReportFailure(lastError, recoveryState);
+                    ready = false; return false;
+                }
+                io.ReadDma(4, 0, verify, count);
+                index = 0;
+                while (index < count) {
+                    if (verify[index] != source[copied + index]) {
+                        lastError = 7; recoveryState = 4;
+                        io.ReportFailure(lastError, recoveryState);
+                        ready = false; return false;
+                    }
+                    index = index + 1;
+                }
+                copied = copied + count;
+                lba = lba + blocks; remaining = remaining - blocks;
+            }
+            return true;
+        }
         public int LastError() { return lastError; }
         public int RecoveryState() { return recoveryState; }
         public int RetryCount() { return retries; }

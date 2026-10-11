@@ -47,31 +47,124 @@ namespace Australis.User {
         public NativeUserFiles(VfsNamespace inputMounts) {
             mounts = inputMounts; handles = new VfsFileHandle[16];
         }
-        public int Open(byte[] path, int count) {
-            if (mounts == null || path == null || count < 1 || count > path.Length) { return -1; }
-            string text = System.Kernel.String.FromBytes(path, count);
-            VfsFileHandle handle = mounts.Open(text);
-            if (handle == null || !handle.IsOpen()) { return -1; }
+        private int Place(VfsFileHandle handle) {
+            if (handle == null) { return -VfsStatus.Corrupt(); }
+            if (!handle.IsOpen()) { return -handle.Status(); }
             int descriptor = 3;
             while (descriptor < handles.Length && handles[descriptor] != null) {
                 descriptor = descriptor + 1;
             }
-            if (descriptor == handles.Length) { handle.Close(); return -1; }
+            if (descriptor == handles.Length) { handle.Close(); return -VfsStatus.NoSpace(); }
             handles[descriptor] = handle; return descriptor;
+        }
+        private string Path(byte[] path, int count) {
+            if (path == null || count < 1 || count > 255 || count > path.Length) {
+                return null;
+            }
+            return System.Kernel.String.FromBytes(path, count);
+        }
+        public int Open(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) { return -VfsStatus.InvalidArgument(); }
+            return Place(mounts.Open(text));
+        }
+        public int OpenWrite(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) { return -VfsStatus.InvalidArgument(); }
+            return Place(mounts.OpenWrite(text));
         }
         public int Read(int descriptor, byte[] destination, int capacity) {
             if (descriptor < 3 || descriptor >= handles.Length || handles[descriptor] == null ||
-                destination == null || capacity < 0 || capacity > destination.Length) { return -1; }
+                destination == null || capacity < 0 || capacity > destination.Length) {
+                return -VfsStatus.InvalidArgument();
+            }
             VfsFileHandle handle = handles[descriptor];
-            if (!handle.IsOpen()) { return -1; }
+            if (!handle.IsOpen()) { return -VfsStatus.NotMounted(); }
             int count = capacity;
             if (handle.Remaining() < count) { count = (int)handle.Remaining(); }
             if (count == 0) { return 0; }
             byte[] bytes = new byte[count];
-            if (handle.Read(bytes) != VfsStatus.Ok()) { return -1; }
+            int status = handle.Read(bytes);
+            if (status != VfsStatus.Ok()) { return -status; }
             int i = 0;
             while (i < count) { destination[i] = bytes[i]; i = i + 1; }
             return count;
+        }
+        public int Write(int descriptor, byte[] source, int count, bool append) {
+            if (descriptor < 3 || descriptor >= handles.Length || handles[descriptor] == null ||
+                source == null || count < 0 || count > source.Length) {
+                return VfsStatus.InvalidArgument();
+            }
+            byte[] bytes = new byte[count];
+            int i = 0;
+            while (i < count) { bytes[i] = source[i]; i = i + 1; }
+            if (append) { return handles[descriptor].Append(bytes); }
+            return handles[descriptor].Replace(bytes);
+        }
+        public int Truncate(int descriptor, long length) {
+            if (descriptor < 3 || descriptor >= handles.Length || handles[descriptor] == null) {
+                return VfsStatus.InvalidArgument();
+            }
+            return handles[descriptor].Truncate(length);
+        }
+        public int Create(byte[] path, int count, byte[] contents) {
+            string text = Path(path, count);
+            if (mounts == null || text == null || contents == null) {
+                return VfsStatus.InvalidArgument();
+            }
+            return mounts.CreateFile(text, contents);
+        }
+        public int Delete(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) { return VfsStatus.InvalidArgument(); }
+            return mounts.DeleteFile(text);
+        }
+        public int Mkdir(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) { return VfsStatus.InvalidArgument(); }
+            return mounts.Mkdir(text);
+        }
+        public int Rmdir(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) { return VfsStatus.InvalidArgument(); }
+            return mounts.Rmdir(text);
+        }
+        public int Rename(byte[] source, int sourceCount, byte[] destination,
+            int destinationCount) {
+            string first = Path(source, sourceCount);
+            string second = Path(destination, destinationCount);
+            if (mounts == null || first == null || second == null) {
+                return VfsStatus.InvalidArgument();
+            }
+            return mounts.Rename(first, second);
+        }
+        public UserFileInfo Stat(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) {
+                return new UserFileInfo(VfsStatus.InvalidArgument(), 0, 0, 0, 0, 0, 0, 0);
+            }
+            VfsFileInfo info = mounts.Stat(text);
+            int flags = 0;
+            if (info.HasCreationTime()) { flags = flags + 1; }
+            if (info.HasModificationTime()) { flags = flags + 2; }
+            return new UserFileInfo(info.Status(), info.Kind(), info.ByteLength(),
+                info.ObjectId(), info.CreatedUnixSeconds(), info.ModifiedUnixSeconds(),
+                flags, info.Attributes());
+        }
+        public UserDirectoryInfo DirectoryCount(byte[] path, int count) {
+            string text = Path(path, count);
+            if (mounts == null || text == null) {
+                return new UserDirectoryInfo(VfsStatus.InvalidArgument(), 0);
+            }
+            VfsDirectoryResult info = mounts.DirectoryInfo(text);
+            return new UserDirectoryInfo(info.Status(), info.Count());
+        }
+        public int DirectoryName(byte[] path, int count, int index, byte[] destination) {
+            string text = Path(path, count);
+            if (mounts == null || text == null || destination == null) {
+                return -VfsStatus.InvalidArgument();
+            }
+            return mounts.ReadDirectoryName(text, index, destination);
         }
         public bool Close(int descriptor) {
             if (descriptor < 3 || descriptor >= handles.Length || handles[descriptor] == null) {

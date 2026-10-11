@@ -55,6 +55,16 @@ public class KernelMain {
         return guid;
     }
 
+    private static byte[] HyfsDataTypeGuid() {
+        // e9344e1c-1e85-5b78-9b94-488ef463fe7a
+        byte[] guid = new byte[16];
+        guid[0] = 28; guid[1] = 78; guid[2] = 52; guid[3] = 233;
+        guid[4] = 133; guid[5] = 30; guid[6] = 120; guid[7] = 91;
+        guid[8] = 155; guid[9] = 148; guid[10] = 72; guid[11] = 142;
+        guid[12] = 244; guid[13] = 99; guid[14] = 254; guid[15] = 122;
+        return guid;
+    }
+
     private static int ValidateBootInfo(long bootInfo) {
         if (bootInfo < 4096) { return 1; }
         if (System.Kernel.Memory.Read32(bootInfo) != 1229083969) { return 2; }
@@ -320,11 +330,43 @@ public class KernelMain {
         System.Kernel.Memory.Write64(bootInfo + 1096, root.FirstLba());
         System.Kernel.Memory.Write64(bootInfo + 1104, root.BlockCount());
         Australis.Kernel.Vfs.Vfs vfs = new Australis.Kernel.Vfs.Vfs();
-        int mountStatus = vfs.MountRoot(new Australis.Kernel.Vfs.Hyfs(), disk, root);
+        int mountStatus = vfs.MountRoot(new Australis.Kernel.Vfs.HyfsAuto(), disk, root);
         System.Kernel.Memory.Write32(bootInfo + 1076, mountStatus);
         if (mountStatus != Australis.Kernel.Vfs.VfsStatus.Ok() || !vfs.IsRootMounted()) { return 20; }
         int rootState = 1;
         System.Kernel.Memory.Write32(bootInfo + 1072, rootState);
+
+        // Keep the boot image read-only. The separately typed raw HyFS 2 data
+        // partition is the persistent writable volume at /data.
+        Australis.Kernel.Vfs.Vfs dataVfs = new Australis.Kernel.Vfs.Vfs();
+        Australis.Kernel.Storage.Partition dataPartition =
+            gpt.FirstWithTypeGuid(HyfsDataTypeGuid());
+        if (gpt.LastStatus() == Australis.Kernel.Storage.GptDiskStatus.Ok() &&
+            dataPartition.Present() && dataPartition.FirstLba() >= 0 &&
+            dataPartition.BlockCount() > 0 &&
+            dataPartition.FirstLba() < disk.SectorCount() &&
+            dataPartition.BlockCount() <= disk.SectorCount() - dataPartition.FirstLba() &&
+            (dataPartition.FirstLba() >= root.FirstLba() + root.BlockCount() ||
+             root.FirstLba() >= dataPartition.FirstLba() + dataPartition.BlockCount())) {
+            System.Kernel.Memory.Write64(bootInfo + 2696, dataPartition.FirstLba());
+            System.Kernel.Memory.Write64(bootInfo + 2704, dataPartition.BlockCount());
+            int dataMount = dataVfs.MountRootWritableAs(
+                new Australis.Kernel.Vfs.Hyfs2(), disk, dataPartition, 3);
+            System.Kernel.Memory.Write32(bootInfo + 2692, dataMount);
+            if (dataMount == Australis.Kernel.Vfs.VfsStatus.Ok()) {
+                Australis.Kernel.Vfs.VfsNamespace dataNamespace =
+                    new Australis.Kernel.Vfs.VfsNamespace(vfs, null, dataVfs);
+                Australis.Kernel.Vfs.VfsPath dataPath = dataNamespace.Resolve("/data");
+                Australis.Kernel.Vfs.VfsFileInfo dataInfo = dataNamespace.Stat("/data");
+                if (dataPath.IsValid() && dataPath.Volume() == dataVfs &&
+                    dataPath.LocalPath() == "/" && dataInfo.Exists() &&
+                    dataInfo.Kind() == 2) {
+                    System.Kernel.Memory.Write32(bootInfo + 2688, 1);
+                    System.Kernel.Memory.Write32(bootInfo + 2712,
+                        Australis.Kernel.Storage.DataVolumeProbe.Run(disk, dataPartition));
+                }
+            }
+        }
 
         // These bounded reads publish diagnostics for the boot image. A valid
         // root with different files remains bootable; QEMU verifies both
@@ -391,7 +433,7 @@ public class KernelMain {
                         usbGpt.FirstWithTypeGuid(HyfsTypeGuid());
                     if (usbRoot.Present()) {
                         int usbMount = removableVfs.MountRootAs(
-                            new Australis.Kernel.Vfs.Hyfs(), usbDisk, usbRoot, 2);
+                            new Australis.Kernel.Vfs.HyfsAuto(), usbDisk, usbRoot, 2);
                         System.Kernel.Memory.Write32(bootInfo + 2516, usbMount);
                     }
                 }
@@ -408,7 +450,7 @@ public class KernelMain {
             }
             Australis.Kernel.Console.ConsoleShell shell =
                 new Australis.Kernel.Console.ConsoleShell(shellInput, output, vfs,
-                    removableVfs, usbKeyboard, bootInfo);
+                    removableVfs, dataVfs, usbKeyboard, bootInfo);
             shell.Run();
         }
         while (true) { System.Kernel.Cpu.Halt(); }

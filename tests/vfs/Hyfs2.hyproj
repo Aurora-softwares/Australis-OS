@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisHyfs2Tests"
+type = "exe"
+sources = ["../../src/kernel/storage/BlockDevice.hy", "../../src/kernel/storage/Partitions.hy", "../../src/kernel/vfs/Vfs.hy", "../../build/host-vfs/Hyfs.hy", "../../src/kernel/vfs/Hyfs2.hy", "Hyfs2Program.hy"]
+
+[package]
+id = "AustralisHyfs2Tests"
+description = "Host-side HyFS v2 reader tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

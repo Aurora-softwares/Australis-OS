@@ -58,9 +58,9 @@ the root filesystem. The system manager supervises services and creates a
 session. A text-only boot can start `CommandShell.exec` without starting any
 GUI component.
 
-The current `SYSTEM.EFI` project is an early placeholder and is not launched
-after the kernel handoff. It will be replaced by the user executable described
-above once process arguments, process waiting, and service supervision exist.
+The former `SYSTEM.EFI` placeholder has been retired. It will be replaced by
+the user executable described above once process arguments, process waiting,
+and service supervision exist.
 
 ## Source layout
 

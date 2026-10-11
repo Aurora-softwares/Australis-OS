@@ -29,7 +29,17 @@ public class UserMockTerminal : IUserTerminal {
 
 public class UserMockFiles : IUserFiles {
     private bool open; private int position; private bool closeAllCalled;
-    public UserMockFiles() { open = false; position = 0; closeAllCalled = false; }
+    private bool created; private bool writeOpen; private byte[] content;
+    private int contentLength;
+    public UserMockFiles() {
+        open = false; position = 0; closeAllCalled = false;
+        created = false; writeOpen = false; content = new byte[32]; contentLength = 0;
+    }
+    private bool NewPath(byte[] path, int count) {
+        return path != null && count == 9 && path[0] == 47 && path[1] == 100 &&
+            path[2] == 97 && path[3] == 116 && path[4] == 97 &&
+            path[5] == 47 && path[6] == 110 && path[7] == 101 && path[8] == 119;
+    }
     public int Open(byte[] path, int count) {
         if (path == null || count != 10 || path[0] != 47 || path[1] != 104 ||
             path[2] != 101 || path[3] != 108 || path[4] != 108 || path[5] != 111 ||
@@ -52,21 +62,96 @@ public class UserMockFiles : IUserFiles {
         }
         position = position + count; return count;
     }
+    public int OpenWrite(byte[] path, int count) {
+        if (!created || !NewPath(path, count)) { return -4; }
+        writeOpen = true; return 4;
+    }
+    public int Write(int descriptor, byte[] source, int count, bool append) {
+        if (!writeOpen || descriptor != 4 || source == null || count < 0 ||
+            count > source.Length) { return 1; }
+        int start = 0;
+        if (append) { start = contentLength; }
+        if (count > content.Length - start) { return 11; }
+        int i = 0;
+        while (i < count) { content[start + i] = source[i]; i = i + 1; }
+        contentLength = start + count; return 0;
+    }
+    public int Truncate(int descriptor, long length) {
+        if (!writeOpen || descriptor != 4 || length < 0 || length > content.Length) {
+            return 1;
+        }
+        int i = contentLength;
+        while (i < length) { content[i] = 0; i = i + 1; }
+        contentLength = (int)length; return 0;
+    }
+    public int Create(byte[] path, int count, byte[] contents) {
+        if (!NewPath(path, count) || contents == null || contents.Length > content.Length) {
+            return 1;
+        }
+        if (created) { return 9; }
+        created = true; contentLength = contents.Length;
+        int i = 0;
+        while (i < contentLength) { content[i] = contents[i]; i = i + 1; }
+        return 0;
+    }
+    public int Delete(byte[] path, int count) {
+        if (!created || !NewPath(path, count)) { return 4; }
+        created = false; writeOpen = false; return 0;
+    }
+    public int Mkdir(byte[] path, int count) { return 8; }
+    public int Rmdir(byte[] path, int count) { return 8; }
+    public int Rename(byte[] source, int sourceCount, byte[] destination,
+        int destinationCount) { return 8; }
+    public UserFileInfo Stat(byte[] path, int count) {
+        if (count == 10 && path[0] == 47 && path[1] == 104) {
+            return new UserFileInfo(0, 1, 5, 17, 0, 0, 0, 0);
+        }
+        if (count == 1 && path[0] == 47) {
+            return new UserFileInfo(0, 2, 0, 1, 0, 0, 0, 0);
+        }
+        if (created && NewPath(path, count)) {
+            return new UserFileInfo(0, 1, contentLength, 18, 0, 0, 0, 0);
+        }
+        return new UserFileInfo(4, 0, 0, 0, 0, 0, 0, 0);
+    }
+    public UserDirectoryInfo DirectoryCount(byte[] path, int count) {
+        if (count == 1 && path[0] == 47) { return new UserDirectoryInfo(0, 1); }
+        return new UserDirectoryInfo(4, 0);
+    }
+    public int DirectoryName(byte[] path, int count, int index, byte[] destination) {
+        if (count != 1 || path[0] != 47 || index != 0 ||
+            destination == null || destination.Length < 9) { return -1; }
+        destination[0] = 104; destination[1] = 101; destination[2] = 108;
+        destination[3] = 108; destination[4] = 111; destination[5] = 46;
+        destination[6] = 116; destination[7] = 120; destination[8] = 116;
+        return 9;
+    }
     public bool Close(int descriptor) {
+        if (descriptor == 4 && writeOpen) { writeOpen = false; return true; }
         if (!open || descriptor != 3) { return false; }
         open = false; return true;
     }
-    public void CloseAll() { open = false; closeAllCalled = true; }
+    public void CloseAll() {
+        open = false; writeOpen = false; closeAllCalled = true;
+    }
     public bool CloseAllCalled() { return closeAllCalled; }
+    public bool Created() { return created; }
+    public int ContentLength() { return contentLength; }
+    public int ContentByte(int index) { return content[index]; }
 }
 
 public class UserBytecodeBuilder {
     private byte[] code; private int length;
-    public UserBytecodeBuilder() { code = new byte[256]; length = 0; }
+    public UserBytecodeBuilder() { code = new byte[1024]; length = 0; }
     public void Byte(int value) { code[length] = (byte)value; length = length + 1; }
     public void U32(long value) {
         int i = 0;
         while (i < 4) { Byte((int)(value % 256)); value = value / 256; i = i + 1; }
+    }
+    public int Position() { return length; }
+    public void PatchU32(int offset, long value) {
+        int i = 0;
+        while (i < 4) { code[offset + i] = (byte)(value % 256); value = value / 256; i = i + 1; }
     }
     public void Write(long address, int count) { Byte(2); U32(address); U32(count); }
     public void ReadTerminal(long address, int count) { Byte(3); U32(address); U32(count); }
@@ -77,6 +162,16 @@ public class UserBytecodeBuilder {
     public void Store(long address, int value) { Byte(8); U32(address); Byte(value); }
     public void Yield() { Byte(9); }
     public void Jump(int target) { Byte(10); U32(target); }
+    public void Push(int value) { Byte(11); U32(value); }
+    public void Load(int slot) { Byte(12); Byte(slot); }
+    public void StoreLocal(int slot) { Byte(13); Byte(slot); }
+    public void Pop() { Byte(14); }
+    public void Add() { Byte(15); }
+    public void Divide() { Byte(18); }
+    public void Less() { Byte(23); }
+    public int JumpIfFalse() { Byte(28); int patch = length; U32(0); return patch; }
+    public void ExitValue() { Byte(29); }
+    public void WriteValue(int format) { Byte(32); Byte(format); }
     public void Exit(int value) { Byte(1); Byte(value); }
     public byte[] Bytes() {
         byte[] result = new byte[length]; int i = 0;
@@ -134,9 +229,114 @@ public class UserImages {
         byte[] data = new byte[0]; UserBytecodeBuilder code = new UserBytecodeBuilder();
         code.Yield(); code.Jump(0); return Image(code.Bytes(), data, 1);
     }
+    public static byte[] ArithmeticLoop() {
+        byte[] data = new byte[0]; UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Push(0); code.StoreLocal(0); code.Pop();
+        code.Push(1); code.StoreLocal(1); code.Pop();
+        int condition = code.Position();
+        code.Load(1); code.Push(6); code.Less(); int done = code.JumpIfFalse();
+        code.Load(0); code.Load(1); code.Add(); code.StoreLocal(0); code.Pop();
+        code.Load(1); code.Push(1); code.Add(); code.StoreLocal(1); code.Pop();
+        code.Jump(condition); code.PatchU32(done, code.Position());
+        code.Load(0); code.WriteValue(1); code.Load(0); code.ExitValue();
+        return Image(code.Bytes(), data, 1);
+    }
+    public static byte[] DivideByZero() {
+        byte[] data = new byte[0]; UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Push(9); code.Push(0); code.Divide(); code.ExitValue();
+        return Image(code.Bytes(), data, 1);
+    }
+    public static byte[] Api() {
+        long baseAddress = UserAddressSpace.DataBase();
+        byte[] data = new byte[64];
+        byte[] hello = new byte[10];
+        hello[0] = 47; hello[1] = 104; hello[2] = 101; hello[3] = 108;
+        hello[4] = 108; hello[5] = 111; hello[6] = 46; hello[7] = 116;
+        hello[8] = 120; hello[9] = 116;
+        int i = 0;
+        while (i < 10) { data[i] = hello[i]; i = i + 1; }
+        data[16] = 47;
+        byte[] next = new byte[9];
+        next[0] = 47; next[1] = 100; next[2] = 97; next[3] = 116;
+        next[4] = 97; next[5] = 47; next[6] = 110; next[7] = 101;
+        next[8] = 119;
+        i = 0; while (i < 9) { data[32 + i] = next[i]; i = i + 1; }
+        data[48] = 97; data[49] = 98; data[50] = 99; data[51] = 100;
+        UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Byte(33); code.Byte(0); code.U32(baseAddress); code.U32(10);
+        code.WriteValue(1);
+        code.Byte(33); code.Byte(1); code.U32(baseAddress); code.U32(10);
+        code.WriteValue(1);
+        code.Byte(34); code.U32(baseAddress + 16); code.U32(1);
+        code.WriteValue(1);
+        code.Push(0); code.Byte(35); code.U32(baseAddress + 16);
+        code.U32(1); code.U32(baseAddress + 128); code.Pop();
+        code.WriteCount(baseAddress + 128);
+        code.Byte(11); code.U32(4294967295);
+        code.Byte(35); code.U32(baseAddress + 16);
+        code.U32(1); code.U32(baseAddress + 128); code.Pop();
+        code.Byte(36); code.U32(baseAddress + 32); code.U32(9);
+        code.U32(baseAddress + 48); code.U32(3); code.StoreLocal(0); code.Pop();
+        code.Byte(37); code.Byte(1); code.U32(baseAddress + 32);
+        code.U32(9); code.StoreLocal(1); code.Pop();
+        code.Byte(38); code.Byte(1); code.U32(baseAddress + 51);
+        code.U32(1); code.StoreLocal(2); code.Pop();
+        code.Push(2); code.Byte(39); code.StoreLocal(3); code.Pop();
+        code.Byte(43); code.StoreLocal(4); code.Pop();
+        code.Byte(33); code.Byte(1); code.U32(baseAddress + 32);
+        code.U32(9); code.WriteValue(1);
+        code.Byte(40); code.Byte(0); code.U32(baseAddress + 32);
+        code.U32(9); code.StoreLocal(5); code.Pop();
+        code.Byte(42); code.StoreLocal(6); code.Pop();
+        code.Load(0); code.Load(1); code.Add(); code.Load(2); code.Add();
+        code.Load(3); code.Add(); code.Load(4); code.Add();
+        code.Load(5); code.Add(); code.Load(6); code.Add();
+        code.ExitValue();
+        return Image(code.Bytes(), data, 256);
+    }
+    public static byte[] BadApiPointer() {
+        byte[] data = new byte[1];
+        UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Byte(36); code.U32(4096); code.U32(4);
+        code.U32(UserAddressSpace.DataBase()); code.U32(0);
+        code.ExitValue();
+        return Image(code.Bytes(), data, 64);
+    }
 }
 
 public class Program {
+    private static int CompiledInspector(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 20; }
+        UserMockTerminal terminal = new UserMockTerminal(new byte[0]);
+        UserProgramResult result = new UserProgramHost(terminal,
+            new UserMockFiles()).Run(executable);
+        byte[] expected = new byte[12];
+        expected[0] = 47; expected[1] = 104; expected[2] = 101;
+        expected[3] = 108; expected[4] = 108; expected[5] = 111;
+        expected[6] = 46; expected[7] = 116; expected[8] = 120;
+        expected[9] = 116; expected[10] = 13; expected[11] = 10;
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            !terminal.Contains(expected)) { return 21; }
+        System.Console.WriteLine("Compiled Inspector AUEX test passed");
+        return 0;
+    }
+    private static int CompiledFileApi(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 22; }
+        UserMockFiles files = new UserMockFiles();
+        UserProgramResult result = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), files).Run(executable);
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            files.Created() || files.ContentLength() != 2 ||
+            files.ContentByte(0) != 120 || files.ContentByte(1) != 121) {
+            return 23;
+        }
+        System.Console.WriteLine("Compiled file API AUEX test passed");
+        return 0;
+    }
     private static byte[] InputText() {
         byte[] input = new byte[5]; input[0] = 97; input[1] = 98; input[2] = 8;
         input[3] = 99; input[4] = 13; return input;
@@ -151,7 +351,12 @@ public class Program {
         value[3] = 101; value[4] = 58; value[5] = 32; value[6] = 104;
         value[7] = 101; value[8] = 108; value[9] = 108; value[10] = 111; return value;
     }
-    public static int Main() {
+    public static int Main(string[] args) {
+        if (args != null && args.Length == 2) {
+            if (args[0] == "inspector") { return CompiledInspector(args[1]); }
+            if (args[0] == "file-api") { return CompiledFileApi(args[1]); }
+            return 24;
+        }
         byte[] demo = UserImages.Demo();
         UserExecutable executable = new UserExecutable(demo);
         if (!executable.IsValid() || executable.DataCapacity() != 512) { return 1; }
@@ -178,6 +383,37 @@ public class Program {
             new UserExecutable(UserImages.Loop()));
         if (result.State() != UserProgramState.Faulted() ||
             result.Fault() != UserFault.InstructionLimit() || !loopFiles.CloseAllCalled()) { return 5; }
+
+        UserMockTerminal arithmeticTerminal = new UserMockTerminal(new byte[0]);
+        result = new UserProgramHost(arithmeticTerminal, new UserMockFiles()).Run(
+            new UserExecutable(UserImages.ArithmeticLoop()));
+        byte[] arithmeticOutput = new byte[4]; arithmeticOutput[0] = 49; arithmeticOutput[1] = 53;
+        arithmeticOutput[2] = 13; arithmeticOutput[3] = 10;
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 15 ||
+            result.Fault() != UserFault.None() || !arithmeticTerminal.Contains(arithmeticOutput)) { return 8; }
+
+        result = new UserProgramHost(new UserMockTerminal(new byte[0]), new UserMockFiles()).Run(
+            new UserExecutable(UserImages.DivideByZero()));
+        if (result.State() != UserProgramState.Faulted() || result.Fault() != UserFault.Arithmetic()) { return 9; }
+
+        UserMockTerminal apiTerminal = new UserMockTerminal(new byte[0]);
+        UserMockFiles apiFiles = new UserMockFiles();
+        result = new UserProgramHost(apiTerminal, apiFiles).Run(
+            new UserExecutable(UserImages.Api()));
+        byte[] directoryName = new byte[9];
+        directoryName[0] = 104; directoryName[1] = 101; directoryName[2] = 108;
+        directoryName[3] = 108; directoryName[4] = 111; directoryName[5] = 46;
+        directoryName[6] = 116; directoryName[7] = 120; directoryName[8] = 116;
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            !apiTerminal.Contains(directoryName) || apiFiles.Created() ||
+            apiFiles.ContentLength() != 2 || apiFiles.ContentByte(0) != 97 ||
+            apiFiles.ContentByte(1) != 98) { return 10; }
+
+        result = new UserProgramHost(new UserMockTerminal(new byte[0]),
+            new UserMockFiles()).Run(new UserExecutable(UserImages.BadApiPointer()));
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 1) {
+            return 11;
+        }
 
         byte[] command = new byte[20];
         command[0] = 32; command[1] = 32; command[2] = 114; command[3] = 117;

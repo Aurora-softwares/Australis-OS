@@ -55,11 +55,11 @@ make build
 make iso
 ```
 
-`src/australlis.hyproj` is a Hydrogen `os` project referencing the bootloader,
-kernel, and system projects. The bootloader and system projects use
-`type = "efi"`; the kernel uses `type = "kernel"`. Hydrogen builds the
-bootloader and system projects as UEFI applications, and the kernel as a raw
-binary. Each manifest's `output` field places the artifact in the EFI tree.
+`src/australlis.hyproj` is a Hydrogen `os` project referencing the bootloader
+and kernel projects. The bootloader uses `type = "efi"`; the kernel uses
+`type = "kernel"`. Hydrogen builds the bootloader as a UEFI application and
+the kernel as a raw binary. Each manifest's `output` field places the artifact
+in the EFI tree.
 You can invoke the compiler directly:
 
 ```bash
@@ -71,7 +71,6 @@ hy build src/australlis.hyproj -o build/efi
 ```text
 build/efi/EFI/BOOT/BOOTX64.EFI
 build/efi/EFI/AUSTRALIS/KERNEL.BIN
-build/efi/EFI/AUSTRALIS/SYSTEM.EFI
 build/boot/root.hyfs.img
 build/australis-hylang.iso
 ```
@@ -79,8 +78,9 @@ build/australis-hylang.iso
 The bootloader reads `KERNEL.BIN` from the same FAT volume, validates its
 `AUKR` header and exact size, and places it in executable loader memory before
 the final memory-map capture. After `ExitBootServices`, it switches to a
-dedicated 64 KiB kernel stack and enters the raw code. `SYSTEM.EFI` is included
-as a separate application, but the current boot sequence does not start it.
+dedicated 64 KiB kernel stack and enters the raw code. The former unused
+`SYSTEM.EFI` placeholder is no longer packaged; the planned system manager is
+a user program named `/System/Core/System.exec`.
 The raw header is 16 bytes: `AUKR`, version `1`, code length, and entry offset
 `16`, all little endian. The code is position independent.
 The ISO is hybrid: it contains an El Torito UEFI boot entry for optical media,
@@ -141,7 +141,7 @@ for the shell, run `make run-usb-storage` (AHCI boot root) or
 `make run-usb-storage-nvme`. The removable HyFS volume appears at `/usb`; use
 `devices`, `mounts`, `ls /usb`, and `cat /usb/hello.txt` to inspect it.
 
-Wait for `australis> `, then type `help`. `ls` lists the flat HyFS root and
+Wait for `australis> `, then type `help`. `ls` lists the HyFS root and
 `cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
 echoes input and accepts Enter, Backspace/Delete, arrow keys, Home/End,
 Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, Ctrl-U, and eight entries of command history.
@@ -301,8 +301,8 @@ HyFS partition by its full type GUID, and mounts it through the VFS.
 The paging-hierarchy copier targets the normal four-level x86_64 paging mode. It
 detects an active five-level (LA57) hierarchy and halts before changing `CR3`.
 
-The generated EFI bootloader and system applications use a zero image base and
-RIP-relative internal references, so firmware can load them at an available address. They are
+The generated EFI bootloader uses a zero image base and RIP-relative internal
+references, so firmware can load it at an available address. It is
 tested as both an El Torito ISO and a hard disk image under OVMF. Physical
 hardware validation still requires booting a test USB or disk on each firmware
 family that Australis intends to support.
@@ -344,8 +344,13 @@ length, data capacity, entry offset, and separate CRC-32 values for code and
 data. The image exposes a read-only code region at `0x400000` and a bounded
 read/write data region at `0x500000`.
 
-The interpreter provides exit, terminal read/write, read-only open/read/close,
-checked byte stores, branches, and cooperative yield operations. Descriptors
+The interpreter provides exit, terminal read/write, checked file and directory
+calls, metadata queries, checked byte stores, cooperative yield operations, fixed scalar locals, a
+checked expression stack, signed arithmetic, comparisons, and conditional and
+unconditional branches. Hylang `if`, `while`, and `for` statements compile to
+these operations, including `break`, `continue`, short-circuit Boolean logic,
+numeric output, and computed exit codes. Division by zero is reported as an
+application arithmetic fault. Descriptors
 0, 1, and 2 have canonical terminal semantics; mounted files use descriptors
 3 through 15.
 Every user pointer is range checked and copied through `UserAddressSpace`, so
@@ -459,18 +464,55 @@ leaves callers with a stale mounted-driver reference after a failed remount.
 `src/kernel/vfs/Hyfs.hy` implements the first filesystem driver: read-only
 HyFS v1. A HyFS partition has one logical-sector superblock, a CRC-32-protected
 fixed-entry directory, and regular-file records with a full-content CRC-32.
+The finalized on-disk layout and validation rules are in `docs/hyfs-v1.md`.
 The driver accepts only 512 to 4096-byte logical sectors, a directory up to
 64 KiB, and flat printable-ASCII paths such as
 `/shell.hy`. It validates the superblock, directory allocation, reserved bytes,
 file extents, duplicate names, and full file data before returning bytes to a
 caller. `make test-hyfs` constructs a complete in-memory HyFS volume and checks
 mounting, metadata, partial reads, EOF handling, VFS mounting, corrupted data,
-corrupted metadata, and media I/O failure.
+corrupted metadata, and media I/O failure. It also verifies a checksum-pinned
+v1 image fixture for later reader compatibility checks.
 
 The mounted root is read-only. File reads stream over bounded sector buffers
 and check the complete stored data CRC before returning bytes. The VFS exposes
-root directory names to the serial shell. Persistent file handles, nested
-directory traversal, and executable loading remain future work.
+root directory names and generation-checked persistent file handles. The
+namespace normalizes nested paths. HyFS v1 stores only flat root files.
+
+HyFS v2 is available as an opt-in image with nested directories and file
+metadata. Build it with `make iso-hyfs2`, then boot the serial shell with
+`make run-hyfs2-serial` or `make run-hyfs2-nvme-serial`. Run
+`make test-hyfs2` and `make test-hyfs2-serial-ahci` (or
+`make test-hyfs2-serial-nvme`). The v2 shell can list `/System`, `/Bin`,
+`/Applications`, `/Users`, `/Volumes`, and `/Temporary`; executable copies
+are available in `/Bin`. `stat /System` reports kind, size, object ID, and
+timestamps when the image contains them. The kernel continues to mount v1
+images. The versioned disk format and its recovery rules are in
+`docs/hyfs-v2.md`.
+
+`tools/hyfs2.py` provides offline file and directory operations for a v2 raw
+image. For example, after `python3 tools/hyfs2.py create volume.img`, run
+`python3 tools/hyfs2.py mkdir volume.img /Users`,
+`python3 tools/hyfs2.py put volume.img note.txt /Users/note.txt`, and
+`python3 tools/hyfs2.py ls volume.img /Users`. It also supports `cat`, `stat`,
+`mv`, and `rm`. Each edit publishes a new checked generation; the previous
+generation can be used if an interrupted commit leaves the new one invalid.
+The separate HyFS 2 data volume can be built with `make hyfs2-data-disk` and
+booted with `make run-hyfs2-data-ahci` or `make run-hyfs2-data-nvme`. It appears
+at `/data`; the boot image remains at `/` and removable media at `/usb`. The
+data disk is a persistent raw image and is created only if absent, so normal
+builds do not overwrite its contents. The default path is
+`build/hyfs2-data.img`; `make clean` removes it. Set `HYFS2_DATA_DISK` to a
+path outside `build/` to keep it across cleans. `make test-hyfs2-data-ahci` and
+`make test-hyfs2-data-nvme` use disposable copies to check real block writes,
+flushes, and readback after reboot. They also inject write errors; the AHCI
+test injects a flush error. NVMe flush rejection is covered by host controller
+tests because this QEMU NVMe setup does not forward blkdebug flush errors to
+its namespace backend. The transactional HyFS 2 writer and VFS write calls
+are enabled by default for the separate raw `/data` partition. The boot and
+USB mounts stay read-only. `make test-stage6` covers host corruption,
+interruption, capacity, and removal checks, then boots an AUEX writer on both
+AHCI and NVMe to check persistence across reboots and live device removal.
 
 Before mounting storage, the kernel verifies the handoff's active four-level
 page tables: the boot record must be mapped and virtual page zero must remain
@@ -671,7 +713,7 @@ the four-level paging mode accepted by the current kernel handoff.
 | `2516` | `uint32` | Removable HyFS mount status |
 | `2576` | `uint32` | Last AUEX process state (`2` exited, `3` faulted) |
 | `2580` | `uint32` | Last AUEX exit code |
-| `2584` | `uint32` | Last AUEX fault (`3` protected memory access) |
+| `2584` | `uint32` | Last AUEX fault (`1` image, `2` instruction, `3` memory, `4` syscall, `5` limit, `6` arithmetic) |
 | `2588` | `uint32` | Number of user-program launch attempts |
 | `2592` | `uint64` | Instructions executed by the last AUEX process |
 | `2600` | `uint32` | Fatal panic vector |

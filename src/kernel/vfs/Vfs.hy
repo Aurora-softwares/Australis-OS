@@ -11,6 +11,21 @@ namespace Australis.Kernel.Vfs {
         int ReadFile(string path, long offset, byte[] destination);
         int DirectorySlotCount();
         int CopyDirectoryEntryName(int index, byte[] destination);
+        int DirectorySlotCountAt(string path);
+        int CopyDirectoryEntryNameAt(string path, int index, byte[] destination);
+    }
+
+    public interface IWritableFileSystem : IFileSystem {
+        int MountWritable(BlockDevice device, Partition partition);
+        bool IsWritable();
+        int CreateFile(string path, byte[] contents);
+        int ReplaceFile(string path, byte[] contents);
+        int AppendFile(string path, byte[] contents);
+        int TruncateFile(string path, long length);
+        int DeleteFile(string path);
+        int Mkdir(string path);
+        int Rmdir(string path);
+        int Rename(string source, string destination);
     }
 
     public class VfsStatus {
@@ -22,6 +37,12 @@ namespace Australis.Kernel.Vfs {
         public static int EndOfFile() { return 5; }
         public static int IoFailure() { return 6; }
         public static int Corrupt() { return 7; }
+        public static int ReadOnly() { return 8; }
+        public static int AlreadyExists() { return 9; }
+        public static int NotEmpty() { return 10; }
+        public static int NoSpace() { return 11; }
+        public static int StaleHandle() { return 12; }
+        public static int CrossDevice() { return 13; }
     }
 
     // File metadata returned by a filesystem lookup. A status-bearing value
@@ -30,13 +51,35 @@ namespace Australis.Kernel.Vfs {
     public class VfsFileInfo {
         private int status;
         private long byteLength;
+        private int kind;
+        private long objectId;
+        private long created;
+        private long modified;
+        private int timeFlags;
+        private long attributes;
 
         public VfsFileInfo(int inputStatus, long inputByteLength) {
             status = inputStatus;
             byteLength = inputByteLength;
+            kind = 0;
+            if (inputStatus == VfsStatus.Ok()) { kind = 1; }
+            objectId = 0; created = 0; modified = 0; timeFlags = 0; attributes = 0;
         }
         public int Status() { return status; }
         public long ByteLength() { return byteLength; }
+        public int Kind() { return kind; }
+        public long ObjectId() { return objectId; }
+        public long CreatedUnixSeconds() { return created; }
+        public long ModifiedUnixSeconds() { return modified; }
+        public bool HasCreationTime() { return timeFlags % 2 != 0; }
+        public bool HasModificationTime() { return (timeFlags / 2) % 2 != 0; }
+        public long Attributes() { return attributes; }
+        public void SetMetadata(int inputKind, long inputId, long inputCreated,
+            long inputModified, int inputTimeFlags, long inputAttributes) {
+            kind = inputKind; objectId = inputId; created = inputCreated;
+            modified = inputModified; timeFlags = inputTimeFlags;
+            attributes = inputAttributes;
+        }
         public bool Exists() { return status == VfsStatus.Ok(); }
     }
 
@@ -49,11 +92,29 @@ namespace Australis.Kernel.Vfs {
         private long byteLength;
         private int status;
         private bool closed;
+        private long objectId;
+        private bool canWrite;
+        private int mutationGeneration;
         public VfsFileHandle(Vfs inputOwner, string inputPath, int inputIdentity,
             int inputGeneration, long inputLength, int inputStatus) {
+            Initialize(inputOwner, inputPath, inputIdentity, inputGeneration,
+                inputLength, 0, false, inputStatus);
+        }
+        public VfsFileHandle(Vfs inputOwner, string inputPath, int inputIdentity,
+            int inputGeneration, long inputLength, long inputObjectId,
+            bool inputCanWrite, int inputStatus) {
+            Initialize(inputOwner, inputPath, inputIdentity, inputGeneration,
+                inputLength, inputObjectId, inputCanWrite, inputStatus);
+        }
+        private void Initialize(Vfs inputOwner, string inputPath, int inputIdentity,
+            int inputGeneration, long inputLength, long inputObjectId,
+            bool inputCanWrite, int inputStatus) {
             owner = inputOwner; path = inputPath; mountIdentity = inputIdentity;
             mountGeneration = inputGeneration; position = 0; byteLength = inputLength;
             status = inputStatus; closed = inputStatus != VfsStatus.Ok();
+            objectId = inputObjectId; canWrite = inputCanWrite;
+            mutationGeneration = 0;
+            if (owner != null) { mutationGeneration = owner.MutationGeneration(); }
         }
         public int Status() { return status; }
         public long Position() { return position; }
@@ -63,14 +124,43 @@ namespace Australis.Kernel.Vfs {
             return byteLength - position;
         }
         public int MountIdentity() { return mountIdentity; }
-        public bool IsOpen() { return !closed && status == VfsStatus.Ok(); }
+        public bool IsOpen() { return !closed && owner != null; }
         public int Read(byte[] destination) {
             if (closed || owner == null) { status = VfsStatus.NotMounted(); return status; }
+            status = owner.OpenFileStatus(path, mountIdentity, mountGeneration,
+                mutationGeneration, objectId);
+            if (status != VfsStatus.Ok()) { return status; }
             if (destination == null || destination.Length > byteLength - position) {
                 status = VfsStatus.InvalidArgument(); return status;
             }
-            status = owner.ReadOpenFile(path, mountIdentity, mountGeneration, position, destination);
+            status = owner.ReadOpenFile(path, mountIdentity, mountGeneration,
+                mutationGeneration, objectId, position, destination);
             if (status == VfsStatus.Ok()) { position = position + destination.Length; }
+            return status;
+        }
+        public int Replace(byte[] contents) { return Mutate(contents, 1); }
+        public int Append(byte[] contents) { return Mutate(contents, 2); }
+        private int Mutate(byte[] contents, int operation) {
+            if (closed || owner == null) { status = VfsStatus.NotMounted(); return status; }
+            if (!canWrite) { status = VfsStatus.ReadOnly(); return status; }
+            status = owner.WriteOpenFile(path, mountIdentity, mountGeneration,
+                mutationGeneration, objectId, contents, operation);
+            if (status == VfsStatus.Ok()) {
+                VfsFileInfo info = owner.StatRootFile(path);
+                byteLength = info.ByteLength(); position = 0;
+                mutationGeneration = owner.MutationGeneration();
+            }
+            return status;
+        }
+        public int Truncate(long length) {
+            if (closed || owner == null) { status = VfsStatus.NotMounted(); return status; }
+            if (!canWrite) { status = VfsStatus.ReadOnly(); return status; }
+            status = owner.TruncateOpenFile(path, mountIdentity, mountGeneration,
+                mutationGeneration, objectId, length);
+            if (status == VfsStatus.Ok()) {
+                byteLength = length; position = 0;
+                mutationGeneration = owner.MutationGeneration();
+            }
             return status;
         }
         public void Close() { closed = true; owner = null; }
@@ -97,16 +187,32 @@ namespace Australis.Kernel.Vfs {
         public string CanonicalPath() { return canonicalPath; }
     }
 
-    // The first mount namespace is deliberately small and deterministic:
-    // / names the boot volume and /usb names the removable volume. Path
+    public class VfsDirectoryResult {
+        private int status;
+        private int count;
+        public VfsDirectoryResult(int inputStatus, int inputCount) {
+            status = inputStatus; count = inputCount;
+        }
+        public int Status() { return status; }
+        public int Count() { return count; }
+    }
+
+    // The mount namespace is deliberately small and deterministic:
+    // / names the boot volume, /usb the removable volume, and /data the
+    // separate HyFS 2 data partition. Path
     // normalization is shared by the shell and user syscalls, so both observe
     // the same handling of repeated separators, dot, and parent traversal.
     public class VfsNamespace {
         private Vfs root;
         private Vfs removable;
+        private Vfs data;
 
         public VfsNamespace(Vfs inputRoot, Vfs inputRemovable) {
-            root = inputRoot; removable = inputRemovable;
+            root = inputRoot; removable = inputRemovable; data = null;
+        }
+
+        public VfsNamespace(Vfs inputRoot, Vfs inputRemovable, Vfs inputData) {
+            root = inputRoot; removable = inputRemovable; data = inputData;
         }
 
         private int PathByte(string path, int index) {
@@ -171,33 +277,45 @@ namespace Australis.Kernel.Vfs {
             bool usb = outputLength >= 4 && normalized[0] == 47 && normalized[1] == 117 &&
                 normalized[2] == 115 && normalized[3] == 98 &&
                 (outputLength == 4 || normalized[4] == 47);
-            if (!usb) {
+            bool dataPath = outputLength >= 5 && normalized[0] == 47 &&
+                normalized[1] == 100 && normalized[2] == 97 &&
+                normalized[3] == 116 && normalized[4] == 97 &&
+                (outputLength == 5 || normalized[5] == 47);
+            if (!usb && !dataPath) {
                 if (root == null || !root.IsRootMounted()) {
                     return new VfsPath(VfsStatus.NotMounted(), null, null, canonical);
                 }
                 return new VfsPath(VfsStatus.Ok(), root, canonical, canonical);
             }
-            if (removable == null || !removable.IsRootMounted()) {
+            Vfs selected = removable;
+            int prefixLength = 4;
+            if (dataPath) { selected = data; prefixLength = 5; }
+            if (selected == null || !selected.IsRootMounted()) {
                 return new VfsPath(VfsStatus.NotMounted(), null, null, canonical);
             }
-            if (outputLength == 4) {
-                return new VfsPath(VfsStatus.Ok(), removable, "/", canonical);
+            if (outputLength == prefixLength) {
+                return new VfsPath(VfsStatus.Ok(), selected, "/", canonical);
             }
-            int localLength = outputLength - 4;
+            int localLength = outputLength - prefixLength;
             byte[] localBytes = new byte[localLength];
             int localIndex = 0;
             while (localIndex < localLength) {
-                localBytes[localIndex] = normalized[localIndex + 4];
+                localBytes[localIndex] = normalized[localIndex + prefixLength];
                 localIndex = localIndex + 1;
             }
             string local = System.Kernel.String.FromBytes(localBytes, localLength);
-            return new VfsPath(VfsStatus.Ok(), removable, local, canonical);
+            return new VfsPath(VfsStatus.Ok(), selected, local, canonical);
         }
 
         public VfsFileInfo Stat(string path) {
             VfsPath resolved = Resolve(path);
             if (!resolved.IsValid()) { return new VfsFileInfo(resolved.Status(), 0); }
-            return resolved.Volume().StatRootFile(resolved.LocalPath());
+            VfsFileInfo info = resolved.Volume().StatRootFile(resolved.LocalPath());
+            if (path.Length > 1 && PathByte(path, path.Length - 1) == 47 &&
+                info.Exists() && info.Kind() != 2) {
+                return new VfsFileInfo(VfsStatus.InvalidArgument(), 0);
+            }
+            return info;
         }
 
         public VfsFileHandle Open(string path) {
@@ -205,7 +323,84 @@ namespace Australis.Kernel.Vfs {
             if (!resolved.IsValid()) {
                 return new VfsFileHandle(null, path, 0, 0, 0, resolved.Status());
             }
+            if (path.Length > 1 && PathByte(path, path.Length - 1) == 47) {
+                return new VfsFileHandle(null, path, 0, 0, 0,
+                    VfsStatus.InvalidArgument());
+            }
             return resolved.Volume().OpenRootFile(resolved.LocalPath());
+        }
+
+        public VfsFileHandle OpenWrite(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) {
+                return new VfsFileHandle(null, path, 0, 0, 0, resolved.Status());
+            }
+            if (path.Length > 1 && PathByte(path, path.Length - 1) == 47) {
+                return new VfsFileHandle(null, path, 0, 0, 0,
+                    VfsStatus.InvalidArgument());
+            }
+            return resolved.Volume().OpenRootFileWrite(resolved.LocalPath());
+        }
+
+        public int CreateFile(string path, byte[] contents) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return resolved.Status(); }
+            if (path.Length > 1 && PathByte(path, path.Length - 1) == 47) {
+                return VfsStatus.InvalidArgument();
+            }
+            return resolved.Volume().CreateRootFile(resolved.LocalPath(), contents);
+        }
+
+        public int DeleteFile(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return resolved.Status(); }
+            return resolved.Volume().DeleteRootFile(resolved.LocalPath());
+        }
+
+        public int Mkdir(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return resolved.Status(); }
+            return resolved.Volume().MkdirRoot(resolved.LocalPath());
+        }
+
+        public int Rmdir(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return resolved.Status(); }
+            return resolved.Volume().RmdirRoot(resolved.LocalPath());
+        }
+
+        public int Rename(string source, string destination) {
+            VfsPath first = Resolve(source);
+            if (!first.IsValid()) { return first.Status(); }
+            VfsPath second = Resolve(destination);
+            if (!second.IsValid()) { return second.Status(); }
+            if (first.Volume() != second.Volume()) { return VfsStatus.CrossDevice(); }
+            return first.Volume().RenameRoot(first.LocalPath(), second.LocalPath());
+        }
+
+        public VfsDirectoryResult DirectoryInfo(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return new VfsDirectoryResult(resolved.Status(), 0); }
+            return resolved.Volume().DirectoryInfoAt(resolved.LocalPath());
+        }
+
+        public int ReadDirectoryName(string path, int index, byte[] destination) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return -resolved.Status(); }
+            return resolved.Volume().ReadDirectoryNameAt(resolved.LocalPath(), index, destination);
+        }
+
+        public int DirectorySlotCount(string path) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return -1; }
+            return resolved.Volume().DirectorySlotCountAt(resolved.LocalPath());
+        }
+
+        public int CopyDirectoryEntryName(string path, int index, byte[] destination) {
+            VfsPath resolved = Resolve(path);
+            if (!resolved.IsValid()) { return -1; }
+            return resolved.Volume().CopyDirectoryEntryNameAt(
+                resolved.LocalPath(), index, destination);
         }
     }
 
@@ -219,6 +414,8 @@ namespace Australis.Kernel.Vfs {
         private int lastStatus;
         private int mountIdentity;
         private int mountGeneration;
+        private IWritableFileSystem writableRoot;
+        private int mutationGeneration;
 
         public Vfs() {
             rootFileSystem = null;
@@ -226,6 +423,8 @@ namespace Australis.Kernel.Vfs {
             rootPartition = new Partition(false, false, 0, 0, 0);
             lastStatus = VfsStatus.NotMounted();
             mountIdentity = 0; mountGeneration = 0;
+            writableRoot = null;
+            mutationGeneration = 0;
         }
 
         public bool IsRootMounted() { return rootFileSystem != null; }
@@ -233,6 +432,7 @@ namespace Australis.Kernel.Vfs {
         public Partition RootPartition() { return rootPartition; }
         public int MountIdentity() { return mountIdentity; }
         public int MountGeneration() { return mountGeneration; }
+        public int MutationGeneration() { return mutationGeneration; }
 
         public int MountRoot(IFileSystem fileSystem, BlockDevice device, Partition partition) {
             return MountRootAs(fileSystem, device, partition, 1);
@@ -251,10 +451,11 @@ namespace Australis.Kernel.Vfs {
 
             // A failed remount must not leave a stale root pointing at a
             // filesystem driver that may already have released its mount data.
-            rootFileSystem = null;
+            rootFileSystem = null; writableRoot = null;
             rootDevice = null;
             rootPartition = new Partition(false, false, 0, 0, 0);
             mountIdentity = 0; mountGeneration = mountGeneration + 1;
+            mutationGeneration = mutationGeneration + 1;
             if (fileSystem.Mount(device, partition) != VfsStatus.Ok()) {
                 lastStatus = VfsStatus.MountFailed();
                 return lastStatus;
@@ -268,10 +469,34 @@ namespace Australis.Kernel.Vfs {
             return lastStatus;
         }
 
-        public void UnmountRoot() {
-            rootFileSystem = null; rootDevice = null;
+        // Trusted kernel callers opt in; regular mounts never gain write access.
+        public int MountRootWritableAs(IWritableFileSystem fileSystem,
+            BlockDevice device,
+            Partition partition, int identity) {
+            if (fileSystem == null || device == null || partition == null ||
+                !partition.Present() || identity < 1 ||
+                partition.FirstLba() < 0 || partition.BlockCount() <= 0 ||
+                partition.FirstLba() >= device.SectorCount() ||
+                partition.BlockCount() > device.SectorCount() - partition.FirstLba()) {
+                lastStatus = VfsStatus.InvalidArgument(); return lastStatus;
+            }
+            rootFileSystem = null; writableRoot = null; rootDevice = null;
             rootPartition = new Partition(false, false, 0, 0, 0);
             mountIdentity = 0; mountGeneration = mountGeneration + 1;
+            mutationGeneration = mutationGeneration + 1;
+            int status = fileSystem.MountWritable(device, partition);
+            if (status != VfsStatus.Ok()) { lastStatus = status; return status; }
+            rootFileSystem = fileSystem; writableRoot = fileSystem;
+            rootDevice = device; rootPartition = partition;
+            mountIdentity = identity; lastStatus = VfsStatus.Ok();
+            return lastStatus;
+        }
+
+        public void UnmountRoot() {
+            rootFileSystem = null; writableRoot = null; rootDevice = null;
+            rootPartition = new Partition(false, false, 0, 0, 0);
+            mountIdentity = 0; mountGeneration = mountGeneration + 1;
+            mutationGeneration = mutationGeneration + 1;
             lastStatus = VfsStatus.NotMounted();
         }
 
@@ -280,16 +505,158 @@ namespace Australis.Kernel.Vfs {
             if (!info.Exists()) {
                 return new VfsFileHandle(null, path, 0, 0, 0, info.Status());
             }
+            if (info.Kind() != 1) {
+                return new VfsFileHandle(null, path, 0, 0, 0, VfsStatus.InvalidArgument());
+            }
             return new VfsFileHandle(this, path, mountIdentity, mountGeneration,
-                info.ByteLength(), VfsStatus.Ok());
+                info.ByteLength(), info.ObjectId(), false, VfsStatus.Ok());
+        }
+
+        public VfsFileHandle OpenRootFileWrite(string path) {
+            VfsFileInfo info = StatRootFile(path);
+            if (!info.Exists()) {
+                return new VfsFileHandle(null, path, 0, 0, 0, info.Status());
+            }
+            if (info.Kind() != 1) {
+                return new VfsFileHandle(null, path, 0, 0, 0, VfsStatus.InvalidArgument());
+            }
+            if (writableRoot == null || !writableRoot.IsWritable()) {
+                return new VfsFileHandle(null, path, 0, 0, 0, VfsStatus.ReadOnly());
+            }
+            return new VfsFileHandle(this, path, mountIdentity, mountGeneration,
+                info.ByteLength(), info.ObjectId(), true, VfsStatus.Ok());
+        }
+
+        private int CheckOpenFile(string path, int identity, int generation,
+            int mutation, long objectId) {
+            if (rootFileSystem == null || identity != mountIdentity ||
+                generation != mountGeneration) { return VfsStatus.NotMounted(); }
+            if (mutation != mutationGeneration) { return VfsStatus.StaleHandle(); }
+            VfsFileInfo current = StatRootFile(path);
+            if (!current.Exists() || current.Kind() != 1 ||
+                (objectId != 0 && current.ObjectId() != objectId)) {
+                return VfsStatus.StaleHandle();
+            }
+            return VfsStatus.Ok();
+        }
+
+        public int OpenFileStatus(string path, int identity, int generation,
+            int mutation, long objectId) {
+            lastStatus = CheckOpenFile(path, identity, generation, mutation, objectId);
+            return lastStatus;
         }
 
         public int ReadOpenFile(string path, int identity, int generation, long offset,
             byte[] destination) {
-            if (rootFileSystem == null || identity != mountIdentity || generation != mountGeneration) {
-                lastStatus = VfsStatus.NotMounted(); return lastStatus;
-            }
+            return ReadOpenFile(path, identity, generation, mutationGeneration,
+                0, offset, destination);
+        }
+
+        public int ReadOpenFile(string path, int identity, int generation,
+            int mutation, long objectId, long offset, byte[] destination) {
+            int checked = CheckOpenFile(path, identity, generation, mutation, objectId);
+            if (checked != VfsStatus.Ok()) { lastStatus = checked; return checked; }
             return ReadRootFile(path, offset, destination);
+        }
+
+        public int WriteOpenFile(string path, int identity, int generation,
+            int mutation, long objectId, byte[] contents, int operation) {
+            int checked = CheckOpenFile(path, identity, generation, mutation, objectId);
+            if (checked != VfsStatus.Ok()) { lastStatus = checked; return checked; }
+            if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly(); return lastStatus;
+            }
+            if (contents == null || (operation != 1 && operation != 2)) {
+                lastStatus = VfsStatus.InvalidArgument(); return lastStatus;
+            }
+            if (operation == 1) { lastStatus = writableRoot.ReplaceFile(path, contents); }
+            else { lastStatus = writableRoot.AppendFile(path, contents); }
+            return MutationResult(lastStatus);
+        }
+
+        public int TruncateOpenFile(string path, int identity, int generation,
+            int mutation, long objectId, long length) {
+            int checked = CheckOpenFile(path, identity, generation, mutation, objectId);
+            if (checked != VfsStatus.Ok()) { lastStatus = checked; return checked; }
+            if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly(); return lastStatus;
+            }
+            return MutationResult(writableRoot.TruncateFile(path, length));
+        }
+
+        private int MutationResult(int status) {
+            if (status == VfsStatus.Ok()) {
+                mutationGeneration = mutationGeneration + 1;
+            }
+            if (status == VfsStatus.IoFailure() && writableRoot != null &&
+                !writableRoot.IsWritable()) {
+                UnmountRoot();
+            }
+            lastStatus = status; return status;
+        }
+
+        public int CreateRootFile(string path, byte[] contents) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); }
+            else if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly();
+            } else { return MutationResult(writableRoot.CreateFile(path, contents)); }
+            return lastStatus;
+        }
+        public int DeleteRootFile(string path) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); }
+            else if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly();
+            } else { return MutationResult(writableRoot.DeleteFile(path)); }
+            return lastStatus;
+        }
+        public int MkdirRoot(string path) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); }
+            else if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly();
+            } else { return MutationResult(writableRoot.Mkdir(path)); }
+            return lastStatus;
+        }
+        public int RmdirRoot(string path) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); }
+            else if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly();
+            } else { return MutationResult(writableRoot.Rmdir(path)); }
+            return lastStatus;
+        }
+        public int RenameRoot(string source, string destination) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); }
+            else if (writableRoot == null || !writableRoot.IsWritable()) {
+                lastStatus = VfsStatus.ReadOnly();
+            } else { return MutationResult(writableRoot.Rename(source, destination)); }
+            return lastStatus;
+        }
+
+        public VfsDirectoryResult DirectoryInfoAt(string path) {
+            if (rootFileSystem == null) {
+                return new VfsDirectoryResult(VfsStatus.NotMounted(), 0);
+            }
+            if (path != "/") {
+                VfsFileInfo info = StatRootFile(path);
+                if (!info.Exists()) { return new VfsDirectoryResult(info.Status(), 0); }
+                if (info.Kind() != 2) {
+                    return new VfsDirectoryResult(VfsStatus.InvalidArgument(), 0);
+                }
+            }
+            int count = rootFileSystem.DirectorySlotCountAt(path);
+            if (count < 0) { return new VfsDirectoryResult(VfsStatus.IoFailure(), 0); }
+            return new VfsDirectoryResult(VfsStatus.Ok(), count);
+        }
+
+        // On success returns the name length; failures are negative statuses.
+        public int ReadDirectoryNameAt(string path, int index, byte[] destination) {
+            VfsDirectoryResult info = DirectoryInfoAt(path);
+            if (info.Status() != VfsStatus.Ok()) { return -info.Status(); }
+            if (index < 0 || index >= info.Count() || destination == null) {
+                return -VfsStatus.InvalidArgument();
+            }
+            int length = rootFileSystem.CopyDirectoryEntryNameAt(path, index, destination);
+            if (length < 0) { return -VfsStatus.IoFailure(); }
+            return length;
         }
 
         public bool Exists(string path) {
@@ -318,6 +685,13 @@ namespace Australis.Kernel.Vfs {
                 lastStatus = VfsStatus.Corrupt();
                 return new VfsFileInfo(lastStatus, 0);
             }
+            if (path == "/" && (result.Status() == VfsStatus.NotFound() ||
+                result.Status() == VfsStatus.InvalidArgument()) &&
+                rootFileSystem.DirectorySlotCountAt("/") >= 0) {
+                VfsFileInfo rootInfo = new VfsFileInfo(VfsStatus.Ok(), 0);
+                rootInfo.SetMetadata(2, 0, 0, 0, 0, 0);
+                lastStatus = VfsStatus.Ok(); return rootInfo;
+            }
             lastStatus = result.Status();
             return result;
         }
@@ -332,6 +706,10 @@ namespace Australis.Kernel.Vfs {
                 return lastStatus;
             }
             lastStatus = rootFileSystem.ReadFile(path, offset, destination);
+            if (lastStatus == VfsStatus.IoFailure() && writableRoot != null) {
+                UnmountRoot();
+                lastStatus = VfsStatus.IoFailure();
+            }
             return lastStatus;
         }
 
@@ -350,6 +728,24 @@ namespace Australis.Kernel.Vfs {
             if (length < 0) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
             lastStatus = VfsStatus.Ok();
             return length;
+        }
+
+        public int DirectorySlotCountAt(string path) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); return -1; }
+            if (path == null) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
+            int count = rootFileSystem.DirectorySlotCountAt(path);
+            if (count < 0) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
+            lastStatus = VfsStatus.Ok(); return count;
+        }
+
+        public int CopyDirectoryEntryNameAt(string path, int index, byte[] destination) {
+            if (rootFileSystem == null) { lastStatus = VfsStatus.NotMounted(); return -1; }
+            if (path == null || index < 0 || destination == null) {
+                lastStatus = VfsStatus.InvalidArgument(); return -1;
+            }
+            int length = rootFileSystem.CopyDirectoryEntryNameAt(path, index, destination);
+            if (length < 0) { lastStatus = VfsStatus.InvalidArgument(); return -1; }
+            lastStatus = VfsStatus.Ok(); return length;
         }
     }
 }

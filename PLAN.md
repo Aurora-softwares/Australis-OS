@@ -46,9 +46,9 @@ coverage needs separate hardware validation.
 | Physical and virtual memory | The active PML4 is audited; page tables are reclaimed after unmap, released pages are reused, and live stress checks repeat mapping and managed release. Add memory-descriptor ownership and broader cache policy. |
 | Exceptions, interrupts, and timer | Exception vectors record state, COM1 uses PIC IRQ4, storage uses APIC vector `0x31`, and xHCI uses deferred vector `0x32` events with calibrated deadlines. Add vector allocation beyond the current fixed assignments. |
 | PCI, MMIO, and DMA | BARs are sized and fully mapped, xHCI DMA ownership is explicit, and unsupported IOMMU translation is rejected. Add translated DMA support and broader cache-policy validation. |
-| AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Add enumeration beyond the selected device, real flush/write behavior, and broader hardware validation. |
+| AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Write and cache-flush commands now pass host protocol/controller tests. Add live write/flush validation on a separate data volume, enumeration beyond the selected device, and broader hardware coverage. |
 | Partition discovery | The Hylang GPT reader now runs on live AHCI and NVMe, checks CRCs with backup-header recovery, and selects HyFS by full type GUID. Add partition selection by unique identity and a live damaged-primary integration test. |
-| VFS and HyFS | Persistent generation-checked handles and canonical namespace traversal cover `/` and `/usb`; HyFS v1 itself remains flat. Add an on-disk directory format and live corruption tests. |
+| VFS and HyFS | Persistent generation-checked handles and canonical namespace traversal cover `/` and `/usb`; HyFS v2 now has a directory format, metadata, and an opt-in read-only kernel mount. Add live corruption tests, application metadata calls, and persistent writes. |
 | Interactive console | COM1 and USB HID share line editing; AUEX fd 0/1/2 uses the same canonical read and mirrored write semantics. Add layout selection, pipelines, and background jobs. |
 | USB | One live xHCI root device supports either a US keyboard or MSC bulk storage with bounded hotplug recovery. Add hubs and multiple simultaneous devices. |
 
@@ -182,15 +182,18 @@ filesystem layout, component types, and ownership rules are defined in
 
 - [ ] Define versioned process-start data for arguments, environment, working
   directory, standard descriptors, and explicit syscall results.
-- [ ] Extend the AUEX compiler/runtime with arguments, locals, control flow,
-  bounded buffers, dynamic paths, process identifiers, spawn, and wait.
+- [x] Extend the AUEX compiler/runtime with scalar locals, arithmetic,
+  comparisons, branches, loops, short-circuit Boolean logic, and computed
+  console output and exit codes.
+- [ ] Add arguments, method calls, bounded strings and buffers, dynamic paths,
+  process identifiers, spawn, and wait to the AUEX process contract.
 - [ ] Move `cat`, `ls`, `version`, `echo`, and `pwd` into `.exec` projects and
   add shell variables plus `PATH` lookup. Retain recovery built-ins until the
   live matrix passes.
-- [ ] Add a directory-capable HyFS revision and create `/System`, `/Bin`,
+- [x] Add a directory-capable HyFS revision and create `/System`, `/Bin`,
   `/Applications`, `/Users`, `/Volumes`, and `/Temporary`.
-- [ ] Replace the unused `SYSTEM.EFI` placeholder with `System.exec` as PID 1,
-  then add process supervision, service manifests, restart limits, and a
+- [ ] Install `System.exec` as PID 1, then add process supervision, service
+  manifests, restart limits, and a
   recovery-userland bypass.
 - [ ] Add versioned IPC, events, shared-buffer ownership, and capabilities for
   system services and application manifests.

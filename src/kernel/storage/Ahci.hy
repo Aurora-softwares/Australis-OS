@@ -153,6 +153,31 @@ namespace Australis.Kernel.Storage {
             return true;
         }
 
+        public static bool BuildWriteDmaExt(byte[] header, byte[] table,
+            long commandTablePhysical, long dataPhysical, long lba, int sectors,
+            int sectorSize) {
+            if (!BuildReadDmaExt(header, table, commandTablePhysical, dataPhysical,
+                lba, sectors, sectorSize)) { return false; }
+            header[0] = 69; // W=1, CFL=5
+            table[2] = 53; // ATA WRITE DMA EXT
+            return true;
+        }
+
+        public static bool BuildFlushCacheExt(byte[] header, byte[] table,
+            long commandTablePhysical) {
+            if (header == null || table == null || header.Length < 32 ||
+                table.Length < 144 || commandTablePhysical < 0) { return false; }
+            int i = 0;
+            while (i < 32) { header[i] = 0; i = i + 1; }
+            i = 0;
+            while (i < 144) { table[i] = 0; i = i + 1; }
+            header[0] = 5; // No PRDT entry
+            Write64(header, 8, commandTablePhysical);
+            table[0] = 39; table[1] = 128; table[2] = 234; // FLUSH CACHE EXT
+            table[7] = 64;
+            return true;
+        }
+
         // Logical-sector count from ATA IDENTIFY words. LBA48 is required for
         // modern disks; an LBA28 fallback exists for older SATA disks. The
         // bootstrap accepts 512-byte logical sectors only because ATA words do

@@ -74,7 +74,7 @@ def main():
                 read_until(connection, PROMPT, 75, process)
                 before = capture_record(monitor_path, memory_path)
 
-                hello_program = shell(connection, process, b"run /hello_world.exec", 30)
+                hello_program = shell(connection, process, b"run /hello-world.exec", 30)
                 if (b"Hello, World!\r\n" not in hello_program or
                         b"User program exited cleanly.\r\n" not in hello_program):
                     raise AssertionError(
@@ -129,6 +129,14 @@ def main():
                         final["allocator_next"] != before["allocator_next"] or
                         final["user_runs"] != 5):
                     raise AssertionError(f"stage 5 left an unhealthy kernel: {final}")
+
+                inspected = shell(connection, process, b"run /inspector.exec", 45)
+                if (b"Australis File Inspector\r\n" not in inspected or
+                        b"Size in bytes:\r\n" not in inspected or
+                        b"Root entries:\r\n" not in inspected or
+                        b"hello.txt\r\n" not in inspected or
+                        b"User program exited cleanly.\r\n" not in inspected):
+                    raise AssertionError(f"compiled Inspector API test failed: {inspected!r}")
         finally:
             process.terminate()
             try:

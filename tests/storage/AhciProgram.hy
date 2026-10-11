@@ -41,6 +41,10 @@ public class Program {
         if (table[12] != 2) { return 53; }
         if (table[140] != 255 || table[141] != 3 || table[143] != 128) { return 54; }
         if (Ahci.BuildReadDmaExt(header, table, 0, 0, -1, 1, 512) || Ahci.BuildReadDmaExt(header, table, 0, 0, 0, 1, 768)) { return 6; }
+        if (!Ahci.BuildWriteDmaExt(header, table, 8192, 16384, 9, 2, 512) ||
+            header[0] != 69 || table[2] != 53 || table[12] != 2 ||
+            !Ahci.BuildFlushCacheExt(header, table, 8192) ||
+            header[0] != 5 || header[2] != 0 || table[2] != 234) { return 61; }
 
         byte[] identify = new byte[512];
         identify[166] = 0; identify[167] = 4;

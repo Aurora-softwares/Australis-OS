@@ -1,0 +1,11 @@
+format = 2
+name = "AustralisPersistentFileApp"
+type = "exec"
+output = "stage6-file-test.exec"
+sources = ["PersistentFileApp.hy"]
+
+[package]
+id = "AustralisPersistentFileApp"
+description = "Live HyFS 2 persistent write and recovery test"
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -81,7 +81,7 @@ Current assessment:
 | [x] | Partition discovery | Discover partitions, including GPT. |
 | [x] | Filesystem interface | Provide a consistent interface for filesystem implementations. |
 | [x] | HyFS support | Mount and read HyFS volumes. |
-| [~] | File operations | Open, read, and close work; writable files and flush semantics remain. |
+| [~] | File operations | Open, read, close, and transactional HyFS 2 mutations work through an explicit writable VFS mount; live recovery checks remain before writes become default. |
 | [~] | Directory operations | Canonical namespace traversal and listing work; HyFS v1 has no on-disk directory tree. |
 | [x] | File descriptors | Provide process-specific file handles. |
 | [x] | Mount management | Mount and unmount supported filesystems. |

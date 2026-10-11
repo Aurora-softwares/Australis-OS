@@ -25,6 +25,7 @@ public class MemoryTransport : IBlockTransport {
         return true;
     }
     public bool Flush() { return true; }
+    public bool Write(long lba, int sectors, byte[] source) { return false; }
     public void SetFailReads(bool value) { failReads = value; }
     public int Reads() { return reads; }
 }
@@ -43,6 +44,12 @@ public class Program {
     private static void Copy(byte[] source, int sourceOffset, byte[] target, int targetOffset, int length) {
         int i = 0;
         while (i < length) { target[targetOffset + i] = source[sourceOffset + i]; i = i + 1; }
+    }
+
+    private static void RefreshChecksums(byte[] image) {
+        Write32(image, 8 * 512 + 40, PartitionBytes.Crc32(image, 9 * 512, 512, 0, 0));
+        Write32(image, 8 * 512 + 44,
+            PartitionBytes.Crc32(image, 8 * 512, 48, 44, 4));
     }
 
     private static void WriteName(byte[] directory, int offset, string name) {
@@ -155,6 +162,51 @@ public class Program {
         byte[] corruptDirectory = MakeImage();
         corruptDirectory[9 * 512 + 24] = 66;
         if (new Hyfs().Mount(new BlockDevice(new MemoryTransport(corruptDirectory)), root) != VfsStatus.MountFailed()) { return 91; }
+
+        // A later empty file cannot reuse a name, even though it has no extent.
+        byte[] duplicateAfterData = MakeImage();
+        int firstName = 9 * 512 + 24;
+        int secondEntry = 9 * 512 + 64;
+        duplicateAfterData[secondEntry] = 8;
+        Copy(duplicateAfterData, firstName, duplicateAfterData, secondEntry + 24, 8);
+        duplicateAfterData[secondEntry + 24 + 8] = 0;
+        RefreshChecksums(duplicateAfterData);
+        if (new Hyfs().Mount(new BlockDevice(new MemoryTransport(duplicateAfterData)), root) !=
+            VfsStatus.MountFailed()) { return 92; }
+
+        byte[] duplicateEmpty = MakeImage();
+        Write64(duplicateEmpty, 9 * 512 + 4, 0);
+        Write64(duplicateEmpty, 9 * 512 + 12, 0);
+        Write32(duplicateEmpty, 9 * 512 + 20, 0);
+        duplicateEmpty[9 * 512] = 9;
+        Copy(duplicateEmpty, secondEntry + 24, duplicateEmpty, firstName, 9);
+        RefreshChecksums(duplicateEmpty);
+        if (new Hyfs().Mount(new BlockDevice(new MemoryTransport(duplicateEmpty)), root) !=
+            VfsStatus.MountFailed()) { return 93; }
+
+        // Every printable ASCII name accepted by the packer must be reachable.
+        byte[] punctuationName = MakeImage();
+        punctuationName[firstName + 4] = 43; // boot+txt
+        RefreshChecksums(punctuationName);
+        Hyfs punctuationHyfs = new Hyfs();
+        if (punctuationHyfs.Mount(new BlockDevice(new MemoryTransport(punctuationName)), root) !=
+            VfsStatus.Ok() || !punctuationHyfs.Exists("/boot+txt") ||
+            punctuationHyfs.ReadFile("/boot+txt", 0, full) != VfsStatus.Ok() || full[0] != 104) {
+            return 94;
+        }
+
+        // Dot components are namespace operators, not reachable file names.
+        byte[] dotName = MakeImage();
+        dotName[secondEntry] = 1;
+        dotName[secondEntry + 24] = 46;
+        int dotClear = 1;
+        while (dotClear < 9) {
+            dotName[secondEntry + 24 + dotClear] = 0;
+            dotClear = dotClear + 1;
+        }
+        RefreshChecksums(dotName);
+        if (new Hyfs().Mount(new BlockDevice(new MemoryTransport(dotName)), root) !=
+            VfsStatus.MountFailed()) { return 95; }
 
         MemoryTransport failedTransport = new MemoryTransport(MakeImage());
         failedTransport.SetFailReads(true);

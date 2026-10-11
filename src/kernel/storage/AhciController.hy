@@ -187,7 +187,45 @@ namespace Australis.Kernel.Storage {
         public int LastError() { return lastError; }
         public int RecoveryState() { return recoveryState; }
         public int RetryCount() { return retries; }
-        public bool Flush() { return ready; }
+        public bool Flush() {
+            if (!ready) { return false; }
+            byte[] header = new byte[32]; byte[] table = new byte[144];
+            if (!Ahci.BuildFlushCacheExt(header, table, io.PhysicalPage(2)) ||
+                !Issue(header, table, 0)) {
+                recoveryState = 4; io.ReportFailure(lastError, recoveryState);
+                ready = false; return false;
+            }
+            return true;
+        }
+
+        public bool Write(long lba, int sectors, byte[] source) {
+            if (!ready || source == null || lba < 0 || sectors < 1 ||
+                lba >= sectorCount || sectors > sectorCount - lba ||
+                sectors > source.Length / sectorSize) { return false; }
+            byte[] transfer = new byte[4096];
+            int remaining = sectors;
+            int copied = 0;
+            while (remaining > 0) {
+                int blocks = 4096 / sectorSize;
+                if (blocks > remaining) { blocks = remaining; }
+                int count = blocks * sectorSize;
+                int index = 0;
+                while (index < count) {
+                    transfer[index] = source[copied + index]; index = index + 1;
+                }
+                io.WriteDma(3, 0, transfer, count);
+                byte[] header = new byte[32]; byte[] table = new byte[144];
+                if (!Ahci.BuildWriteDmaExt(header, table, io.PhysicalPage(2),
+                    io.PhysicalPage(3), lba, blocks, sectorSize) ||
+                    !Issue(header, table, count)) {
+                    recoveryState = 4; io.ReportFailure(lastError, recoveryState);
+                    ready = false; return false;
+                }
+                copied = copied + count;
+                lba = lba + blocks; remaining = remaining - blocks;
+            }
+            return true;
+        }
 
         private bool ReadOnce(long lba, int sectors, byte[] destination) {
             if (!ready || destination == null || lba < 0 || sectors < 1 ||
@@ -198,8 +236,8 @@ namespace Australis.Kernel.Storage {
             int remaining = sectors;
             int copied = 0;
             while (remaining > 0) {
-                int blocks = remaining;
-                if (blocks > 8) { blocks = 8; }
+                int blocks = 4096 / sectorSize;
+                if (blocks > remaining) { blocks = remaining; }
                 byte[] header = new byte[32];
                 byte[] table = new byte[144];
                 if (!Ahci.BuildReadDmaExt(header, table, io.PhysicalPage(2), io.PhysicalPage(3),

@@ -5,6 +5,7 @@ public class MockTransport : IBlockTransport {
     public int SectorSize() { return 512; }
     public long SectorCount() { return 128; }
     public bool Read(long lba, int sectors, byte[] destination) { return true; }
+    public bool Write(long lba, int sectors, byte[] source) { return false; }
     public bool Flush() { return true; }
 }
 
@@ -42,11 +43,19 @@ public class MockFileSystem : IFileSystem {
         return VfsStatus.Ok();
     }
     public int DirectorySlotCount() { return 1; }
+    public int DirectorySlotCountAt(string path) {
+        if (path == "/") { return DirectorySlotCount(); }
+        return -1;
+    }
     public int CopyDirectoryEntryName(int index, byte[] destination) {
         if (index != 0 || destination == null || destination.Length < 8) { return -1; }
         destination[0] = 115; destination[1] = 104; destination[2] = 101; destination[3] = 108;
         destination[4] = 108; destination[5] = 46; destination[6] = 104; destination[7] = 121;
         return 8;
+    }
+    public int CopyDirectoryEntryNameAt(string path, int index, byte[] destination) {
+        if (path == "/") { return CopyDirectoryEntryName(index, destination); }
+        return -1;
     }
     public int MountCalls() { return mountCalls; }
     public int ReadCalls() { return readCalls; }
@@ -70,12 +79,16 @@ public class Program {
         MockFileSystem mounted = new MockFileSystem(false);
         if (vfs.MountRoot(mounted, device, root) != VfsStatus.Ok() || !vfs.IsRootMounted()) { return 4; }
         if (!vfs.Exists("/shell.hy") || vfs.Exists("/missing")) { return 5; }
+        if (vfs.StatRootFile("/").Status() != VfsStatus.Ok() ||
+            vfs.StatRootFile("/").Kind() != 2) { return 52; }
         if (vfs.StatRootFile("/shell.hy").ByteLength() != 2 || vfs.StatRootFile("/missing").Status() != VfsStatus.NotFound()) { return 51; }
         if (vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.Ok() || bytes[0] != 72 || bytes[1] != 121 || mounted.ReadCalls() != 1) { return 6; }
         VfsFileHandle handle = vfs.OpenRootFile("/shell.hy");
         byte[] first = new byte[1];
         if (!handle.IsOpen() || handle.MountIdentity() != 1 || handle.Read(first) != VfsStatus.Ok() ||
             first[0] != 72 || handle.Position() != 1) { return 62; }
+        if (handle.Read(null) != VfsStatus.InvalidArgument() || !handle.IsOpen() ||
+            handle.Read(first) != VfsStatus.Ok() || first[0] != 121) { return 63; }
         byte[] name = new byte[32];
         if (vfs.RootDirectorySlotCount() != 1 || vfs.CopyRootDirectoryEntryName(0, name) != 8 ||
             name[0] != 115 || name[7] != 121 || vfs.CopyRootDirectoryEntryName(1, name) >= 0) { return 61; }

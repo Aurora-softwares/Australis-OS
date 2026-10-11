@@ -1,11 +1,12 @@
 namespace Australis.Kernel.Storage {
-    // Synchronous, all-or-nothing block I/O contract shared by AHCI, NVMe and
-    // later USB mass-storage providers. A provider only receives requests that
-    // have passed the range and buffer checks below.
+    // Synchronous block I/O contract shared by AHCI, NVMe and USB storage.
+    // A failed write may have changed part of the media; only a successful
+    // Flush can establish durability for callers that need it.
     public interface IBlockTransport {
         int SectorSize();
         long SectorCount();
         bool Read(long lba, int sectors, byte[] destination);
+        bool Write(long lba, int sectors, byte[] source);
         bool Flush();
     }
 
@@ -83,6 +84,28 @@ namespace Australis.Kernel.Storage {
             while (i < byteCount) {
                 destination[i] = staged[i];
                 i = i + 1;
+            }
+            lastStatus = BlockStatus.Ok();
+            return lastStatus;
+        }
+
+        public int Write(long lba, int sectors, byte[] source) {
+            if (transport == null) { lastStatus = BlockStatus.Unavailable(); return lastStatus; }
+            if (!geometry.IsValid() || lba < 0 || sectors < 1 || source == null) {
+                lastStatus = BlockStatus.InvalidArgument(); return lastStatus;
+            }
+            if (lba >= geometry.SectorCount() || sectors > geometry.SectorCount() - lba) {
+                lastStatus = BlockStatus.OutOfRange(); return lastStatus;
+            }
+            if (sectors > source.Length / geometry.SectorSize()) {
+                lastStatus = BlockStatus.InvalidArgument(); return lastStatus;
+            }
+            int byteCount = sectors * geometry.SectorSize();
+            byte[] staged = new byte[byteCount];
+            int i = 0;
+            while (i < byteCount) { staged[i] = source[i]; i = i + 1; }
+            if (!transport.Write(lba, sectors, staged)) {
+                lastStatus = BlockStatus.IoFailure(); return lastStatus;
             }
             lastStatus = BlockStatus.Ok();
             return lastStatus;

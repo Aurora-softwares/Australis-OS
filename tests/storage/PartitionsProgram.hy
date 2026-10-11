@@ -16,6 +16,7 @@ public class DiskTransport : IBlockTransport {
         return true;
     }
     public bool Flush() { return true; }
+    public bool Write(long lba, int sectors, byte[] source) { return false; }
 }
 
 public class Program {

@@ -66,6 +66,16 @@ namespace Australis.Kernel.Vfs {
             return length;
         }
 
+        public int DirectorySlotCountAt(string path) {
+            if (path == "/") { return DirectorySlotCount(); }
+            lastStatus = VfsStatus.NotFound(); return -1;
+        }
+
+        public int CopyDirectoryEntryNameAt(string path, int index, byte[] destination) {
+            if (path == "/") { return CopyDirectoryEntryName(index, destination); }
+            lastStatus = VfsStatus.NotFound(); return -1;
+        }
+
         private void Reset() {
             device = null;
             partition = null;
@@ -105,10 +115,32 @@ namespace Australis.Kernel.Vfs {
             return IsZeroRange(bytes, offset, EntrySize());
         }
 
-        private static int PathByte(string value) {
-            // HyFS v1 names are ASCII. Hydrogen strings are byte strings but
-            // do not yet expose a byte conversion API, so this small mapping
-            // gives the on-disk reader an exact, portable comparison surface.
+        // Read a path byte without allocating a one-character string. Live
+        // user file calls may traverse many paths before the command ends.
+        public static int PathByteAt(string path, int index) {
+            if (path == null || index < 0 || index >= path.Length) { return -1; }
+            int value = System.Kernel.String.ByteAt(path, index);
+            if (value < 33 || value > 126) { return -1; }
+            return value;
+        }
+
+        public static int PathByte(string value) {
+            if (value == "!") { return 33; } if (value == "\"") { return 34; }
+            if (value == "#") { return 35; } if (value == "$") { return 36; }
+            if (value == "%") { return 37; } if (value == "&") { return 38; }
+            if (value == "'") { return 39; } if (value == "(") { return 40; }
+            if (value == ")") { return 41; } if (value == "*") { return 42; }
+            if (value == "+") { return 43; } if (value == ",") { return 44; }
+            if (value == "-") { return 45; } if (value == ".") { return 46; }
+            if (value == "0") { return 48; } if (value == "1") { return 49; }
+            if (value == "2") { return 50; } if (value == "3") { return 51; }
+            if (value == "4") { return 52; } if (value == "5") { return 53; }
+            if (value == "6") { return 54; } if (value == "7") { return 55; }
+            if (value == "8") { return 56; } if (value == "9") { return 57; }
+            if (value == ":") { return 58; } if (value == ";") { return 59; }
+            if (value == "<") { return 60; } if (value == "=") { return 61; }
+            if (value == ">") { return 62; } if (value == "?") { return 63; }
+            if (value == "@") { return 64; }
             if (value == "A") { return 65; } if (value == "B") { return 66; }
             if (value == "C") { return 67; } if (value == "D") { return 68; }
             if (value == "E") { return 69; } if (value == "F") { return 70; }
@@ -122,6 +154,9 @@ namespace Australis.Kernel.Vfs {
             if (value == "U") { return 85; } if (value == "V") { return 86; }
             if (value == "W") { return 87; } if (value == "X") { return 88; }
             if (value == "Y") { return 89; } if (value == "Z") { return 90; }
+            if (value == "[") { return 91; } if (value == "\\") { return 92; }
+            if (value == "]") { return 93; } if (value == "^") { return 94; }
+            if (value == "_") { return 95; } if (value == "`") { return 96; }
             if (value == "a") { return 97; } if (value == "b") { return 98; }
             if (value == "c") { return 99; } if (value == "d") { return 100; }
             if (value == "e") { return 101; } if (value == "f") { return 102; }
@@ -135,21 +170,17 @@ namespace Australis.Kernel.Vfs {
             if (value == "u") { return 117; } if (value == "v") { return 118; }
             if (value == "w") { return 119; } if (value == "x") { return 120; }
             if (value == "y") { return 121; } if (value == "z") { return 122; }
-            if (value == "0") { return 48; } if (value == "1") { return 49; }
-            if (value == "2") { return 50; } if (value == "3") { return 51; }
-            if (value == "4") { return 52; } if (value == "5") { return 53; }
-            if (value == "6") { return 54; } if (value == "7") { return 55; }
-            if (value == "8") { return 56; } if (value == "9") { return 57; }
-            if (value == ".") { return 46; } if (value == "_") { return 95; }
-            if (value == "-") { return 45; }
+            if (value == "{") { return 123; } if (value == "|") { return 124; }
+            if (value == "}") { return 125; } if (value == "~") { return 126; }
             return -1;
         }
 
         private bool IsPathValid(string path) {
-            if (path == null || path.Length < 2 || path.Length > 33 || path[0] != "/") { return false; }
+            if (path == null || path.Length < 2 || path.Length > 33 ||
+                PathByteAt(path, 0) != 47) { return false; }
             int i = 1;
             while (i < path.Length) {
-                if (PathByte(path[i]) < 0) { return false; }
+                if (PathByteAt(path, i) < 0) { return false; }
                 i = i + 1;
             }
             return true;
@@ -171,7 +202,7 @@ namespace Australis.Kernel.Vfs {
             if (path.Length != nameLength + 1) { return false; }
             int i = 0;
             while (i < nameLength) {
-                if (directory[entryOffset + 24 + i] != PathByte(path[i + 1])) { return false; }
+                if (directory[entryOffset + 24 + i] != PathByteAt(path, i + 1)) { return false; }
                 i = i + 1;
             }
             return true;
@@ -202,22 +233,31 @@ namespace Australis.Kernel.Vfs {
                 if (!IsPrintableNameByte(directory[offset + 24 + c])) { return false; }
                 c = c + 1;
             }
+            if (directory[offset + 24] == 46 &&
+                (nameLength == 1 || (nameLength == 2 && directory[offset + 25] == 46))) { return false; }
 
             long firstBlock = PartitionBytes.Read64(directory, offset + 4);
             long byteLength = PartitionBytes.Read64(directory, offset + 12);
             long dataCrc = PartitionBytes.Read32(directory, offset + 20);
             if (byteLength < 0) { return false; }
+
+            // An empty file still occupies a name in the flat directory.
+            int previous = 0;
+            while (previous < index) {
+                int previousOffset = previous * EntrySize();
+                if (directory[previousOffset + 1] == 1 && NamesEqual(offset, previousOffset)) { return false; }
+                previous = previous + 1;
+            }
             if (byteLength == 0) { return firstBlock == 0 && dataCrc == 0; }
 
             long blocks = byteLength / sectorSize;
             if (byteLength % sectorSize != 0) { blocks = blocks + 1; }
             if (firstBlock < dataStartBlock || firstBlock >= blockCount || blocks > blockCount - firstBlock) { return false; }
 
-            int previous = 0;
+            previous = 0;
             while (previous < index) {
                 int previousOffset = previous * EntrySize();
                 if (directory[previousOffset + 1] == 1) {
-                    if (NamesEqual(offset, previousOffset)) { return false; }
                     long previousLength = PartitionBytes.Read64(directory, previousOffset + 12);
                     if (previousLength > 0) {
                         long previousFirst = PartitionBytes.Read64(directory, previousOffset + 4);

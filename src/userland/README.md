@@ -42,8 +42,10 @@ Userland should implement policy:
 ### Compiler
 
 - Populate `Main(string[] args)` for `type = "exec"` projects.
-- Add locals, integer and Boolean operations, comparisons, branches, loops,
-  and method calls to the AUEX backend.
+- [x] Add scalar locals, integer and Boolean operations, comparisons,
+  branches, loops, `break`, `continue`, and computed console output and exits
+  to the AUEX backend.
+- [ ] Add application method calls to the AUEX backend.
 - Add bounded strings and byte arrays backed by the user data region.
 - Preserve the existing AUEX validation, CRC, instruction limit, and cleanup
   behavior.
@@ -94,7 +96,7 @@ recovery shell when the userland image is missing or invalid.
 
 ## Stage 4: system manager and services
 
-- Replace the placeholder `SYSTEM.EFI` with `/System/Core/System.exec`.
+- Install `/System/Core/System.exec` as the first user process.
 - Start it as PID 1 after the kernel mounts the root filesystem.
 - Add a process table with parent, child, running, blocked, exited, and faulted
   states.

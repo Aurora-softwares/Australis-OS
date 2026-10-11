@@ -186,6 +186,20 @@ def read_until(connection, marker, timeout, process):
     return bytes(received)
 
 
+def drain_until_quiet(connection, process, quiet_seconds=0.25, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"QEMU exited with status {process.returncode}")
+        connection.settimeout(quiet_seconds)
+        try:
+            if not connection.recv(4096):
+                raise RuntimeError("serial connection closed during overflow recovery")
+        except socket.timeout:
+            return
+    raise TimeoutError("serial input did not become quiet after overflow")
+
+
 def command(connection, process, input_bytes, expected_output):
     connection.sendall(input_bytes + b"\r")
     response = read_until(connection, b"\n" + PROMPT, 20, process)
@@ -198,6 +212,7 @@ def command(connection, process, input_bytes, expected_output):
 
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
+    hyfs2 = len(sys.argv) > 5 and sys.argv[5] == "hyfs2"
     if transport not in ("ahci", "nvme"):
         raise ValueError("transport must be ahci or nvme")
     rootfs = Path(__file__).resolve().parents[2] / "rootfs"
@@ -269,7 +284,7 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test\r\n")
+                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")
@@ -285,6 +300,17 @@ def main():
                               b"/user-demo.exec\r\n", b"/user-fault.exec\r\n"):
                     if entry not in listing:
                         raise AssertionError(f"root listing missing {entry!r}: {listing!r}")
+                if hyfs2:
+                    command(connection, process, b"ls /System", b"/System/Core\r\n")
+                    command(connection, process, b"ls /Bin", b"/Bin/user-demo.exec\r\n")
+                    command(connection, process, b"cat /Bin/user-demo.exec", b"AUEX")
+                    metadata = command(connection, process, b"stat /System", b"type: directory\r\n")
+                    if b"created: unavailable\r\n" not in metadata or b"id: 0\r\n" in metadata:
+                        raise AssertionError(f"HyFS v2 metadata missing: {metadata!r}")
+                    command(connection, process, b"stat /Bin/user-demo.exec/",
+                            b"File not found.\r\n")
+                else:
+                    command(connection, process, b"stat /hello.txt", b"id: unavailable\r\n")
                 command(connection, process, b"cat /hello.txt", hello)
                 command(connection, process, b"cat /readme.txt", readme)
                 command(connection, process, b"cat /missing.txt", b"File not found.\r\n")
@@ -353,6 +379,9 @@ def main():
                 connection.sendall(b"x" * 4096)
                 read_until(connection, PROMPT, 30, process)
                 monitor_command(monitor_path, f"block_set_io_throttle {drive_id} 0 0 0 0 0 0")
+                # The pending event queue may still be echoing the accepted
+                # bytes. Let it drain before testing that Ctrl-C recovers input.
+                drain_until_quiet(connection, process)
                 connection.sendall(b"\x03")
                 read_until(connection, PROMPT, 30, process)
                 overflowed = capture_record(monitor_path, memory_path)

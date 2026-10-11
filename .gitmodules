@@ -1,0 +1,3 @@
+[submodule "applications/Australis-BaseConvertor"]
+	path = applications/Australis-BaseConvertor
+	url = https://github.com/Aurora-softwares/Australis-BaseConvertor

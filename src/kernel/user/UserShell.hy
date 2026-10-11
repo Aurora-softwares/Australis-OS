@@ -13,6 +13,7 @@ namespace Australis.User {
         public static int Processes() { return 10; }
         public static int PanicTest() { return 11; }
         public static int Unknown() { return 12; }
+        public static int Stat() { return 13; }
     }
 
     public class UserShellCommand {
@@ -36,6 +37,7 @@ namespace Australis.User {
         private bool IsEcho(byte[] b, int s, int n) { return n == 4 && b[s] == 101 && b[s + 1] == 99 && b[s + 2] == 104 && b[s + 3] == 111; }
         private bool IsList(byte[] b, int s, int n) { return n == 2 && b[s] == 108 && b[s + 1] == 115; }
         private bool IsCat(byte[] b, int s, int n) { return n == 3 && b[s] == 99 && b[s + 1] == 97 && b[s + 2] == 116; }
+        private bool IsStat(byte[] b, int s, int n) { return n == 4 && b[s] == 115 && b[s + 1] == 116 && b[s + 2] == 97 && b[s + 3] == 116; }
         private bool IsVersion(byte[] b, int s, int n) { return n == 7 && b[s] == 118 && b[s + 1] == 101 && b[s + 2] == 114 && b[s + 3] == 115 && b[s + 4] == 105 && b[s + 5] == 111 && b[s + 6] == 110; }
         private bool IsDevices(byte[] b, int s, int n) { return n == 7 && b[s] == 100 && b[s + 1] == 101 && b[s + 2] == 118 && b[s + 3] == 105 && b[s + 4] == 99 && b[s + 5] == 101 && b[s + 6] == 115; }
         private bool IsMounts(byte[] b, int s, int n) { return n == 6 && b[s] == 109 && b[s + 1] == 111 && b[s + 2] == 117 && b[s + 3] == 110 && b[s + 4] == 116 && b[s + 5] == 115; }
@@ -69,6 +71,7 @@ namespace Australis.User {
             else if (IsEcho(line, start, wordLength)) { identifier = UserShellCommandId.Echo(); }
             else if (IsList(line, start, wordLength)) { identifier = UserShellCommandId.List(); }
             else if (IsCat(line, start, wordLength)) { identifier = UserShellCommandId.Cat(); }
+            else if (IsStat(line, start, wordLength)) { identifier = UserShellCommandId.Stat(); }
             else if (IsVersion(line, start, wordLength)) { identifier = UserShellCommandId.Version(); }
             else if (IsDevices(line, start, wordLength)) { identifier = UserShellCommandId.Devices(); }
             else if (IsMounts(line, start, wordLength)) { identifier = UserShellCommandId.Mounts(); }

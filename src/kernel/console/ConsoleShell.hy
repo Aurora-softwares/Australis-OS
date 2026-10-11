@@ -11,6 +11,7 @@ namespace Australis.Kernel.Console {
         private ConsoleWriter output;
         private Vfs root;
         private Vfs removable;
+        private Vfs data;
         private NativeXhci usb;
         private long bootInfo;
         private LineEditor editor;
@@ -39,29 +40,30 @@ namespace Australis.Kernel.Console {
         private string lostText;
 
         public ConsoleShell(IConsoleInput inputSource, ConsoleWriter outputWriter, Vfs inputRoot,
-            Vfs inputRemovable, NativeXhci inputUsb, long inputBootInfo) {
+            Vfs inputRemovable, Vfs inputData, NativeXhci inputUsb, long inputBootInfo) {
             input = inputSource;
             output = outputWriter;
             root = inputRoot;
             removable = inputRemovable;
+            data = inputData;
             usb = inputUsb;
             bootInfo = inputBootInfo;
             editor = new LineEditor();
             events = new ConsoleEventQueue();
             decoder = new SerialKeyDecoder(input, events);
             line = editor.Bytes();
-            nameBuffer = new byte[32];
+            nameBuffer = new byte[64];
             length = 0;
             commandCount = 0;
             prompt = "australis> ";
-            mountNamespace = new VfsNamespace(root, removable);
+            mountNamespace = new VfsNamespace(root, removable, data);
             registry = new UserShellRegistry();
             programHost = new NativeUserProgramHost(mountNamespace,
                 new NativeUserTerminal(input, output, events, decoder, usb));
             lastProgramState = 0; lastProgramExit = 0; lastProgramFault = 0;
             banner = "Australis serial console ready. Type help.";
             versionText = "version: 0.0.1";
-            helpText = "Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test";
+            helpText = "Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test";
             unknownText = "Unknown command. Type help.";
             usageText = "Usage: cat /filename";
             notFoundText = "File not found.";
@@ -73,6 +75,15 @@ namespace Australis.Kernel.Console {
 
         private void NewLine() { output.WriteByte(13); output.WriteByte(10); }
 
+        private void WriteNumber(long value) {
+            long divisor = 1;
+            while (value / divisor >= 10) { divisor = divisor * 10; }
+            while (divisor > 0) {
+                output.WriteByte(48 + (int)((value / divisor) % 10));
+                divisor = divisor / 10;
+            }
+        }
+
         private string Argument(UserShellCommand command) {
             if (command == null || !command.HasArgument()) { return null; }
             byte[] bytes = new byte[command.ArgumentLength()];
@@ -83,22 +94,48 @@ namespace Australis.Kernel.Console {
             return System.Kernel.String.FromBytes(bytes, bytes.Length);
         }
 
-        private void ListVolume(Vfs volume, bool usbPrefix) {
-            if (volume == null || !volume.IsRootMounted()) { output.WriteLine(notFoundText); return; }
-            int slots = volume.RootDirectorySlotCount();
+        private void ListPath(string path) {
+            VfsPath resolved = mountNamespace.Resolve(path);
+            if (!resolved.IsValid()) { output.WriteLine(notFoundText); return; }
+            string canonical = resolved.CanonicalPath();
+            int slots = mountNamespace.DirectorySlotCount(canonical);
             if (slots < 0) { output.WriteLine(readErrorText); return; }
             int index = 0;
             while (index < slots) {
-                int nameLength = volume.CopyRootDirectoryEntryName(index, nameBuffer);
+                int nameLength = mountNamespace.CopyDirectoryEntryName(canonical, index, nameBuffer);
                 if (nameLength < 0) { output.WriteLine(readErrorText); return; }
                 if (nameLength > 0) {
-                    if (usbPrefix) { output.WriteText("/usb"); }
+                    if (canonical != "/") { output.WriteText(canonical); }
                     output.WriteByte(47);
                     output.WriteBytes(nameBuffer, nameLength);
                     NewLine();
                 }
                 index = index + 1;
             }
+        }
+
+        private void StatPath(UserShellCommand command) {
+            string path = Argument(command);
+            if (path == null || path.Length < 1 || System.Kernel.String.ByteAt(path, 0) != 47) {
+                output.WriteLine("Usage: stat /path"); return;
+            }
+            VfsFileInfo info = mountNamespace.Stat(path);
+            if (!info.Exists()) { output.WriteLine(notFoundText); return; }
+            output.WriteText("path: "); output.WriteLine(path);
+            output.WriteText("type: ");
+            if (info.Kind() == 2) { output.WriteLine("directory"); }
+            else { output.WriteLine("file"); }
+            output.WriteText("size: "); WriteNumber(info.ByteLength()); output.WriteLine(" bytes");
+            output.WriteText("id: ");
+            if (info.ObjectId() > 0) { WriteNumber(info.ObjectId()); NewLine(); }
+            else { output.WriteLine("unavailable"); }
+            output.WriteText("created: ");
+            if (info.HasCreationTime()) { WriteNumber(info.CreatedUnixSeconds()); NewLine(); }
+            else { output.WriteLine("unavailable"); }
+            output.WriteText("modified: ");
+            if (info.HasModificationTime()) { WriteNumber(info.ModifiedUnixSeconds()); NewLine(); }
+            else { output.WriteLine("unavailable"); }
+            output.WriteText("attributes: "); WriteNumber(info.Attributes()); NewLine();
         }
 
         private void Cat(UserShellCommand command) {
@@ -136,7 +173,7 @@ namespace Australis.Kernel.Console {
                 output.WriteLine("Usage: run /program.exec"); return;
             }
             // Print that it is running a program
-			output.WriteLine("Starting user program.");
+			//output.WriteLine("Starting user program.");
             UserProgramResult result = programHost.Run(path);
             lastProgramState = result.State(); lastProgramExit = result.ExitCode();
             lastProgramFault = result.Fault();
@@ -148,12 +185,17 @@ namespace Australis.Kernel.Console {
             System.Kernel.Memory.Write64(bootInfo + 2592, result.Instructions());
             // Print the status around the program execution
             if (lastProgramState == UserProgramState.Exited()) {
-                if (lastProgramExit == 0) { output.WriteLine("User program exited cleanly."); }
-                else { output.WriteLine("User program exited with an error."); }
+                if (lastProgramExit == 0) {
+					//output.WriteLine("User program exited cleanly.");
+				} else {
+					output.WriteLine("User program exited with an error.");
+				}
             } else if (lastProgramFault == UserFault.MemoryAccess()) {
                 output.WriteLine("User program blocked from kernel memory.");
             } else if (lastProgramFault == UserFault.InvalidImage()) {
                 output.WriteLine("Invalid user executable.");
+            } else if (lastProgramFault == UserFault.Arithmetic()) {
+                output.WriteLine("User program arithmetic fault.");
             } else {
 				output.WriteLine("User program faulted.");
 			}
@@ -176,6 +218,9 @@ namespace Australis.Kernel.Console {
 
         private void Mounts() {
             output.WriteLine("/: hyfs boot0");
+            if (data != null && data.IsRootMounted()) {
+                output.WriteLine("/data: hyfs2 data0 read-write");
+            }
             if (removable != null && removable.IsRootMounted()) {
                 if (usb != null && usb.IsStorage()) { output.WriteLine("/usb: hyfs usb0"); }
                 else { output.WriteLine("/usb: hyfs offline"); }
@@ -202,12 +247,12 @@ namespace Australis.Kernel.Console {
             if (identifier == UserShellCommandId.WorkingDirectory() && !command.HasArgument()) {
                 output.WriteLine("/"); return;
             }
-            if (identifier == UserShellCommandId.List() && !command.HasArgument()) {
-                ListVolume(root, false); return;
+            if (identifier == UserShellCommandId.List()) {
+                string listPath = Argument(command);
+                if (listPath == null) { listPath = "/"; }
+                ListPath(listPath); return;
             }
-            if (identifier == UserShellCommandId.List() && Argument(command) == "/usb") {
-                ListVolume(removable, true); return;
-            }
+            if (identifier == UserShellCommandId.Stat()) { StatPath(command); return; }
             if (identifier == UserShellCommandId.Echo()) {
                 int i = command.ArgumentStart();
                 while (i < length) { output.WriteByte(line[i]); i = i + 1; }

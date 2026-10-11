@@ -8,27 +8,33 @@ EFI_DIR := $(BUILD_DIR)/efi
 EFI_BOOT_DIR := $(EFI_DIR)/EFI/BOOT
 EFI_BINARY := $(EFI_BOOT_DIR)/BOOTX64.EFI
 KERNEL_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/KERNEL.BIN
-SYSTEM_BINARY := $(EFI_DIR)/EFI/AUSTRALIS/SYSTEM.EFI
 IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
 EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
 HYFS_IMAGE := $(BUILD_DIR)/boot/root.hyfs.img
+HYFS2_IMAGE := $(BUILD_DIR)/boot/root.hyfs2.img
 GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
 APPLICATIONS_PROJECT ?= applications/Applications.hyproj
 APPLICATIONS_DIR := $(BUILD_DIR)/applications
 APPLICATIONS_STAMP := $(APPLICATIONS_DIR)/.built
+APP_COMPILER := $(BUILD_DIR)/hydrogen-apps
+APP_COMPILER_INPUTS := $(wildcard ../Hylang-Compiler/samples/self_hosting/*/*.hy ../Hylang-Compiler/samples/self_hosting/*/*.hyproj)
 # Space separated, prebuilt .exec files from independently versioned app repos.
 APPLICATION_ARTIFACTS ?=
 ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged
 HYFS_GPT_TYPE := 9f5eb82e-692e-5a8f-b968-adaaa349dd93
 ISO_ROOT := $(BUILD_DIR)/iso-root
 ISO := $(BUILD_DIR)/australis-hylang.iso
+HYFS2_ISO := $(BUILD_DIR)/australis-hyfs2.iso
+HYFS2_DATA_DISK ?= $(BUILD_DIR)/hyfs2-data.img
 PROJECT := src/australlis.hyproj
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
+HYFS2_AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(HYFS2_ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
+HYFS2_NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(HYFS2_ISO)" -device nvme,serial=australis,drive=nvme0
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
-.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-stage5-ahci test-stage5-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-serial run-serial-nvme run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-auex-file-api test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-hyfs2-serial run-hyfs2-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -77,11 +83,31 @@ test-stage5-host: check-build-tools
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests"
 
+test-auex-file-api: $(APP_COMPILER)
+	@mkdir -p "$(BUILD_DIR)"
+	"$(APP_COMPILER)" build applications/Australis-Inspector/Inspector.hyproj -o "$(BUILD_DIR)/inspector-file-api.exec"
+	"$(APP_COMPILER)" build tests/user/FileApiApp.hyproj -o "$(BUILD_DIR)/file-api-test.exec"
+	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	"$(BUILD_DIR)/user-runtime-tests" inspector "$(BUILD_DIR)/inspector-file-api.exec"
+	"$(BUILD_DIR)/user-runtime-tests" file-api "$(BUILD_DIR)/file-api-test.exec"
+
 test-stage5-ahci: iso | check-run-tools
 	python3 tests/user/user_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
 
 test-stage5-nvme: iso | check-run-tools
 	python3 tests/user/user_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-stage6: test-hyfs2 test-stage6-ahci test-stage6-nvme
+
+test-stage6-image: $(APP_COMPILER) | check-run-tools
+	"$(APP_COMPILER)" build tests/user/PersistentFileApp.hyproj -o "$(BUILD_DIR)/stage6-file-test.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/stage6-file-test.exec"
+
+test-stage6-ahci: test-stage6-image
+	python3 tests/storage/hyfs2_persistent_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+
+test-stage6-nvme: test-stage6-image
+	python3 tests/storage/hyfs2_persistent_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-usb: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
@@ -146,10 +172,44 @@ test-vfs: check-build-tools
 	"$(HYDROGEN)" build tests/vfs/Vfs.hyproj -o "$(BUILD_DIR)/vfs-tests"
 	"$(BUILD_DIR)/vfs-tests"
 
-test-hyfs: check-build-tools
+$(BUILD_DIR)/host-vfs/Hyfs.hy: src/kernel/vfs/Hyfs.hy tests/vfs/build_host_hyfs.py
+	python3 tests/vfs/build_host_hyfs.py "$<" "$@"
+
+test-hyfs: $(BUILD_DIR)/host-vfs/Hyfs.hy | check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
+	python3 tests/vfs/hyfs_v1_fixture.py
 	"$(HYDROGEN)" build tests/vfs/Hyfs.hyproj -o "$(BUILD_DIR)/hyfs-tests"
 	"$(BUILD_DIR)/hyfs-tests"
+
+test-hyfs2: $(BUILD_DIR)/host-vfs/Hyfs.hy | check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	python3 tests/vfs/hyfs2_image_test.py
+	python3 tests/vfs/hyfs_v1_fixture.py --output "$(BUILD_DIR)/hyfs-v1-compat.img"
+	python3 tests/vfs/make_hyfs2_fixture.py "$(BUILD_DIR)/hyfs2-host.img"
+	"$(HYDROGEN)" build tests/vfs/Hyfs2.hyproj -o "$(BUILD_DIR)/hyfs2-tests"
+	"$(BUILD_DIR)/hyfs2-tests"
+	"$(HYDROGEN)" build tests/vfs/Hyfs2Writer.hyproj -o "$(BUILD_DIR)/hyfs2-writer-tests"
+	"$(BUILD_DIR)/hyfs2-writer-tests"
+
+test-hyfs2-writes: test-hyfs2
+
+test-hyfs2-boot-ahci: iso-hyfs2 | check-run-tools
+	python3 tests/storage/controller_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+
+test-hyfs2-boot-nvme: iso-hyfs2 | check-run-tools
+	python3 tests/storage/controller_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
+
+test-hyfs2-serial-ahci: iso-hyfs2 | check-run-tools
+	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci hyfs2
+
+test-hyfs2-serial-nvme: iso-hyfs2 | check-run-tools
+	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme hyfs2
+
+test-hyfs2-data-ahci: iso-hyfs2 | check-run-tools
+	python3 tests/storage/hyfs2_data_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+
+test-hyfs2-data-nvme: iso-hyfs2 | check-run-tools
+	python3 tests/storage/hyfs2_data_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 #
 # Tools
@@ -162,7 +222,6 @@ $(IMAGE): build | check-image-tools
 	mmd -i "$(IMAGE)" ::/EFI ::/EFI/BOOT ::/EFI/AUSTRALIS
 	mcopy -i "$(IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
-	mcopy -i "$(IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
 
 $(EFI_BOOT_IMAGE): build | check-image-tools
 	@mkdir -p "$(dir $(EFI_BOOT_IMAGE))"
@@ -172,16 +231,20 @@ $(EFI_BOOT_IMAGE): build | check-image-tools
 	mmd -i "$(EFI_BOOT_IMAGE)" ::/EFI ::/EFI/BOOT ::/EFI/AUSTRALIS
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
-	mcopy -i "$(EFI_BOOT_IMAGE)" "$(SYSTEM_BINARY)" ::/EFI/AUSTRALIS/SYSTEM.EFI
 
 force-applications:
 
 applications: $(APPLICATIONS_STAMP)
 
-$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) | check-build-tools
+$(APP_COMPILER): $(APP_COMPILER_INPUTS) | check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build ../Hylang-Compiler/samples/self_hosting/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj -o "$(APP_COMPILER)"
+	@chmod +x "$(APP_COMPILER)"
+
+$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(APP_COMPILER) | check-build-tools
 	@rm -rf "$(APPLICATIONS_DIR)"
 	@mkdir -p "$(APPLICATIONS_DIR)"
-	"$(HYDROGEN)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
+	"$(APP_COMPILER)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
 	@touch "$@"
 
 $(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(wildcard rootfs/*) $(APPLICATION_ARTIFACTS)
@@ -198,6 +261,27 @@ $(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(wildcard rootfs/*) $(APPLICATION_ARTIFA
 
 $(HYFS_IMAGE): tools/make_hyfs_image.py $(ROOTFS_STAMP)
 	python3 tools/make_hyfs_image.py "$(GENERATED_ROOTFS)" "$@"
+
+$(HYFS2_IMAGE): tools/hyfs2.py tools/make_hyfs2_image.py $(ROOTFS_STAMP)
+	python3 tools/make_hyfs2_image.py "$(GENERATED_ROOTFS)" "$@"
+
+iso-hyfs2: $(HYFS2_ISO)
+
+hyfs2-data-disk: $(HYFS2_DATA_DISK)
+
+# Order-only ISO prerequisite: never overwrite a data disk after first creation.
+$(HYFS2_DATA_DISK): | $(HYFS2_ISO)
+	python3 tools/make_hyfs2_data_disk.py "$(HYFS2_ISO)" "$@"
+
+$(HYFS2_ISO): $(EFI_BOOT_IMAGE) $(HYFS2_IMAGE) | check-image-tools
+	@rm -rf "$(ISO_ROOT)"
+	@mkdir -p "$(ISO_ROOT)/EFI/BOOT"
+	cp "$(EFI_BOOT_IMAGE)" "$(ISO_ROOT)/EFI/BOOT/efiboot.img"
+	"$(XORRISO)" -as mkisofs -R -J \
+		-eltorito-alt-boot -e EFI/BOOT/efiboot.img -no-emul-boot \
+		-efi-boot-part --efi-boot-image \
+		-append_partition 4 "$(HYFS_GPT_TYPE)" "$(HYFS2_IMAGE)" -appended_part_as_gpt \
+		-o "$(HYFS2_ISO)" "$(ISO_ROOT)"
 
 $(ISO): $(EFI_BOOT_IMAGE) $(HYFS_IMAGE) | check-image-tools
 	@rm -rf "$(ISO_ROOT)"
@@ -239,6 +323,22 @@ run-nvme-serial: iso | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(ISO)" $(NVME_DISK_ARGS) -net none -display none -monitor none -serial stdio
 
 run-serial-nvme: run-nvme-serial
+
+
+run-disk-hyfs2: iso-hyfs2 | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+
+run-hyfs2-serial: iso-hyfs2 | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
+
+run-hyfs2-nvme-serial: iso-hyfs2 | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_NVME_DISK_ARGS) -net none -display none -monitor none -serial stdio
+
+run-hyfs2-data-ahci: hyfs2-data-disk | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" -device ich9-ahci,id=ahci0 -drive if=none,id=data0,format=raw,file="$(HYFS2_DATA_DISK)" -device ide-hd,drive=data0,bus=ahci0.0 -net none -display none -monitor none -serial stdio
+
+run-hyfs2-data-nvme: hyfs2-data-disk | check-run-tools
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" -drive if=none,id=data0,format=raw,file="$(HYFS2_DATA_DISK)" -device nvme,serial=australis-data,drive=data0 -net none -display none -monitor none -serial stdio
 
 # The live controller currently owns one root-port device. Use COM1 for input
 # while the xHCI device is occupied by the removable mass-storage volume.
