@@ -1,3 +1,46 @@
+[submodule "src/kernel"]
+	path = src/kernel
+	url = https://github.com/Aurora-softwares/Australis-Kernel
+[submodule "src/bootloader"]
+	path = src/bootloader
+	url = https://github.com/Aurora-softwares/Australis-Bootloader
+[submodule "src/userland"]
+	path = src/userland
+	url = https://github.com/Aurora-softwares/Australis-Userland
+
 [submodule "applications/Australis-BaseConvertor"]
 	path = applications/Australis-BaseConvertor
 	url = https://github.com/Aurora-softwares/Australis-BaseConvertor
+[submodule "applications/Australis-Calculator"]
+	path = applications/Australis-Calculator
+	url = https://github.com/Aurora-softwares/Australis-Calculator
+[submodule "applications/Australis-ChangeDirectory"]
+	path = applications/Australis-ChangeDirectory
+	url = https://github.com/Aurora-softwares/Australis-ChangeDirectory
+[submodule "applications/Australis-Clear"]
+	path = applications/Australis-Clear
+	url = https://github.com/Aurora-softwares/Australis-Clear
+[submodule "applications/Australis-HelloWorld"]
+	path = applications/Australis-HelloWorld
+	url = https://github.com/Aurora-softwares/Australis-HelloWorld
+[submodule "applications/Australis-HexViewer"]
+	path = applications/Australis-HexViewer
+	url = https://github.com/Aurora-softwares/Australis-HexViewer
+[submodule "applications/Australis-Inspector"]
+	path = applications/Australis-Inspector
+	url = https://github.com/Aurora-softwares/Australis-Inspector
+[submodule "applications/Australis-MemInfo"]
+	path = applications/Australis-MemInfo
+	url = https://github.com/Aurora-softwares/Australis-MemInfo
+[submodule "applications/Australis-SysInfo"]
+	path = applications/Australis-SysInfo
+	url = https://github.com/Aurora-softwares/Australis-SysInfo
+[submodule "applications/Australis-Version"]
+	path = applications/Australis-Version
+	url = https://github.com/Aurora-softwares/Australis-Version
+[submodule "applications/Australis.Dev-user-demo"]
+	path = applications/Australis.Dev-user-demo
+	url = https://github.com/Aurora-softwares/Australis.Dev-user-demo
+[submodule "applications/Australis.Dev-user-fault"]
+	path = applications/Australis.Dev-user-fault
+	url = https://github.com/Aurora-softwares/Australis.Dev-user-fault
