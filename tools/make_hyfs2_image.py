@@ -16,6 +16,8 @@ def main() -> None:
     parser.add_argument("root", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--size-mib", type=int, default=4)
+    parser.add_argument("--system-apps", type=Path,
+                        help="directory of executables to install under /System")
     args = parser.parse_args()
     try:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -30,6 +32,14 @@ def main() -> None:
                     image.stat(directory)
                 except Hyfs2Error:
                     image.mkdir(directory, record_time=False)
+            if args.system_apps is not None:
+                if not args.system_apps.is_dir() or args.system_apps.is_symlink():
+                    raise Hyfs2Error("system applications source is not a real directory")
+                for executable in sorted(args.system_apps.glob("*.exec")):
+                    if executable.is_symlink() or not executable.is_file():
+                        raise Hyfs2Error(f"invalid system executable: {executable}")
+                    image.put("/System/" + executable.name,
+                              executable.read_bytes(), record_time=False)
             for executable in sorted(args.root.glob("*.exec")):
                 image.put("/Bin/" + executable.name, executable.read_bytes(),
                           record_time=False)

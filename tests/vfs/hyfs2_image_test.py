@@ -77,6 +77,40 @@ class Hyfs2ImageTests(unittest.TestCase):
         with self.assertRaises(Hyfs2Error):
             self.image.move("/Bin/empty.exec", "/Bin/renamed/")
 
+    def test_maximum_names_paths_and_multiblock_file(self):
+        parts = ["a" * 63, "b" * 63, "c" * 63, "d" * 62]
+        path = ""
+        for part in parts:
+            path += "/" + part
+            if part != parts[-1]:
+                self.image.mkdir(path)
+        self.assertEqual(len(path.encode("ascii")), 255)
+        contents = bytes(range(256)) * 400
+        self.image.put(path, contents)
+        remounted = self.reopen()
+        self.assertEqual(remounted.read_file(path), contents)
+        self.assertEqual(remounted.stat(path).length, len(contents))
+        with self.assertRaises(Hyfs2Error):
+            self.image.put(path + "e", b"too long")
+        with self.assertRaises(Hyfs2Error):
+            self.image.put("/" + "n" * 64, b"bad name")
+
+    def test_rejects_truncated_volume_and_bad_file_checksum(self):
+        self.image.put("/payload", b"checked contents")
+        complete = self.path.read_bytes()
+        self.path.write_bytes(complete[:-512])
+        with self.assertRaises(Hyfs2Error):
+            self.reopen()
+        self.path.write_bytes(complete)
+        entry = self.image.stat("/payload")
+        damaged = bytearray(complete)
+        damaged[(1 - self.image.snapshot.slot) * 512:
+                (2 - self.image.snapshot.slot) * 512] = bytes(512)
+        damaged[entry.first_block * 512] ^= 1
+        self.path.write_bytes(damaged)
+        with self.assertRaises(Hyfs2Error):
+            self.reopen()
+
     def test_interrupted_commit_preserves_previous_generation(self):
         self.image.put("/file", b"old data")
         before = self.image.snapshot.generation

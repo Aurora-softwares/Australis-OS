@@ -1,6 +1,10 @@
+<div align="center">
+
+<img src="assets/australis.icon.svg" width="30%" />
+
 # Australis OS
 
-<img src="assets/australis.icon.svg" style="display: block;margin-left: auto; margin-right: auto; width: 30%;" />
+</div>
 
 Australis OS is an x86_64 freestanding kernel booted from a UEFI ISO. The
 Hylang bootloader loads the separate raw `KERNEL.BIN`, captures the final
@@ -23,7 +27,7 @@ freestanding memory intrinsics, page-backed object/array allocation, and live
 Hylang AHCI or NVMe drivers to validate GPT, mount a read-only HyFS root, and
 read files through the VFS. A COM1 interrupt receive ring runs the initial user
 shell registry with `help`, `echo`, `ls`, `cat`, `devices`, `mounts`, `pwd`,
-`run`, `ps`, and `version`. The console supervisor owns devices and privileged
+`path`, `run`, `ps`, and `version`. The console supervisor owns devices and privileged
 services; checked AUEX programs use terminal and file-descriptor syscalls.
 The bootstrap still has
 limits described below; it is not yet a general-purpose OS.
@@ -485,10 +489,28 @@ metadata. Build it with `make iso-hyfs2`, then boot the serial shell with
 `make test-hyfs2` and `make test-hyfs2-serial-ahci` (or
 `make test-hyfs2-serial-nvme`). The v2 shell can list `/System`, `/Bin`,
 `/Applications`, `/Users`, `/Volumes`, and `/Temporary`; executable copies
-are available in `/Bin`. `stat /System` reports kind, size, object ID, and
+are available in `/Bin`. The Hex Viewer executable is installed at
+`/System/hexviewer.exec`. `stat /System` reports kind, size, object ID, and
 timestamps when the image contains them. The kernel continues to mount v1
 images. The versioned disk format and its recovery rules are in
 `docs/hyfs-v2.md`.
+
+The shell searches `PATH=/System:/Bin:/` for bare executable names and adds
+`.exec` automatically. Type `hexviewer` to run `/System/hexviewer.exec` or
+`PATH=/System:/Bin` to change the search directories for the current session.
+Use `path` to show the current value. Explicit `run /path/program.exec` still
+works. Both forms pass arguments to `Main(string[] args)`:
+`program /path/to/item -an --argument "two words"` and
+`run /path/program.exec /path/to/item -an --argument` are valid. Single and
+double quotes, plus backslash-escaped spaces, keep text in one argument.
+Options are passed unchanged for each application to interpret; `-an` is one
+argument and a long option begins with two ASCII hyphens (`--`). The shell
+accepts up to 16 arguments within its 256-byte input line.
+`inspector /Bin/inspector.exec` reports filesystem metadata and its AUEX
+header; `inspector /System` lists that directory. Apps can pass an argument
+path to the checked `Stat*`, `DirectoryCount`, `DirectoryName`, `OpenRead`,
+and `OpenWrite` file APIs. `Files.ApiVersion()` reports the current AUEX file
+API version, and bounded `ResultByte`/`ResultU32` calls expose read bytes.
 
 `tools/hyfs2.py` provides offline file and directory operations for a v2 raw
 image. For example, after `python3 tools/hyfs2.py create volume.img`, run
@@ -513,6 +535,8 @@ are enabled by default for the separate raw `/data` partition. The boot and
 USB mounts stay read-only. `make test-stage6` covers host corruption,
 interruption, capacity, and removal checks, then boots an AUEX writer on both
 AHCI and NVMe to check persistence across reboots and live device removal.
+The live removal check detaches the QEMU disk backend while the guest remains
+running and verifies that `/data` reads fail without stopping the shell.
 
 Before mounting storage, the kernel verifies the handoff's active four-level
 page tables: the boot record must be mapped and virtual page zero must remain

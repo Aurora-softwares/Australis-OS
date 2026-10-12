@@ -234,6 +234,8 @@ public class Hyfs2WriterProgram {
         Hyfs2 dataFs = new Hyfs2();
         if (data.MountRootWritableAs(dataFs, vfsDisk, volume, 3) !=
             VfsStatus.Ok()) { return 40; }
+        VfsDirectoryHandle oldDirectory = data.OpenRootDirectory("/");
+        if (!oldDirectory.IsOpen() || oldDirectory.Count() < 1) { return 61; }
         if (data.CreateRootFile("/sample", Three(1, 2, 3)) != VfsStatus.Ok() ||
             data.CreateRootFile("/sample", new byte[0]) != VfsStatus.AlreadyExists() ||
             data.MkdirRoot("/dir") != VfsStatus.Ok() ||
@@ -242,6 +244,8 @@ public class Hyfs2WriterProgram {
             data.DirectoryInfoAt("/sample").Status() != VfsStatus.InvalidArgument()) {
             return 41;
         }
+        if (oldDirectory.Next(new byte[64]) != -1 ||
+            oldDirectory.Status() != VfsStatus.StaleHandle()) { return 62; }
         VfsFileHandle writableHandle = data.OpenRootFileWrite("/sample");
         VfsFileHandle readHandle = data.OpenRootFile("/sample");
         if (!writableHandle.IsOpen() || !readHandle.IsOpen() ||
@@ -281,10 +285,13 @@ public class Hyfs2WriterProgram {
             removedVolume.CreateRootFile("/retained", Three(1, 2, 3)) !=
                 VfsStatus.Ok()) { return 49; }
         VfsFileHandle removedHandle = removedVolume.OpenRootFileWrite("/retained");
+        VfsDirectoryHandle removedDirectory = removedVolume.OpenRootDirectory("/");
         removalIo.Remove();
         if (removedHandle.Append(Two(4, 5)) != VfsStatus.IoFailure() ||
             removedVolume.IsRootMounted() ||
             removedHandle.Append(Two(6, 7)) != VfsStatus.NotMounted() ||
+            removedDirectory.Next(new byte[64]) != -1 ||
+            removedDirectory.Status() != VfsStatus.NotMounted() ||
             removedVolume.MountRootWritableAs(new Hyfs2(), removalDisk,
                 volume, 3) == VfsStatus.Ok()) { return 50; }
         removalIo.Restore();

@@ -14,7 +14,7 @@ The v1 correctness and compatibility closeout below is complete. Build HyFS 2
 as a new, versioned on-disk format. Keep the v1 reader for older boot and
 recovery images until HyFS 2 has passed its boot and corruption tests.
 
-**Implementation update (11 October 2026):** The v2 disk layout, offline
+**Implementation update (12 October 2026):** The v2 disk layout, offline
 copy-on-write CRUD tool, kernel reader, richer VFS metadata, and nested shell
 listing are implemented. The v2 image boots and traverses on AHCI and NVMe.
 A separate raw GPT disk has a typed HyFS 2 data partition at `/data`.
@@ -23,12 +23,11 @@ on AHCI and NVMe; both inject write failures and reboot the failed disk to
 verify a later successful write persists. AHCI's backend flush error
 is injected live. QEMU's NVMe emulation does not forward the blkdebug flush
 fault to its namespace backend, so NVMe flush rejection remains host tested.
-Normal kernel filesystem mounts are still read-only. The kernel's explicit
-HyFS 2 writer implements all planned mutations, with host remount and fault
-tests. The VFS has an explicit writable-mount policy and checked mutation
-handles. AUEX has file, metadata, and directory calls, including a working
-Inspector example. Broader live recovery checks remain before the data
-volume can accept persistent writes by default.
+The boot and removable mounts remain read-only, while the dedicated `/data`
+volume mounts writable. The kernel's HyFS 2 writer implements the planned
+mutations, with host remount and fault tests. The VFS has checked file and
+directory handles. AUEX has a versioned file API, bounded read-byte access,
+and an Inspector that reads nested paths and AUEX headers.
 
 ### HyFS v1 closeout
 
@@ -108,11 +107,11 @@ all paths, metadata, file bytes, and invalid-image cases.
   `Stat(path)`, `Open(path)`, and `ReadDirectory(path)` for any directory. Make
   file and directory kinds explicit; opening a directory as a regular file
   should return a defined error.
-- [ ] Preserve mount-generation checks so removal or remount invalidates old
+- [x] Preserve mount-generation checks so removal or remount invalidates old
   handles, including directory handles.
-- [ ] Add positive tests for nested paths, empty directories and files, large
+- [x] Add positive tests for nested paths, empty directories and files, large
   files, both mounted volumes, and boundary-length names and paths.
-- [ ] Add negative tests for duplicate names, cycles, bad parent links,
+- [x] Add negative tests for duplicate names, cycles, bad parent links,
   overlapping or out-of-range extents, invalid flags, wrong checksums, and
   truncated or failed block reads.
 - [x] Build `/System`, `/Bin`, `/Applications`, `/Users`, `/Volumes`, and
@@ -122,25 +121,35 @@ all paths, metadata, file bytes, and invalid-image cases.
 **Exit check:** the kernel lists and reads nested content on both storage
 paths; damaged metadata is rejected and the recovery shell remains usable.
 
+**Passed 12 October 2026:** `make test-vfs test-hyfs2` and both
+`test-hyfs2-serial-*` targets. Directory handles reject stale mounts and
+mutations; the host suite covers maximum path and name lengths, large files,
+truncation, checksums, and failed reads.
+
 ## Milestone 3: application-facing file inspection
 
-- [ ] Expose versioned `stat` and directory-enumeration calls to AUEX programs
+- [x] Expose versioned `stat` and directory-enumeration calls to AUEX programs
   with explicit results for success, end of directory, missing path, bad
   argument, corruption, and I/O failure.
-- [ ] Deliver command arguments and dynamic paths to programs. Add bounded
+- [x] Deliver command arguments and dynamic paths to programs. Add bounded
   byte buffers and access to read bytes so an inspector can parse a header.
-- [ ] Provide a shared, small file API for `Open`, `Read`, `Close`, `Stat`, and
-  `ReadDirectory`. Ensure every path is checked against user memory limits.
-- [ ] Add AUEX header parsing in userland for format version, entry point,
+- [x] Provide a shared, small file API for `Open`, `Read`, `Close`, `Stat`, and
+  directory enumeration. Ensure every path is checked against user memory limits.
+- [x] Add AUEX header parsing in userland for format version, entry point,
   code/data sizes, and stored checksums. Keep application-format knowledge out
   of generic HyFS metadata.
-- [ ] Make the file inspector show unavailable fields honestly. Display file
+- [x] Make the file inspector show unavailable fields honestly. Display file
   dates only if the filesystem has valid timestamps; report the AUEX target
   as bytecode rather than claiming a native CPU architecture.
 
 **Exit check:** a user-built inspector accepts a path and reports a nested
 file's filesystem metadata and recognized header fields without kernel-only
 access.
+
+**Passed 12 October 2026:** the hosted runtime and compiled file API tests,
+plus AHCI and NVMe AUEX boot tests. Inspector reports fields from
+`/Bin/inspector.exec`, lists `/System`, and the test checks header numbers
+against the packaged executable, including unsigned CRC32 values.
 
 ## Milestone 4: writable block devices and a writable test volume
 

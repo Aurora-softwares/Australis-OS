@@ -3,13 +3,15 @@ using Australis.Kernel.Vfs;
 
 public class Hyfs2MemoryTransport : IBlockTransport {
     private byte[] image;
-    public Hyfs2MemoryTransport(byte[] input) { image = input; }
+    private bool failReads;
+    public Hyfs2MemoryTransport(byte[] input) { image = input; failReads = false; }
+    public void FailReads(bool value) { failReads = value; }
     public int SectorSize() { return 512; }
     public long SectorCount() { return image.Length / 512; }
     public bool Flush() { return true; }
     public bool Write(long lba, int sectors, byte[] source) { return false; }
     public bool Read(long lba, int sectors, byte[] destination) {
-        if (lba < 0 || sectors < 1 || lba >= SectorCount() ||
+        if (failReads || lba < 0 || sectors < 1 || lba >= SectorCount() ||
             sectors > SectorCount() - lba || destination == null ||
             destination.Length < sectors * 512) { return false; }
         int source = (int)(lba * 512);
@@ -25,7 +27,8 @@ public class Hyfs2Program {
     public static int Main() {
         byte[] image = System.IO.File.ReadAllBytes("build/hyfs2-host.img");
         Partition root = new Partition(true, true, 0, 0, image.Length / 512);
-        BlockDevice disk = new BlockDevice(new Hyfs2MemoryTransport(image));
+        Hyfs2MemoryTransport transport = new Hyfs2MemoryTransport(image);
+        BlockDevice disk = new BlockDevice(transport);
         Hyfs2 filesystem = new Hyfs2();
         if (filesystem.Mount(disk, root) != VfsStatus.Ok() ||
             filesystem.Generation() < 2) { return 1; }
@@ -42,6 +45,11 @@ public class Hyfs2Program {
             bytes[0] != 65 || bytes[1] != 85 || bytes[2] != 69 || bytes[3] != 88) {
             return 3;
         }
+        transport.FailReads(true);
+        if (filesystem.ReadFile("/System/Core/System.exec", 0, bytes) !=
+                VfsStatus.IoFailure() ||
+            new Hyfs2().Mount(disk, root) != VfsStatus.IoFailure()) { return 31; }
+        transport.FailReads(false);
         if (!filesystem.Exists("/Users/note+1.txt") ||
             filesystem.Stat("/missing").Status() != VfsStatus.NotFound() ||
             filesystem.Stat("/System/Core/System.exec/").Status() != VfsStatus.InvalidArgument() ||
@@ -57,6 +65,10 @@ public class Hyfs2Program {
             vfs.OpenRootFile("/System").IsOpen() ||
             !vfs.OpenRootFile("/System/Core/System.exec").IsOpen() ||
             vfs.DirectorySlotCountAt("/System/Core") != 1) { return 5; }
+        VfsDirectoryHandle nested = vfs.OpenRootDirectory("/System/Core");
+        if (!nested.IsOpen() || nested.Count() != 1 ||
+            nested.Next(name) != 11 || nested.Next(name) != -1 ||
+            nested.Status() != VfsStatus.EndOfFile()) { return 51; }
         HyfsAuto automatic = new HyfsAuto();
         if (automatic.Mount(disk, root) != VfsStatus.Ok() ||
             automatic.Stat("/System/Core").Kind() != 2) { return 6; }

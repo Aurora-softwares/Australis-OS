@@ -49,6 +49,11 @@ public class UserMockFiles : IUserFiles {
     public int Read(int descriptor, byte[] destination, int capacity) {
         if (!open || descriptor != 3 || destination == null || capacity < 0 ||
             capacity > destination.Length) { return -1; }
+        if (capacity == 4 && position == 0) {
+            destination[0] = 1; destination[1] = 2;
+            destination[2] = 3; destination[3] = 255;
+            position = 4; return 4;
+        }
         int remaining = 5 - position; int count = capacity;
         if (remaining < count) { count = remaining; }
         int i = 0;
@@ -119,6 +124,7 @@ public class UserMockFiles : IUserFiles {
         return new UserDirectoryInfo(4, 0);
     }
     public int DirectoryName(byte[] path, int count, int index, byte[] destination) {
+        if (count == 1 && path[0] == 47 && index == 1) { return -5; }
         if (count != 1 || path[0] != 47 || index != 0 ||
             destination == null || destination.Length < 9) { return -1; }
         destination[0] = 104; destination[1] = 101; destination[2] = 108;
@@ -198,6 +204,21 @@ public class UserImages {
         Write32(result, 24, PartitionBytes.Crc32(result, 32, code.Length, code.Length, 0));
         Write32(result, 28, PartitionBytes.Crc32(result, 32 + code.Length, data.Length, data.Length, 0));
         return result;
+    }
+    public static byte[] OutOfRangeArgument() {
+        UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Push(0); code.Byte(46); code.ExitValue();
+        return Image(code.Bytes(), new byte[0], 0);
+    }
+    public static byte[] BadArgumentTextHandle() {
+        UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Push(4096); code.Byte(48); code.Byte(0); code.Exit(0);
+        return Image(code.Bytes(), new byte[0], 0);
+    }
+    public static byte[] BadDynamicPathHandle() {
+        UserBytecodeBuilder code = new UserBytecodeBuilder();
+        code.Push(4096); code.Byte(51); code.Byte(0); code.Exit(0);
+        return Image(code.Bytes(), new byte[0], 0);
     }
     public static byte[] Demo() {
         byte[] data = new byte[96];
@@ -414,6 +435,24 @@ public class Program {
         if (result.State() != UserProgramState.Exited() || result.ExitCode() != 1) {
             return 11;
         }
+
+        result = new UserProgramHost(new UserMockTerminal(new byte[0]),
+            new UserMockFiles()).Run(new UserExecutable(UserImages.OutOfRangeArgument()));
+        if (result.State() != UserProgramState.Faulted() ||
+            result.Fault() != UserFault.MemoryAccess()) { return 25; }
+        result = new UserProgramHost(new UserMockTerminal(new byte[0]),
+            new UserMockFiles()).Run(new UserExecutable(UserImages.BadArgumentTextHandle()));
+        if (result.State() != UserProgramState.Faulted() ||
+            result.Fault() != UserFault.MemoryAccess()) { return 27; }
+        result = new UserProgramHost(new UserMockTerminal(new byte[0]),
+            new UserMockFiles()).Run(new UserExecutable(UserImages.BadDynamicPathHandle()));
+        if (result.State() != UserProgramState.Faulted() ||
+            result.Fault() != UserFault.MemoryAccess()) { return 28; }
+        int[] badStarts = new int[1]; badStarts[0] = 1;
+        int[] badSizes = new int[1]; badSizes[0] = 1;
+        UserArguments badArguments = new UserArguments(new byte[1],
+            badStarts, badSizes, 1);
+        if (badArguments.IsValid()) { return 26; }
 
         byte[] command = new byte[20];
         command[0] = 32; command[1] = 32; command[2] = 114; command[3] = 117;

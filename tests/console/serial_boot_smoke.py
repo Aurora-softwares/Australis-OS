@@ -284,7 +284,7 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test\r\n")
+                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, panic-test\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")
@@ -301,7 +301,24 @@ def main():
                     if entry not in listing:
                         raise AssertionError(f"root listing missing {entry!r}: {listing!r}")
                 if hyfs2:
-                    command(connection, process, b"ls /System", b"/System/Core\r\n")
+                    system_listing = command(connection, process, b"ls /System",
+                                             b"/System/Core\r\n")
+                    if b"/System/hexviewer.exec\r\n" not in system_listing:
+                        raise AssertionError(f"Hex Viewer missing from /System: {system_listing!r}")
+                    command(connection, process, b"stat /System/hexviewer.exec",
+                            b"type: file\r\n")
+                    command(connection, process, b"path", b"PATH=/System:/Bin:/\r\n")
+                    command(connection, process, b"hexviewer", b"Hello, World!\r\n")
+                    command(connection, process, b"path /Bin:/System", b"PATH=/Bin:/System\r\n")
+                    command(connection, process, b"run hexviewer", b"Hello, World!\r\n")
+                    command(connection, process, b"PATH=/System", b"PATH=/System\r\n")
+                    command(connection, process, b"hexviewer", b"Hello, World!\r\n")
+                    command(connection, process, b"run /System/hexviewer.exec",
+                            b"Hello, World!\r\n")
+                    command(connection, process, b"run /System/hexviewer",
+                            b"Hello, World!\r\n")
+                    command(connection, process, b"path /missing", b"PATH directory not found.\r\n")
+                    command(connection, process, b"path", b"PATH=/System\r\n")
                     command(connection, process, b"ls /Bin", b"/Bin/user-demo.exec\r\n")
                     command(connection, process, b"cat /Bin/user-demo.exec", b"AUEX")
                     metadata = command(connection, process, b"stat /System", b"type: directory\r\n")
@@ -311,6 +328,7 @@ def main():
                             b"File not found.\r\n")
                 else:
                     command(connection, process, b"stat /hello.txt", b"id: unavailable\r\n")
+                    command(connection, process, b"hello-world", b"Hello, World!\r\n")
                 command(connection, process, b"cat /hello.txt", hello)
                 command(connection, process, b"cat /readme.txt", readme)
                 command(connection, process, b"cat /missing.txt", b"File not found.\r\n")

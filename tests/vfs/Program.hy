@@ -92,11 +92,33 @@ public class Program {
         byte[] name = new byte[32];
         if (vfs.RootDirectorySlotCount() != 1 || vfs.CopyRootDirectoryEntryName(0, name) != 8 ||
             name[0] != 115 || name[7] != 121 || vfs.CopyRootDirectoryEntryName(1, name) >= 0) { return 61; }
+        VfsDirectoryHandle directory = vfs.OpenRootDirectory("/");
+        if (!directory.IsOpen() || directory.Count() != 1 ||
+            directory.Next(name) != 8 || directory.Position() != 1 ||
+            directory.Next(name) != -1 || directory.Status() != VfsStatus.EndOfFile() ||
+            !directory.IsOpen()) { return 64; }
+        if (vfs.ReadDirectoryNameAt("/", 1, name) != -VfsStatus.EndOfFile()) { return 65; }
+        Vfs removable = new Vfs();
+        if (removable.MountRootAs(new MockFileSystem(false), device, root, 2) !=
+            VfsStatus.Ok()) { return 66; }
+        VfsDirectoryHandle usbDirectory = removable.OpenRootDirectory("/");
+        if (!usbDirectory.IsOpen() || usbDirectory.Next(name) != 8) { return 67; }
+        removable.UnmountRoot();
+        if (usbDirectory.Next(name) != -1 ||
+            usbDirectory.Status() != VfsStatus.NotMounted() ||
+            directory.Next(name) != -1 ||
+            directory.Status() != VfsStatus.EndOfFile()) { return 68; }
+        if (removable.MountRootAs(new MockFileSystem(false), device, root, 2) !=
+            VfsStatus.Ok() || usbDirectory.Next(name) != -1 ||
+            usbDirectory.Status() != VfsStatus.NotMounted()) { return 69; }
         if (vfs.ReadRootFile("/shell.hy", -1, bytes) != VfsStatus.InvalidArgument()) { return 7; }
         MockFileSystem failedRemount = new MockFileSystem(true);
         if (vfs.MountRoot(failedRemount, device, root) != VfsStatus.MountFailed() || vfs.IsRootMounted() ||
             vfs.ReadRootFile("/shell.hy", 0, bytes) != VfsStatus.NotMounted()) { return 8; }
-        if (handle.Read(first) != VfsStatus.NotMounted()) { return 9; }
+        if (handle.Read(first) != VfsStatus.NotMounted() ||
+            directory.Next(name) != -1 || directory.Status() != VfsStatus.NotMounted()) {
+            return 9;
+        }
         System.Console.WriteLine("Australis VFS tests passed");
         return 0;
     }

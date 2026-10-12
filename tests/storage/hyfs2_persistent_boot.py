@@ -3,7 +3,6 @@
 
 from pathlib import Path
 import mmap
-import os
 import shutil
 import socket
 import struct
@@ -15,7 +14,7 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "console"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from serial_boot_smoke import PROMPT, monitor_command, read_until  # noqa: E402
+from serial_boot_smoke import PROMPT, capture_record, monitor_command, read_until  # noqa: E402
 from make_hyfs2_data_disk import create  # noqa: E402
 from hyfs2 import Hyfs2Image, Hyfs2Error  # noqa: E402
 
@@ -51,10 +50,8 @@ def run_once(qemu, firmware, iso, disk, transport, directory, expected, remove=F
     if transport == "ahci":
         command += ["-device", "ich9-ahci,id=ahci0",
                     "-device", "ide-hd,id=data-device,drive=data0,bus=ahci0.0"]
-        device_id = "data-device"
     else:
         command += ["-device", "nvme,id=data-device,serial=australis-data,drive=data0"]
-        device_id = "data-device"
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL,
                                stderr=subprocess.PIPE)
     try:
@@ -101,10 +98,14 @@ def run_once(qemu, firmware, iso, disk, transport, directory, expected, remove=F
                                     f"rsp={rsp:#x}, stack={stack}, allocation={allocation}") from error
                             record += 4
                     raise
-                if expected not in result or b"User program exited cleanly." not in result:
+                if expected not in result:
                     raise AssertionError(f"persistent AUEX phase failed: {result!r}")
+                state = capture_record(str(monitor), str(directory / "user-memory.bin"))
+                if (state["user_state"] != 2 or state["user_exit"] != 0 or
+                        state["user_fault"] != 0):
+                    raise AssertionError(f"AUEX process failed: {state}")
             if remove:
-                monitor_command(str(monitor), f"device_del {device_id}")
+                monitor_command(str(monitor), "drive_del data0")
                 time.sleep(0.5)
                 connection.sendall(b"version\r")
                 answer = response(connection, process, 30)
@@ -188,6 +189,10 @@ def main():
         repaired = inspect(damaged, first, count, repaired_dir)
         if repaired.snapshot.generation != fallback.snapshot.generation:
             raise AssertionError("corrupt fallback changed unexpectedly")
+        with damaged.open("rb") as image:
+            image.seek(first * 512)
+            if image.read(512) != image.read(512):
+                raise AssertionError("writable mount did not repair the superblock mirror")
     print(f"HyFS 2 {transport.upper()} AUEX writes, reboot, and removal passed")
 
 

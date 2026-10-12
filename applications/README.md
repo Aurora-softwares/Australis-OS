@@ -79,20 +79,28 @@ System.Australis.Files.StatTimeFlags("/path")
 System.Australis.Files.StatAttributes("/path")
 System.Australis.Files.DirectoryCount("/folder")
 System.Australis.Files.DirectoryName("/folder", index)
+System.Australis.Files.ApiVersion()
+System.Australis.Files.ResultByte(index)
+System.Australis.Files.ResultU32(index)
 System.Australis.Files.WriteResult()
 System.Australis.Files.Status()
 System.Australis.Process.Yield()
 System.Australis.Memory.StoreByte(address, value)
 ```
 
-`WriteResult` writes the bytes returned by the most recent terminal read,
-checked file read, or directory-name call. `DirectoryName` returns the name
-length; a negative result means an error. `DirectoryCount` and the metadata
+`ApiVersion()` returns `1` for this AUEX file API. `WriteResult` writes the
+bytes returned by the most recent terminal read, checked file read, or
+directory-name call. `ResultByte(index)` and `ResultU32(index)` read one byte
+or four little-endian bytes from the last checked file read or directory name;
+an out-of-range index returns `-1` and sets status `1`. `DirectoryName` returns
+the name length; at the end it returns `-1` with status `5`. `DirectoryCount` and the metadata
 queries return `-1` on error; `Status()` gives the corresponding VFS status.
 Mutations and checked open/close calls return a VFS status directly (`0` for
-success). Read capacities must be literals. The current AUEX compiler requires
-file paths and written contents to be ASCII literals; directory indices and
-truncate lengths may be scalar expressions. `StoreByte` is exposed for low
+success). Read capacities must be literals. `Stat*`, `DirectoryCount`,
+`DirectoryName`, `OpenRead`, and `OpenWrite` accept argument paths; create,
+delete, and rename still require literal paths. Written contents remain ASCII
+literals. Directory indices and truncate lengths may be scalar expressions.
+`StoreByte` is exposed for low
 level tests; normal programs should use terminal and file operations.
 `StatKind` returns `1` for a file and `2` for a directory. In
 `StatTimeFlags`, bit 0 marks a known creation time and bit 1 marks a known
@@ -111,15 +119,39 @@ in fixed, checked VM storage. The compiler emits the AUEX header and both CRCs.
 Division or remainder by zero faults only the application. The instruction
 limit still terminates an infinite loop and releases its descriptors.
 
-The current structured backend does not yet populate `args`, call application
-methods, or provide general strings, arrays, and process creation. Those
-features are tracked in `src/userland/README.md`.
+The AUEX backend populates `args` for shell-launched programs. Applications
+can read `args.Length` and `args[index]`, compare argument strings with ASCII
+literals, inspect their length, and print them. For example:
+
+```hylang
+public class Program {
+    public static int Main(string[] args) {
+        for (int i = 0; i < args.Length; i = i + 1) {
+            System.Console.WriteLine(args[i]);
+        }
+        return 0;
+    }
+}
+```
+
+The shell passes `-an`, `--argument`, and paths as separate unchanged tokens;
+each app interprets its own options. Quotes or backslash-escaped spaces group
+one argument. The current limit is 16 arguments and a 256-byte shell line.
+An app can pass an argument string to the checked read and metadata calls.
+For example, `inspector /Bin/inspector.exec` reports its filesystem metadata
+and AUEX header, while `inspector /System` lists that directory. With no path,
+Inspector uses `/hello.txt`.
+Application method calls, general strings and arrays, and process creation
+remain future work tracked in `src/userland/README.md`.
 
 ## Including separate repositories in the OS image
 
 `Applications.hyproj` is an aggregate project. Add each checked out app
 project to its `project_references` list. Every referenced app selects its
-root filesystem name through `output`, which must be a plain `.exec` filename.
+root filesystem name through `output`. Plain `.exec` filenames go in the
+root and `/Bin` of the HyFS 2 image. An output under `system/` is installed in
+`/System` of the HyFS 2 image; for example, `system/hexviewer.exec` becomes
+`/System/hexviewer.exec`.
 The repositories may be outside this repository because project references
 are resolved relative to the aggregate manifest.
 
@@ -142,3 +174,8 @@ stages those executables with the static files under `rootfs`, and then creates
 the HyFS image. No Python program generator is involved.
 
 Use `make applications` when you only want to rebuild the `.exec` files.
+On a HyFS 2 boot, the shell's default `PATH` is `/System:/Bin:/`, so typing
+`hexviewer` runs `/System/hexviewer.exec`. `PATH=/System:/Bin` changes the
+search list for the current shell session, and `path` displays it. Both bare
+commands and explicit `run /path/program.exec` pass trailing arguments to
+`Main(string[] args)`.
