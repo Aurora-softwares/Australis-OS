@@ -44,3 +44,9 @@
 [submodule "applications/Australis.Dev-user-fault"]
 	path = applications/Australis.Dev-user-fault
 	url = https://github.com/Aurora-softwares/Australis.Dev-user-fault
+[submodule "src/rescue"]
+	path = src/rescue
+	url = https://github.com/Aurora-softwares/Australis-Rescue
+[submodule "src/shell"]
+	path = src/shell
+	url = https://github.com/Aurora-softwares/Australis-Shell
