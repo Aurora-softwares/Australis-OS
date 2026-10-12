@@ -166,12 +166,22 @@ public class Program {
         if (!writeFailure.Initialize()) { return 34; }
         writeFailureIo.SetFailWrite(true);
         if (writeFailure.Write(4, 1, new byte[512]) ||
-            writeFailureIo.WriteCommands() != 1 || writeFailure.Flush()) { return 35; }
+            writeFailureIo.WriteCommands() != 1 || writeFailure.Flush() ||
+            writeFailure.RetryCount() != 0) { return 35; }
+        writeFailureIo.SetFailWrite(false);
+        byte[] recoveredPayload = new byte[512]; recoveredPayload[0] = 73;
+        byte[] recoveredData = new byte[512];
+        if (!writeFailure.Initialize() || !writeFailure.Write(4, 1, recoveredPayload) ||
+            !writeFailure.Flush() || !writeFailure.Read(4, 1, recoveredData) ||
+            recoveredData[0] != 73 || writeFailureIo.WriteCommands() != 2) { return 47; }
         MockAhciControllerIo flushFailureIo = new MockAhciControllerIo();
         AhciController flushFailure = new AhciController(flushFailureIo, 16);
         if (!flushFailure.Initialize()) { return 36; }
         flushFailureIo.SetFailFlush(true);
         if (flushFailure.Flush() || flushFailureIo.FlushCommands() != 1) { return 37; }
+        flushFailureIo.SetFailFlush(false);
+        if (!flushFailure.Initialize() || !flushFailure.Write(5, 1, recoveredPayload) ||
+            !flushFailure.Flush() || flushFailureIo.FlushCommands() != 2) { return 48; }
         MockAhciControllerIo writeTimeoutIo = new MockAhciControllerIo();
         AhciController writeTimeout = new AhciController(writeTimeoutIo, 4);
         if (!writeTimeout.Initialize()) { return 38; }
@@ -181,6 +191,9 @@ public class Program {
             writeTimeoutIo.WriteCommands() != 1 ||
             writeTimeout.Write(4, 1, new byte[512]) || writeTimeout.Flush() ||
             writeTimeoutIo.WriteCommands() != 1) { return 39; }
+        writeTimeoutIo.SetTimeoutWrite(false);
+        if (!writeTimeout.Initialize() || !writeTimeout.Write(4, 1, recoveredPayload) ||
+            !writeTimeout.Flush() || writeTimeoutIo.WriteCommands() != 2) { return 49; }
         MockAhciControllerIo flushTimeoutIo = new MockAhciControllerIo();
         AhciController flushTimeout = new AhciController(flushTimeoutIo, 4);
         if (!flushTimeout.Initialize()) { return 40; }
@@ -189,6 +202,9 @@ public class Program {
             flushTimeout.RecoveryState() != 4 || flushTimeout.RetryCount() != 0 ||
             flushTimeoutIo.FlushCommands() != 1 || flushTimeout.Flush() ||
             flushTimeoutIo.FlushCommands() != 1) { return 46; }
+        flushTimeoutIo.SetTimeoutFlush(false);
+        if (!flushTimeout.Initialize() || !flushTimeout.Flush() ||
+            flushTimeoutIo.FlushCommands() != 2) { return 50; }
 
         MockAhciControllerIo failedIo = new MockAhciControllerIo();
         AhciController failed = new AhciController(failedIo, 100);
@@ -196,6 +212,7 @@ public class Program {
         failedIo.SetFailReadCommand(2);
         byte[] unchanged = new byte[10 * 512]; unchanged[0] = 91; unchanged[9 * 512] = 92;
         if (!failed.Read(3, 10, unchanged) || failedIo.ReadCommands() <= 2 ||
+            failed.RetryCount() != 1 || failed.RecoveryState() != 0 ||
             unchanged[0] != 3 || unchanged[9 * 512] != 12 || !failed.Flush()) { return 5; }
 
         MockAhciControllerIo shortIo = new MockAhciControllerIo();

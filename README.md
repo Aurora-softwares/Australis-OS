@@ -75,7 +75,7 @@ hy build src/australlis.hyproj -o build/efi
 ```text
 build/efi/EFI/BOOT/BOOTX64.EFI
 build/efi/EFI/AUSTRALIS/KERNEL.BIN
-build/boot/root.hyfs.img
+build/boot/root.hyfs2.img
 build/australis-hylang.iso
 ```
 
@@ -88,13 +88,17 @@ a user program named `/System/Core/System.exec`.
 The raw header is 16 bytes: `AUKR`, version `1`, code length, and entry offset
 `16`, all little endian. The code is position independent.
 The ISO is hybrid: it contains an El Torito UEFI boot entry for optical media,
-a GPT EFI System Partition, and a 4 MiB read-only HyFS partition for the kernel
-root. Hydrogen compiles the projects in `applications/Applications.hyproj`
+a GPT EFI System Partition, and a 4 MiB read-only HyFS 2 partition for the
+kernel root. Hydrogen compiles the projects in `applications/Applications.hyproj`
 directly to `.exec` files in the generated root tree, then
-`tools/make_hyfs_image.py` packs it into that partition. Its GPT type GUID is
+`tools/make_hyfs2_image.py` packs it into that partition. Its GPT type GUID is
 `9f5eb82e-692e-5a8f-b968-adaaa349dd93`.
 The ISO can also be written directly to a USB drive or disk. It is not a
 virtual-disk format.
+
+HyFS 1 remains available for compatibility and recovery testing. Build its
+separate image with `make iso-hyfs1`; it is written to
+`build/australis-hyfs1.iso` and does not replace the default HyFS 2 image.
 
 Write the ISO byte-for-byte to the target drive; do not copy its files onto an
 existing filesystem. This replaces that drive's contents. The target must boot
@@ -143,15 +147,16 @@ make run-serial
 To attach the ISO as a second read-only USB mass-storage volume and use COM1
 for the shell, run `make run-usb-storage` (AHCI boot root) or
 `make run-usb-storage-nvme`. The removable HyFS volume appears at `/usb`; use
-`devices`, `mounts`, `ls /usb`, and `cat /usb/hello.txt` to inspect it.
+`devices`, `mounts`, `ls /usb`, and `cat /usb/hello.txt` to inspect it. The
+normal removable-media fixture uses HyFS 2 because it attaches the default ISO.
 
 Wait for `australis> `, then type `help`. `ls` lists the HyFS root and
 `cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
 echoes input and accepts Enter, Backspace/Delete, arrow keys, Home/End,
 Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, Ctrl-U, and eight entries of command history.
 Its line buffer holds 256 bytes. Namespace paths canonicalize repeated `/`, `.`,
-and `..`, and cross the removable mount at `/usb`; HyFS v1 components remain
-limited to its flat 32-byte names. `cat` accepts files up to 64 KiB. The UART
+and `..`, and cross the removable mount at `/usb`. Compatibility HyFS 1 images
+remain limited to flat 32-byte names. `cat` accepts files up to 64 KiB. The UART
 uses COM1 at 115200 baud, 8 data bits, no parity, and one stop
 bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
 then the shell drains that ring after it wakes. A full ring drops new input and
@@ -422,6 +427,7 @@ make test-ahci-boot
 make test-partitions
 make test-vfs
 make test-hyfs
+make test-hyfs1
 make test-terminal
 make test-serial-ahci
 make test-serial-nvme
@@ -473,7 +479,7 @@ The driver accepts only 512 to 4096-byte logical sectors, a directory up to
 64 KiB, and flat printable-ASCII paths such as
 `/shell.hy`. It validates the superblock, directory allocation, reserved bytes,
 file extents, duplicate names, and full file data before returning bytes to a
-caller. `make test-hyfs` constructs a complete in-memory HyFS volume and checks
+caller. `make test-hyfs1` constructs a complete in-memory HyFS 1 volume and checks
 mounting, metadata, partial reads, EOF handling, VFS mounting, corrupted data,
 corrupted metadata, and media I/O failure. It also verifies a checksum-pinned
 v1 image fixture for later reader compatibility checks.
@@ -483,17 +489,24 @@ and check the complete stored data CRC before returning bytes. The VFS exposes
 root directory names and generation-checked persistent file handles. The
 namespace normalizes nested paths. HyFS v1 stores only flat root files.
 
-HyFS v2 is available as an opt-in image with nested directories and file
-metadata. Build it with `make iso-hyfs2`, then boot the serial shell with
-`make run-hyfs2-serial` or `make run-hyfs2-nvme-serial`. Run
-`make test-hyfs2` and `make test-hyfs2-serial-ahci` (or
-`make test-hyfs2-serial-nvme`). The v2 shell can list `/System`, `/Bin`,
-`/Applications`, `/Users`, `/Volumes`, and `/Temporary`; executable copies
+HyFS v2 is the default boot and removable-media format, with nested directories
+and file metadata. `make iso` builds it, and the ordinary `make run`,
+`make run-serial`, and `make run-nvme` targets boot it. The explicit
+`iso-hyfs2`, `run-hyfs2-serial`, and `run-hyfs2-nvme-serial` names remain as
+compatibility aliases for existing workflows. Run `make test-hyfs2` and
+`make test-serial-ahci` (or `make test-serial-nvme`). The v2 shell can list
+`/System`, `/Bin`, `/Applications`, `/Users`, `/Volumes`, and `/Temporary`; executable copies
 are available in `/Bin`. The Hex Viewer executable is installed at
 `/System/hexviewer.exec`. `stat /System` reports kind, size, object ID, and
 timestamps when the image contains them. The kernel continues to mount v1
 images. The versioned disk format and its recovery rules are in
 `docs/hyfs-v2.md`.
+
+Build and run the legacy format explicitly with `make iso-hyfs1`,
+`make run-hyfs1`, `make run-hyfs1-serial`, `make run-hyfs1-nvme`, or
+`make run-hyfs1-nvme-serial`. Its host compatibility suite is
+`make test-hyfs1`; AHCI and NVMe boot checks are available through
+`make test-hyfs1-boot-ahci` and `make test-hyfs1-boot-nvme`.
 
 The shell searches `PATH=/System:/Bin:/` for bare executable names and adds
 `.exec` automatically. Type `hexviewer` to run `/System/hexviewer.exec` or
@@ -556,8 +569,11 @@ that counter to change, checks completion status, and acknowledges the device
 before reusing the command slot. Native waits sleep for interrupts and are
 bounded by timer wakeups. Failed requests record timeout or device error,
 controller reset, and exhausted retry states. The serial shell stays available
-after a failed file read. `make test-storage-failure-ahci` and
-`make test-storage-failure-nvme` inject real QEMU block I/O errors after boot.
+after failed storage operations. `make test-storage-failure-ahci` and
+`make test-storage-failure-nvme` exercise the default HyFS 2 data-volume error
+and recovery path. The explicit `make test-hyfs1-storage-failure-ahci` and
+`make test-hyfs1-storage-failure-nvme` targets retain the legacy root-file read
+failure check.
 AHCI cause codes distinguish task readiness timeout (`1`), task/interrupt
 error (`2`), short DMA (`3`), late task error (`4`), completion timeout (`5`),
 command validation (`6`), and setup failure (`7`). NVMe codes distinguish

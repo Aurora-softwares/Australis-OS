@@ -5,14 +5,14 @@
 HyFS v1 is a deliberately read-only bootstrap format: one flat directory of
 regular files, a checked superblock and directory, file lengths and CRC-32s,
 and bounded reads through the VFS. It already boots from AHCI and NVMe and can
-be mounted from USB. The existing `make test-hyfs` and `make test-vfs` host
+be mounted from USB. The existing `make test-hyfs1` and `make test-vfs` host
 tests pass as of 11 October 2026. This is substantially complete **for its
 stated v1 scope**. Folders, persistent writes, timestamps, owners, and
 permissions were never v1 features.
 
-The v1 correctness and compatibility closeout below is complete. Build HyFS 2
-as a new, versioned on-disk format. Keep the v1 reader for older boot and
-recovery images until HyFS 2 has passed its boot and corruption tests.
+The v1 correctness and compatibility closeout below is complete. HyFS 2 is a
+new, versioned on-disk format. The v1 reader remains for older boot and recovery
+images.
 
 **Implementation update (12 October 2026):** The v2 disk layout, offline
 copy-on-write CRUD tool, kernel reader, richer VFS metadata, and nested shell
@@ -28,6 +28,12 @@ volume mounts writable. The kernel's HyFS 2 writer implements the planned
 mutations, with host remount and fault tests. The VFS has checked file and
 directory handles. AUEX has a versioned file API, bounded read-byte access,
 and an Inspector that reads nested paths and AUEX headers.
+
+**Default-format update (12 October 2026):** `make iso` and the ordinary run
+and boot-test targets now package HyFS 2 for the boot root and removable-media
+fixture. HyFS 1 is available through explicit `iso-hyfs1`, `run-hyfs1*`, and
+`test-hyfs1*` compatibility targets. The root and removable mounts retain their
+read-only policy; persistent writes continue to use the typed `/data` volume.
 
 ### HyFS v1 closeout
 
@@ -158,11 +164,13 @@ against the packaged executable, including unsigned CRC32 values.
   have changed media; callers must not assume all-or-nothing physical writes.
 - [x] Implement write and real cache-flush commands for AHCI and NVMe. Their
   command encoding and controller paths pass host and live tests.
-- [ ] Add write failure, timeout, reset, retry, and flush failure tests. Ensure
+- [x] Add write failure, timeout, reset, retry, and flush failure tests. Ensure
   media removal invalidates active handles before another write begins.
-  Live write failure and AHCI flush failure cases pass. Host tests cover NVMe
-  flush rejection and write/flush timeouts on both controllers. Media removal
-  and complete reset/retry coverage remain.
+  AHCI and NVMe host tests cover write and flush rejection, timeout, explicit
+  controller reinitialization, and successful read retry after reset. Failed
+  writes are not retried because media may already have changed. The VFS
+  removal test confirms that open handles become invalid and no subsequent
+  write reaches the transport. Live removal tests confirm `/data` unmounts.
 - [x] Create a writable raw-disk test configuration with a dedicated HyFS 2
   data partition. Keep ISO and recovery boot artifacts immutable.
 - [x] Extend GPT volume selection and the VFS mount namespace so the writable
@@ -172,11 +180,14 @@ against the packaged executable, including unsigned CRC32 values.
   its write and recovery checks pass; damaged or unsupported v2 mounts
   read-only or fails clearly.
 
-**Exit check, mostly passed:** write, flush, reboot, and read back the same
-blocks on AHCI and NVMe. Both live write error cases and AHCI live flush error
-pass. NVMe live backend flush injection is not observable with this QEMU
-configuration, and broader timeout/removal testing remains before filesystem
-writes are enabled.
+**Exit check passed 12 October 2026:** live AHCI and NVMe tests write, flush,
+reboot, and read back the same blocks; both reject injected write failures and
+recover on reboot. AHCI also rejects an injected flush failure and recovers on
+reboot. Host tests cover NVMe flush rejection and both controllers' write and
+flush timeouts; live AHCI and NVMe removal tests confirm the data mount goes
+away. QEMU's NVMe backend does not expose injected flush failures to this
+configuration, so that specific failure is verified with the host controller
+mock.
 
 ## Milestone 5: safe HyFS 2 updates
 

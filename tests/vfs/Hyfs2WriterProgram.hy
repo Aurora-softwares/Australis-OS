@@ -286,10 +286,12 @@ public class Hyfs2WriterProgram {
                 VfsStatus.Ok()) { return 49; }
         VfsFileHandle removedHandle = removedVolume.OpenRootFileWrite("/retained");
         VfsDirectoryHandle removedDirectory = removedVolume.OpenRootDirectory("/");
+        int writesBeforeRemoval = removalIo.Writes();
         removalIo.Remove();
         if (removedHandle.Append(Two(4, 5)) != VfsStatus.IoFailure() ||
             removedVolume.IsRootMounted() ||
             removedHandle.Append(Two(6, 7)) != VfsStatus.NotMounted() ||
+            removalIo.Writes() != writesBeforeRemoval ||
             removedDirectory.Next(new byte[64]) != -1 ||
             removedDirectory.Status() != VfsStatus.NotMounted() ||
             removedVolume.MountRootWritableAs(new Hyfs2(), removalDisk,

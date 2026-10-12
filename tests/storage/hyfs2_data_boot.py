@@ -194,7 +194,18 @@ def main():
             record = boot(qemu, firmware, iso, flush_disk, transport, session, flush_config)
             if record["data_mounted"] != 1 or record["probe"] != 5:
                 raise AssertionError(f"injected flush failure was not reported: {record}")
-        print(f"HyFS 2 {transport.upper()} data write, flush, reboot, and injected write failure recovery passed")
+            with flush_disk.open("r+b") as image:
+                image.seek((first + 4) * 512)
+                image.write(bytes(9 * 512))
+            for attempt, result in enumerate((1, 2), start=1):
+                session = temporary / f"after-flush-failure-{attempt}"
+                session.mkdir()
+                record = boot(qemu, firmware, iso, flush_disk, transport, session)
+                if record["data_mounted"] != 1 or record["probe"] != result:
+                    raise AssertionError(f"failed-flush reboot result: {record}")
+                if data_bytes(flush_disk, first, 4, 9) != expected:
+                    raise AssertionError("recovered flush did not persist")
+        print(f"HyFS 2 {transport.upper()} data write, flush, reboot, and injected failure recovery passed")
 
 
 if __name__ == "__main__":

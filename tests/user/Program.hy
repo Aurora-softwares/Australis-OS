@@ -358,6 +358,33 @@ public class Program {
         System.Console.WriteLine("Compiled file API AUEX test passed");
         return 0;
     }
+    private static int CompiledPortableApi(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid() || executable.DataCapacity() != 65536) { return 29; }
+        UserMockTerminal terminal = new UserMockTerminal(InputText());
+        UserProgramResult result = new UserProgramHost(terminal,
+            new UserMockFiles()).Run(executable);
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            result.Fault() != UserFault.None() || !terminal.Contains(ExpectedInput()) ||
+            !terminal.Contains(ExpectedFile())) { return 30; }
+        System.Console.WriteLine("Compiled portable AUEX API test passed");
+        return 0;
+    }
+    private static int CompiledPortableIo(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 31; }
+        UserMockFiles files = new UserMockFiles();
+        UserProgramResult result = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), files).Run(executable);
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            result.Fault() != UserFault.None() || !files.Created() ||
+            files.ContentLength() != 2 || files.ContentByte(0) != 120 ||
+            files.ContentByte(1) != 121) { return 32; }
+        System.Console.WriteLine("Compiled portable AUEX I/O test passed");
+        return 0;
+    }
     private static byte[] InputText() {
         byte[] input = new byte[5]; input[0] = 97; input[1] = 98; input[2] = 8;
         input[3] = 99; input[4] = 13; return input;
@@ -376,6 +403,8 @@ public class Program {
         if (args != null && args.Length == 2) {
             if (args[0] == "inspector") { return CompiledInspector(args[1]); }
             if (args[0] == "file-api") { return CompiledFileApi(args[1]); }
+            if (args[0] == "portable-api") { return CompiledPortableApi(args[1]); }
+            if (args[0] == "portable-io") { return CompiledPortableIo(args[1]); }
             return 24;
         }
         byte[] demo = UserImages.Demo();
@@ -453,6 +482,76 @@ public class Program {
         UserArguments badArguments = new UserArguments(new byte[1],
             badStarts, badSizes, 1);
         if (badArguments.IsValid()) { return 26; }
+        byte[] startText = new byte[6];
+        startText[0] = 97; startText[1] = 98; startText[2] = 99;
+        startText[3] = 88; startText[4] = 61; startText[5] = 49;
+        int[] starts = new int[1]; starts[0] = 0;
+        int[] lengths = new int[1]; lengths[0] = 3;
+        UserArguments startArguments = new UserArguments(startText, starts, lengths, 1);
+        int[] envStarts = new int[1]; envStarts[0] = 3;
+        UserArguments startEnvironment = new UserArguments(startText, envStarts, lengths, 1);
+        byte[] directory = new byte[5];
+        directory[0] = 47; directory[1] = 100; directory[2] = 97;
+        directory[3] = 116; directory[4] = 97;
+        UserProcessStart processStart = new UserProcessStart(startArguments,
+            startEnvironment, directory, 0, 1, 2);
+        UserAddressSpace startMemory = new UserAddressSpace(executable);
+        UserArguments copied = processStart.CopyTo(startMemory);
+        long recordBase = UserAddressSpace.StartBase();
+        if (!processStart.IsValid() || copied == null || !copied.IsValid() ||
+            copied.ByteAt(0, 0) != 97 || copied.ByteAt(0, 2) != 99 ||
+            startMemory.ReadByte(recordBase) != 65 ||
+            startMemory.ReadByte(recordBase + 4) != UserProcessStart.Version() ||
+            startMemory.ReadByte(recordBase + 12) != 1 ||
+            startMemory.ReadByte(recordBase + 16) != 1 ||
+            startMemory.WriteByte(recordBase, 0)) { return 33; }
+        startText[0] = 122;
+        if (copied.ByteAt(0, 0) != 97 ||
+            new UserProcessStart(startArguments, startEnvironment,
+                directory, 0, 0, 2).IsValid()) { return 34; }
+        int[] overlappingStarts = new int[2]; overlappingStarts[1] = 1;
+        int[] overlappingLengths = new int[2];
+        overlappingLengths[0] = 3; overlappingLengths[1] = 3;
+        if (new UserArguments(startText, overlappingStarts,
+            overlappingLengths, 2).IsValid()) { return 35; }
+        UserMockFiles processFiles = new UserMockFiles();
+        UserProgramHost processHost = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), processFiles);
+        UserExecutable arithmeticImage = new UserExecutable(UserImages.ArithmeticLoop());
+        int firstPid = processHost.SpawnForeground(arithmeticImage,
+            new UserProcessStart(new UserArguments(new byte[0],
+                new int[0], new int[0], 0)));
+        if (firstPid != 1 || processHost.SpawnForeground(arithmeticImage,
+                new UserProcessStart(startArguments)) != -1 ||
+            processHost.Wait(2).Pid() != 0) { return 36; }
+        UserProgramResult waited = processHost.Wait(firstPid);
+        if (waited.Pid() != 1 || waited.State() != UserProgramState.Exited() ||
+            waited.ExitCode() != 15 || !processFiles.CloseAllCalled()) { return 37; }
+        int secondPid = processHost.SpawnForeground(arithmeticImage,
+            new UserProcessStart(startArguments));
+        waited = processHost.Wait(secondPid);
+        if (secondPid != 2 || waited.Pid() != 2 || waited.ExitCode() != 15) { return 38; }
+        UserSystemCalls checkedCalls = new UserSystemCalls(
+            new UserMockTerminal(new byte[0]), new UserMockFiles(), 7);
+        UserSyscallResult information = checkedCalls.SystemInformation(3);
+        UserSyscallResult invalidInformation = checkedCalls.SystemInformation(99);
+        UserSyscallResult opened = checkedCalls.OpenResult(startMemory,
+            UserAddressSpace.DataBase() + 48, 10, false);
+        if (information.Status() != UserSyscallStatus.Success() ||
+            information.Value() != 7 ||
+            invalidInformation.Status() != UserSyscallStatus.InvalidArgument() ||
+            opened.Status() != UserSyscallStatus.Success() || opened.Value() != 3) {
+            return 39;
+        }
+        UserSyscallResult read = checkedCalls.ReadResult(3, startMemory,
+            UserAddressSpace.DataBase() + 256, 4);
+        if (read.Status() != UserSyscallStatus.Success() || read.Value() != 4 ||
+            checkedCalls.ReadResult(3, startMemory,
+                UserAddressSpace.DataBase() + 256, 4).Value() != 1 ||
+            checkedCalls.ReadResult(3, startMemory,
+                UserAddressSpace.DataBase() + 256, 4).Status() !=
+                UserSyscallStatus.EndOfFile()) { return 40; }
+        checkedCalls.CloseAll();
 
         byte[] command = new byte[20];
         command[0] = 32; command[1] = 32; command[2] = 114; command[3] = 117;

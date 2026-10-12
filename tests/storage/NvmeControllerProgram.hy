@@ -9,6 +9,7 @@ public class MockNvmeController : INvmeControllerIo {
     private int[] completionPhase;
     private int commands;
     private bool failRead;
+    private int failNextReads;
     private bool failWrite;
     private bool silentlyDropWrite;
     private bool failFlush;
@@ -35,16 +36,21 @@ public class MockNvmeController : INvmeControllerIo {
         configuration = 0; status = 0;
         completionTail = new int[2]; completionPhase = new int[2];
         completionPhase[0] = 1; completionPhase[1] = 1;
-        commands = 0; failRead = false; failWrite = false; silentlyDropWrite = false; failFlush = false;
+        commands = 0; failRead = false; failNextReads = 0;
+        failWrite = false; silentlyDropWrite = false; failFlush = false;
         writes = 0; flushes = 0; suppressCompletion = false;
         interruptMode = false; pendingDelay = -1; configuredDelay = 0; pauses = 0; epoch = 0;
     }
 
     public void FailRead() { failRead = true; }
+    public void FailNextRead() { failNextReads = 1; }
     public void FailWrite() { failWrite = true; }
+    public void AllowWrite() { failWrite = false; }
     public void SilentlyDropWrite() { silentlyDropWrite = true; }
     public void FailFlush() { failFlush = true; }
+    public void AllowFlush() { failFlush = false; }
     public void SuppressCompletion() { suppressCompletion = true; }
+    public void AllowCompletion() { suppressCompletion = false; }
     public void EnableDelayedInterrupts(int pauseCount) { interruptMode = true; configuredDelay = pauseCount; }
     public int Pauses() { return pauses; }
     public int Commands() { return commands; }
@@ -58,7 +64,14 @@ public class MockNvmeController : INvmeControllerIo {
         return 0;
     }
     public void Write32(int offset, long value) {
-        if (offset == 20) { configuration = value; status = (int)(value % 2); return; }
+        if (offset == 20) {
+            configuration = value; status = (int)(value % 2);
+            if (status == 0) {
+                completionTail[0] = 0; completionTail[1] = 0;
+                completionPhase[0] = 1; completionPhase[1] = 1;
+            }
+            return;
+        }
         if (offset == 4096 || offset == 4104) {
             int queue = 0;
             if (offset == 4104) { queue = 1; }
@@ -76,10 +89,13 @@ public class MockNvmeController : INvmeControllerIo {
             }
             if (queue == 1 && command[0] == 0) { flushes = flushes + 1; }
             if (queue == 1 && command[0] == 1) { writes = writes + 1; }
+            bool rejectRead = queue == 1 && command[0] == 2 &&
+                (failRead || failNextReads > 0);
+            if (rejectRead && failNextReads > 0) { failNextReads = failNextReads - 1; }
             if (queue == 1 && (command[0] == 1 || command[0] == 2)) {
                 long lba = command[40] + command[41] * 256 + command[42] * 65536 + command[43] * 16777216;
                 int blocks = command[48] + command[49] * 256 + 1;
-                if ((command[0] == 2 && !failRead) || (command[0] == 1 && !failWrite)) {
+                if ((command[0] == 2 && !rejectRead) || (command[0] == 1 && !failWrite)) {
                     i = 0;
                     while (i < blocks * 512) {
                         int diskIndex = (int)(lba * 512) + i;
@@ -95,7 +111,7 @@ public class MockNvmeController : INvmeControllerIo {
             pages[cqPage * 4096 + completion + 12] = command[2];
             pages[cqPage * 4096 + completion + 13] = command[3];
             int completionStatus = completionPhase[queue];
-            if (queue == 1 && ((failRead && command[0] == 2) ||
+            if (queue == 1 && (rejectRead ||
                 (failWrite && command[0] == 1) || (failFlush && command[0] == 0))) {
                 completionStatus = completionStatus + 2;
             }
@@ -152,7 +168,14 @@ public class Program {
         if (!writeFailure.Initialize()) { return 34; }
         writeFailureMock.FailWrite();
         if (writeFailure.Write(4, 1, new byte[512]) ||
-            writeFailureMock.Writes() != 1 || writeFailure.Flush()) { return 35; }
+            writeFailureMock.Writes() != 1 || writeFailure.Flush() ||
+            writeFailure.RetryCount() != 0) { return 35; }
+        writeFailureMock.AllowWrite();
+        byte[] recoveredPayload = new byte[512]; recoveredPayload[0] = 73;
+        byte[] recoveredData = new byte[512];
+        if (!writeFailure.Initialize() || !writeFailure.Write(4, 1, recoveredPayload) ||
+            !writeFailure.Flush() || !writeFailure.Read(4, 1, recoveredData) ||
+            recoveredData[0] != 73 || writeFailureMock.Writes() != 2) { return 50; }
         MockNvmeController droppedMock = new MockNvmeController();
         NvmeController dropped = new NvmeController(droppedMock, 16);
         if (!dropped.Initialize()) { return 38; }
@@ -167,6 +190,9 @@ public class Program {
         if (flushFailure.Flush() || flushFailureMock.Flushes() != 1 ||
             flushFailure.RecoveryState() != 4 || flushFailure.LastError() != 3 ||
             flushFailure.Flush() || flushFailureMock.Flushes() != 1) { return 37; }
+        flushFailureMock.AllowFlush();
+        if (!flushFailure.Initialize() || !flushFailure.Write(5, 1, recoveredPayload) ||
+            !flushFailure.Flush() || flushFailureMock.Flushes() != 2) { return 51; }
         MockNvmeController writeTimeoutMock = new MockNvmeController();
         NvmeController writeTimeout = new NvmeController(writeTimeoutMock, 4);
         if (!writeTimeout.Initialize()) { return 46; }
@@ -176,6 +202,9 @@ public class Program {
             writeTimeoutMock.Writes() != 1 ||
             writeTimeout.Write(4, 1, new byte[512]) || writeTimeout.Flush() ||
             writeTimeoutMock.Writes() != 1) { return 47; }
+        writeTimeoutMock.AllowCompletion();
+        if (!writeTimeout.Initialize() || !writeTimeout.Write(4, 1, recoveredPayload) ||
+            !writeTimeout.Flush() || writeTimeoutMock.Writes() != 2) { return 52; }
         MockNvmeController flushTimeoutMock = new MockNvmeController();
         NvmeController flushTimeout = new NvmeController(flushTimeoutMock, 4);
         if (!flushTimeout.Initialize()) { return 48; }
@@ -184,6 +213,16 @@ public class Program {
             flushTimeout.RecoveryState() != 4 || flushTimeout.RetryCount() != 0 ||
             flushTimeoutMock.Flushes() != 1 || flushTimeout.Flush() ||
             flushTimeoutMock.Flushes() != 1) { return 49; }
+        flushTimeoutMock.AllowCompletion();
+        if (!flushTimeout.Initialize() || !flushTimeout.Flush() ||
+            flushTimeoutMock.Flushes() != 2) { return 53; }
+        MockNvmeController transientMock = new MockNvmeController();
+        NvmeController transientRead = new NvmeController(transientMock, 16);
+        if (!transientRead.Initialize()) { return 54; }
+        transientMock.FailNextRead();
+        byte[] transientData = new byte[512];
+        if (!transientRead.Read(6, 1, transientData) || transientData[0] != 6 ||
+            transientRead.RetryCount() != 1 || transientRead.RecoveryState() != 0) { return 55; }
         mock.FailRead();
         byte[] unchanged = new byte[512]; unchanged[0] = 99;
         if (disk.Read(1, 1, unchanged) != BlockStatus.IoFailure()) { return 41; }

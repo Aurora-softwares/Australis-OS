@@ -9,7 +9,7 @@ are in the [bootloader](src/bootloader/README.md) and
 ## Current position
 
 **Recommended development version: `0.0.7`.** The working tree has a booting
-Hylang kernel, read-only HyFS, a terminal shell, USB input and storage, and
+Hylang kernel, a read-only HyFS 2 root, a terminal shell, USB input and storage, and
 checked AUEX programs with a cooperative scheduler. The next milestone is
 arguments and external userland commands. This assessment describes source
 capability; it is not a claim that `0.0.7` has been tagged or released.
@@ -36,7 +36,7 @@ complete or validated on physical hardware.
 | `0.0.6` | Implemented | Boot the storage-backed kernel under QEMU/OVMF. | Mount read-only HyFS, read files, and accept USB keyboard input and USB storage through xHCI. |
 | `0.0.7` | Current development milestone | Maintain the existing handoff. | Run an initial shell and checked AUEX programs with file descriptors, terminal calls, bounded cooperative scheduling, and fault cleanup. |
 | `0.0.8` | Next | Preserve the existing handoff and recovery console. | Pass arguments to AUEX programs, add process start/wait results, and run source-built external commands from the shell. |
-| `0.0.9` | Planned | Add selectable debug/silent modes and boot configuration. | Add directory-capable writable HyFS with flush/recovery semantics, then start and supervise `System.exec` as PID 1. |
+| `0.0.9` | Planned | Add selectable debug/silent modes and boot configuration. | Harden writable HyFS 2 recovery and allocation, then start and supervise `System.exec` as PID 1. |
 | `0.1.0` | Planned stable baseline | Pass negative-path boot tests and supported physical UEFI boot checks. | Run native user programs in ring 3 with hardware-enforced isolation and system calls, and pass the release test matrix. |
 
 ## Outstanding work before `0.1.0`
@@ -45,8 +45,10 @@ complete or validated on physical hardware.
   Process arguments, external shell commands, PID 1, native ring-3 execution,
   hardware privilege separation, native system calls, context switching, and
   preemptive threads remain open.
-- **Writable storage:** HyFS and removable USB volumes are read-only. On-disk
-  directories, write and flush support, recovery, and safe removal remain open.
+- **Writable storage:** The HyFS 2 root and removable USB volumes mount
+  read-only by policy, while the typed `/data` volume supports transactional
+  writes. A consistency checker and broader reset, timeout, and physical-media
+  validation remain open.
 - **Boot experience:** Boot progress output is always enabled. Selectable
   debug/silent modes, configuration, ACPI discovery, and negative-path QEMU
   coverage remain open.

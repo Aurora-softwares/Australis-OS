@@ -88,7 +88,7 @@ valid.
 `tests/vfs/hyfs_v1_fixture.py` creates a fixed image containing `boot+txt`
 (`hello`) and `empty.txt` (empty). Its SHA-256 is
 `257b8a183c55b57ab59af56bfb6382c84496906c3cd67ce0556dd72f2df2fd2f`.
-The fixture test runs in `make test-hyfs`. To save the verified image for a
+The fixture test runs in `make test-hyfs1`. To save the verified image for a
 future v2 reader test, run:
 
 ```bash

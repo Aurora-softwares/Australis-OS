@@ -115,6 +115,10 @@ def run_once(qemu, firmware, iso, disk, transport, directory, expected, remove=F
                 failed = response(connection, process, 30)
                 if b"File read failed." not in failed:
                     raise AssertionError(f"removed volume remained readable: {failed!r}")
+                connection.sendall(b"mounts\r")
+                unmounted = response(connection, process, 30)
+                if b"/: hyfs boot0" not in unmounted or b"/data:" in unmounted:
+                    raise AssertionError(f"removed volume remained mounted: {unmounted!r}")
     finally:
         process.terminate()
         try:

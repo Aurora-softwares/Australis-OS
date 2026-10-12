@@ -1,4 +1,4 @@
-# HyFS v2 disk format (draft implementation contract)
+# HyFS v2 disk format (implementation contract)
 
 HyFS v2 stores directories and regular files in a versioned, checksummed
 snapshot. Boot volumes retain HyFS's GPT type GUID
@@ -8,6 +8,7 @@ reader. The separate HyFS 2 data volume uses GPT type GUID
 be selected as the boot root. Both partition types contain this same v2 byte
 format. All integers are unsigned little-endian. A block is one logical device
 sector, initially 512 bytes. Block numbers are relative to the partition.
+HyFS v2 is the default format produced by the Australis `make iso` target.
 
 ## Superblocks and commit
 

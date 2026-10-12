@@ -48,7 +48,7 @@ coverage needs separate hardware validation.
 | PCI, MMIO, and DMA | BARs are sized and fully mapped, xHCI DMA ownership is explicit, and unsupported IOMMU translation is rejected. Add translated DMA support and broader cache-policy validation. |
 | AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Write and cache-flush commands now pass host protocol/controller tests. Add live write/flush validation on a separate data volume, enumeration beyond the selected device, and broader hardware coverage. |
 | Partition discovery | The Hylang GPT reader now runs on live AHCI and NVMe, checks CRCs with backup-header recovery, and selects HyFS by full type GUID. Add partition selection by unique identity and a live damaged-primary integration test. |
-| VFS and HyFS | Persistent generation-checked handles and canonical namespace traversal cover `/` and `/usb`; HyFS v2 now has a directory format, metadata, and an opt-in read-only kernel mount. Add live corruption tests, application metadata calls, and persistent writes. |
+| VFS and HyFS | HyFS 2 is the default read-only root and removable-media format; persistent generation-checked handles, nested traversal, metadata, and transactional writes on `/data` are live. Add a consistency checker and broader physical-device failure coverage. |
 | Interactive console | COM1 and USB HID share line editing; AUEX fd 0/1/2 uses the same canonical read and mirrored write semantics. Add layout selection, pipelines, and background jobs. |
 | USB | One live xHCI root device supports either a US keyboard or MSC bulk storage with bounded hotplug recovery. Add hubs and multiple simultaneous devices. |
 
@@ -139,8 +139,8 @@ serial shell remains usable while new input and storage paths are brought up.
   interface, and handle SCSI sense, stalls, reset recovery, and removal.
 - [x] Extend VFS with persistent file handles, mount identities, and streaming
   reads. Keep active reads safe when a USB device disappears. Add a read-only
-  filesystem path for removable media; HyFS v1 has a flat directory, so nested
-  paths require a filesystem extension or another filesystem driver.
+  filesystem path for removable media; the default HyFS 2 image provides nested
+  paths while the HyFS 1 compatibility image remains flat.
 - [x] Add shell commands for device listing, mounts, current directory, and
   incremental file display. Keep writes and safe eject as separate later work.
 - **Exit check passed:** QEMU `usb-storage` mounts a second read-only volume and
@@ -284,7 +284,8 @@ Goal: make the boundaries explicit before calling `ExitBootServices`.
 - [x] Stress repeated mapping, allocation/release, serial input, and root
   reads, including QEMU-throttled completion waits.
 - [x] Add VFS file handles and namespace traversal, then test live I/O failure
-  and removable-media invalidation paths. HyFS v1 remains a flat on-disk format.
+  and removable-media invalidation paths. HyFS 2 is the default on-disk format;
+  the retained HyFS 1 compatibility format remains flat.
 - [ ] Establish keyboard and storage drivers.
 - [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
   controller stop/reset, descriptor selection, MSC BOT reads via a mock

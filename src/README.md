@@ -90,8 +90,8 @@ checked out for an image build and may live in their own repositories.
 
 ## Filesystem layout
 
-HyFS v1 is currently flat, so this hierarchy is a target for the directory
-capable filesystem milestone:
+The default HyFS 2 image now carries this directory-capable hierarchy. The
+retained HyFS 1 compatibility image contains only its flat root files:
 
 ```text
 /System/
