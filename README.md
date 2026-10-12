@@ -346,7 +346,7 @@ matrix is `make test-stage4`.
 ## AUEX `.exec` user programs
 
 AUEX v1 is Australis's first user program format. Files use the `.exec`
-extension defined in `src/system/README.md`; `AUEX` remains the internal format
+extension defined in `src/README.md`; `AUEX` remains the internal format
 magic and ABI name. Its 32-byte little-endian
 header contains `AUEX`, version and header size, code length, initialized data
 length, data capacity, entry offset, and separate CRC-32 values for code and
@@ -354,12 +354,12 @@ data. The image exposes a read-only code region at `0x400000` and a bounded
 read/write data region at `0x500000`.
 
 The interpreter provides exit, terminal read/write, checked file and directory
-calls, metadata queries, checked byte stores, cooperative yield operations, fixed scalar locals, a
-checked expression stack, signed arithmetic, comparisons, and conditional and
-unconditional branches. Hylang `if`, `while`, and `for` statements compile to
-these operations, including `break`, `continue`, short-circuit Boolean logic,
-numeric output, and computed exit codes. Division by zero is reported as an
-application arithmetic fault. Descriptors
+calls, metadata queries, checked byte stores, cooperative yield operations,
+fixed scalar locals, bounded byte arrays, local method calls, a checked
+expression stack, signed arithmetic, comparisons, and branches. Hylang `if`,
+`while`, and `for` statements compile to these operations, including `break`,
+`continue`, short-circuit Boolean logic, numeric output, and computed exit
+codes. Division by zero is reported as an application arithmetic fault. Descriptors
 0, 1, and 2 have canonical terminal semantics; mounted files use descriptors
 3 through 15.
 Every user pointer is range checked and copied through `UserAddressSpace`, so
@@ -381,9 +381,11 @@ terminal, descriptor, failure, and scheduling contracts before that transition.
 
 The planned OS layer keeps the kernel, system userland, and application
 userland separate. The GUI is an optional userland subsystem. See
-`src/system/README.md` for the runtime and package model and
-`src/userland/README.md` for the staged process, command, service, IPC, session,
-and graphical-userland roadmap.
+`src/README.md` for the runtime and package model,
+`src/userland/system/README.md` for the PID 1 contract, and
+`src/userland/README.md` for the staged roadmap. The kernel console remains
+the recovery shell until the userland shell and system manager pass their exit
+tests.
 
 Run the hosted runtime suite and live AHCI/NVMe matrix with:
 
@@ -766,6 +768,8 @@ the four-level paging mode accepted by the current kernel handoff.
 | `2648` | `uint64` | Captured `CR2` fault address |
 | `2672` | `uint32` | Panic state: `1` rendering, `2` report complete and halted |
 | `2688`–`3457` | `uint8` | Fixed allocation-free NUL-terminated ASCII panic report buffer |
+| `3460` | `uint32` | Active AUEX file descriptors after the last wait |
+| `3464` | `uint32` | Last foreground AUEX process ID |
 
 ## UEFI Framebuffer offsets
 

@@ -64,17 +64,20 @@ and service supervision exist.
 
 ## Source layout
 
-The intended repository layout is:
+The repository has separate bootloader, kernel, userland, shell, and rescue
+projects. The OS-owned userland directories below are the intended layout as
+the corresponding components are implemented:
 
 ```text
 src/
 |-- bootloader/                    UEFI boot stage
 |-- kernel/                        privileged kernel
+|-- rescue/                        optional disk-backed rescue program
+|-- shell/                         future userland command shell
 `-- userland/
     |-- system/                    PID 1 and service supervision
     |-- services/                  core system services
     |-- libraries/                 shared user APIs and protocols
-    |-- shell/                     command interpreter and built-ins
     |-- commands/                  cat, ls, version, echo, pwd, ...
     `-- gui/
         |-- display/               display server and compositor
@@ -90,8 +93,11 @@ checked out for an image build and may live in their own repositories.
 
 ## Filesystem layout
 
-The default HyFS 2 image now carries this directory-capable hierarchy. The
-retained HyFS 1 compatibility image contains only its flat root files:
+The default HyFS 2 image already creates `/System`, `/System/Core`, `/Bin`,
+`/Applications`, `/Users`, `/Volumes`, and `/Temporary`. The entries under
+`/System` below are the intended packaged system layout; `System.exec` and
+services are not yet installed. The retained HyFS 1 compatibility image
+contains only flat root files:
 
 ```text
 /System/
@@ -108,10 +114,11 @@ retained HyFS 1 compatibility image contains only its flat root files:
 /Temporary/
 ```
 
-`/Bin` is the default location for command-line programs. The first shell
-environment can use `PATH=/Bin:/System/Bin`. A command containing `/` is
-resolved directly; other commands are searched in `PATH`, with `.exec`
-appended when the name has no extension.
+`/Bin` is the default location for command-line programs. The current kernel
+recovery shell searches `PATH=/System:/Bin:/`. The first userland shell should
+use `PATH=/Bin:/System` until a `/System/Bin` directory is actually packaged.
+A command containing `/` is resolved directly; other commands are searched in
+`PATH`, with `.exec` appended when the name has no extension.
 
 ## Shell and process boundary
 
@@ -195,6 +202,10 @@ System.os/
 A `.os` bundle is reserved for an operating-system component managed by the
 system manager. It is still a user process. It does not gain kernel privilege
 from its extension.
+The first PID 1 milestone installs a direct executable at
+`/System/Core/System.exec`; the `System.os` bundle layout is a later packaging
+format for that component. See `userland/system/README.md` for the startup
+contract and `rescue/README.md` for the fallback boundary.
 
 ## Standard data formats
 
