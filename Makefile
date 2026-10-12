@@ -40,7 +40,7 @@ HYFS1_NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(HY
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
-.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-hyfs2-serial run-hyfs2-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 
 all: build image iso
 
@@ -120,6 +120,27 @@ test-auex-arguments: test-auex-arguments-image
 test-auex-arguments-image: $(APP_COMPILER) | check-run-tools
 	"$(APP_COMPILER)" build tests/user/ArgumentApp.hyproj -o "$(BUILD_DIR)/argv-check.exec"
 	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/argv-check.exec"
+
+test-userland-stage1: test-userland-stage1-host test-userland-stage1-image
+	python3 tests/user/stage1_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/stage1_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-userland-stage1-host: $(APP_COMPILER) test-stage5-host
+	"$(APP_COMPILER)" build tests/user/Stage1App.hyproj -o "$(BUILD_DIR)/stage1-app.exec"
+	"$(BUILD_DIR)/user-runtime-tests" stage1 "$(BUILD_DIR)/stage1-app.exec"
+	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/userland.exec"
+	"$(BUILD_DIR)/user-runtime-tests" stage1-starter "$(BUILD_DIR)/userland.exec"
+
+test-userland-stage1-image: $(APP_COMPILER) | check-run-tools
+	"$(APP_COMPILER)" build tests/user/Stage1App.hyproj -o "$(BUILD_DIR)/stage1-app.exec"
+	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/userland.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/stage1-app.exec $(BUILD_DIR)/userland.exec"
+
+test-userland-stage1-ahci: test-userland-stage1-image
+	python3 tests/user/stage1_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+
+test-userland-stage1-nvme: test-userland-stage1-image
+	python3 tests/user/stage1_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-stage6-image: $(APP_COMPILER) | check-run-tools
 	"$(APP_COMPILER)" build tests/user/PersistentFileApp.hyproj -o "$(BUILD_DIR)/stage6-file-test.exec"

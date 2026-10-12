@@ -1,0 +1,12 @@
+format = 2
+name = "Stage1App"
+type = "exec"
+output = "stage1-app.exec"
+sources = ["Stage1App.hy"]
+project_references = []
+
+[package]
+id = "australis.stage1-app"
+description = "Userland stage 1 process ABI smoke fixture"
+authors = ["Aurora Softwares"]
+license = "MIT"

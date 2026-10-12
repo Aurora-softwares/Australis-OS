@@ -385,6 +385,67 @@ public class Program {
         System.Console.WriteLine("Compiled portable AUEX I/O test passed");
         return 0;
     }
+    private static int CompiledStage1(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 42; }
+        byte[] text = new byte[22];
+        byte[] expected = new byte[11];
+        expected[0] = 115; expected[1] = 116; expected[2] = 97;
+        expected[3] = 103; expected[4] = 101; expected[5] = 49;
+        expected[6] = 45; expected[7] = 111; expected[8] = 107;
+        expected[9] = 13; expected[10] = 10;
+        text[0] = 47; text[1] = 104; text[2] = 101; text[3] = 108;
+        text[4] = 108; text[5] = 111; text[6] = 46; text[7] = 116;
+        text[8] = 120; text[9] = 116; text[10] = 45; text[11] = 97;
+        text[12] = 110; text[13] = 116; text[14] = 119; text[15] = 111;
+        text[16] = 32; text[17] = 119; text[18] = 111; text[19] = 114;
+        text[20] = 100; text[21] = 115;
+        int[] starts = new int[3]; starts[1] = 10; starts[2] = 13;
+        int[] lengths = new int[3];
+        lengths[0] = 10; lengths[1] = 3; lengths[2] = 9;
+        UserArguments arguments = new UserArguments(text, starts, lengths, 3);
+        UserMockTerminal terminal = new UserMockTerminal(new byte[0]);
+        UserMockFiles files = new UserMockFiles();
+        UserProgramHost host = new UserProgramHost(terminal, files);
+        int run = 1;
+        while (run <= 3) {
+            UserProgramResult result = host.Run(executable, arguments);
+            if (result.Pid() != run || result.State() != UserProgramState.Exited() ||
+                result.ExitCode() != 23 || result.Fault() != UserFault.None() ||
+                !terminal.Contains(expected) || !files.CloseAllCalled()) { return 43; }
+            run = run + 1;
+        }
+        System.Console.WriteLine("Compiled stage 1 AUEX test passed");
+        return 0;
+    }
+    private static int CompiledStage1Starter(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 44; }
+        byte[] text = new byte[6];
+        text[0] = 111; text[1] = 110; text[2] = 101;
+        text[3] = 116; text[4] = 119; text[5] = 111;
+        int[] starts = new int[2]; starts[1] = 3;
+        int[] lengths = new int[2]; lengths[0] = 3; lengths[1] = 3;
+        UserArguments arguments = new UserArguments(text, starts, lengths, 2);
+        UserMockTerminal terminal = new UserMockTerminal(new byte[0]);
+        UserProgramResult result = new UserProgramHost(terminal,
+            new UserMockFiles()).Run(executable, arguments);
+        byte[] expectedFirst = new byte[5];
+        expectedFirst[0] = 111; expectedFirst[1] = 110;
+        expectedFirst[2] = 101; expectedFirst[3] = 13; expectedFirst[4] = 10;
+        byte[] expectedSecond = new byte[5];
+        expectedSecond[0] = 116; expectedSecond[1] = 119;
+        expectedSecond[2] = 111; expectedSecond[3] = 13; expectedSecond[4] = 10;
+        if (result.Pid() != 1 || result.State() != UserProgramState.Exited() ||
+            result.ExitCode() != 0 || result.Fault() != UserFault.None() ||
+            !terminal.Contains(expectedFirst) || !terminal.Contains(expectedSecond)) {
+            return 45;
+        }
+        System.Console.WriteLine("Userland stage 1 starter passed");
+        return 0;
+    }
     private static byte[] InputText() {
         byte[] input = new byte[5]; input[0] = 97; input[1] = 98; input[2] = 8;
         input[3] = 99; input[4] = 13; return input;
@@ -405,6 +466,8 @@ public class Program {
             if (args[0] == "file-api") { return CompiledFileApi(args[1]); }
             if (args[0] == "portable-api") { return CompiledPortableApi(args[1]); }
             if (args[0] == "portable-io") { return CompiledPortableIo(args[1]); }
+            if (args[0] == "stage1") { return CompiledStage1(args[1]); }
+            if (args[0] == "stage1-starter") { return CompiledStage1Starter(args[1]); }
             return 24;
         }
         byte[] demo = UserImages.Demo();
@@ -514,6 +577,13 @@ public class Program {
         overlappingLengths[0] = 3; overlappingLengths[1] = 3;
         if (new UserArguments(startText, overlappingStarts,
             overlappingLengths, 2).IsValid()) { return 35; }
+        long[] duplicatePointers = new long[2];
+        duplicatePointers[0] = recordBase + 320;
+        duplicatePointers[1] = recordBase + 320;
+        int[] duplicateLengths = new int[2];
+        duplicateLengths[0] = 3; duplicateLengths[1] = 3;
+        if (new UserArguments(startMemory, duplicatePointers,
+            duplicateLengths, 2).IsValid()) { return 41; }
         UserMockFiles processFiles = new UserMockFiles();
         UserProgramHost processHost = new UserProgramHost(
             new UserMockTerminal(new byte[0]), processFiles);
