@@ -28,9 +28,10 @@ READMEs for their completion criteria. The architecture uses `System.exec`
 and `CommandShell.exec`; the system contract is at
 [src/userland/system/README.md](src/userland/system/README.md). The
 [rescue README](src/rescue/README.md) distinguishes the kernel monitor from
-the optional `rescue.exec`. The current normal monitor prompt is `kmon>`;
-the explicit `R` boot selection enters `rescue>` without mounting a root.
-Automatic fallback from a failed normal boot or PID 1 remains future work.
+the optional `rescue.exec`. Normal boot enters the userland `australis>` shell
+through `System.exec`. The explicit `R` boot selection enters `rescue>`
+without mounting a root; `D` enters KMon after hardware startup. A missing
+or failed PID 1 falls back to `kmon>`.
 
 ## Current baseline
 
@@ -38,11 +39,11 @@ Automatic fallback from a failed normal boot or PID 1 remains future work.
 | --- | --- | --- |
 | Bootloader | Stage 1 handoff and AHCI/NVMe QEMU boot pass; explicit `R` Rescue works from an EFI-only disk. | Negative image/handoff tests, automated `D`/`N`/`S` mode checks, physical firmware coverage. |
 | Kernel | Freestanding kernel, COM1/framebuffer console, KMon recovery controls, drivers, VFS, and checked AUEX execution. | Native ring 3, independent runnable processes, preemption, and the general process table needed by PID 1. |
-| Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, and recovery tests are documented. | A packaged system manager and a tested missing/corrupt userland fallback. |
-| Userland | Stage 1 process input/runtime work passes hosted and AHCI/NVMe QEMU tests from source. | Stage 2 external command set and a userland command shell. |
-| System | The architecture, system contract README, and `/System/Core` directory exist. | `System.exec`, PID 1 launch, and services. The current image has an empty `/System/Core`. |
-| Rescue | `R` enters a kernel monitor without HyFS; an EFI-only QEMU boot passes. | Automatic normal-boot and PID 1 failure fallback, optional `rescue.exec`. |
-| Shell | The recovery shell already parses arguments and searches `PATH`. | Userland shell implementation; `src/shell/program.hy` is empty. |
+| Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, and packaged `/System/Core` executables. | Complete missing/corrupt system-image recovery coverage. |
+| Userland | Stage 1 process input/runtime work passes hosted and AHCI/NVMe QEMU tests from source. | Stage 2 command parsing, `PATH` lookup, and launch from the userland shell. |
+| System | `System.exec` starts as PID 1 and launches a foreground shell child. | Process table, services, and session supervision. |
+| Rescue | `R` enters a kernel monitor without HyFS; missing or failed PID 1 falls back to KMon. | Optional `rescue.exec` and broader fault recovery coverage. |
+| Shell | The userland shell preview reads input and supports `help` and `exit`. | External command launch and Stage 2 completion gate. |
 
 The baseline checks below distinguish the Stage 1 fixture image from the
 normal image. Unrelated local edits in application README files are outside
@@ -171,13 +172,13 @@ KMon with no dependency on PID 1 or writable storage.
 - [ ] Add a real process table with identity, parent/child state, exit/fault
   records, blocking waits, timers, and multiple runnable AUEX processes.
   Establish the scheduling behavior required by services before adding them.
-- [ ] Build and install `/System/Core/System.exec`; start it as PID 1 after
+- [x] Build and install `/System/Core/System.exec`; start it as PID 1 after
   mounting the root. It launches `CommandShell.exec` for a text session.
 - [ ] Add versioned service manifests and bounded readiness, restart,
   shutdown, and structured failure behavior. Start with Device, Storage, and
   Launch policy; retain drivers and mechanism in the kernel.
-- [ ] Provide an explicit boot bypass into KMon and a fallback when PID 1
-  cannot be loaded or repeatedly fails.
+- [x] Provide an explicit boot bypass into KMon and a fallback when PID 1
+  cannot be loaded. Bounded repeated-failure handling remains open.
 
 **Exit:** PID 1 starts the shell, restarts one deliberately failing service
 only up to its limit, records why it stopped, and leaves KMon usable. No

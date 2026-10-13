@@ -27,6 +27,19 @@ public class UserMockTerminal : IUserTerminal {
     }
 }
 
+public class UserMockChildLauncher : IUserChildLauncher {
+    private int launches;
+    public UserMockChildLauncher() { launches = 0; }
+    public int Launches() { return launches; }
+    public int RunChild(byte[] path) {
+        if (path == null || path.Length != 30 || path[0] != 47 ||
+            path[1] != 83 || path[7] != 47 || path[12] != 47 ||
+            path[29] != 99) { return -1; }
+        launches = launches + 1;
+        return 0;
+    }
+}
+
 public class UserMockFiles : IUserFiles {
     private bool open; private int position; private bool closeAllCalled;
     private bool created; private bool writeOpen; private byte[] content;
@@ -326,6 +339,44 @@ public class UserImages {
 }
 
 public class Program {
+    private static int CompiledSystemLaunch(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 48; }
+        UserMockChildLauncher launcher = new UserMockChildLauncher();
+        UserProgramResult result = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), new UserMockFiles(),
+            new int[55], launcher, 1).Run(executable);
+        if (result.Pid() != 1 || result.State() != UserProgramState.Exited() ||
+            result.ExitCode() != 0 || result.Fault() != UserFault.None() ||
+            launcher.Launches() != 1) { return 49; }
+        System.Console.WriteLine("Compiled PID 1 launcher passed");
+        return 0;
+    }
+    private static int CompiledShellPreview(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 46; }
+        byte[] input = new byte[10];
+        input[0] = 104; input[1] = 101; input[2] = 108; input[3] = 112;
+        input[4] = 13; input[5] = 101; input[6] = 120; input[7] = 105;
+        input[8] = 116; input[9] = 13;
+        UserMockTerminal terminal = new UserMockTerminal(input);
+        UserProgramResult result = new UserProgramHost(terminal,
+            new UserMockFiles()).Run(executable);
+        byte[] expected = new byte[13];
+        expected[0] = 82; expected[1] = 101; expected[2] = 116;
+        expected[3] = 117; expected[4] = 114; expected[5] = 110;
+        expected[6] = 32; expected[7] = 116; expected[8] = 111;
+        expected[9] = 32; expected[10] = 75; expected[11] = 77;
+        expected[12] = 111;
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            result.Fault() != UserFault.None() || !terminal.Contains(expected)) {
+            return 47;
+        }
+        System.Console.WriteLine("Compiled shell preview passed");
+        return 0;
+    }
     private static int CompiledInspector(string imagePath) {
         UserExecutable executable = new UserExecutable(
             System.IO.File.ReadAllBytes(imagePath));
@@ -468,6 +519,8 @@ public class Program {
             if (args[0] == "portable-io") { return CompiledPortableIo(args[1]); }
             if (args[0] == "stage1") { return CompiledStage1(args[1]); }
             if (args[0] == "stage1-starter") { return CompiledStage1Starter(args[1]); }
+            if (args[0] == "shell-preview") { return CompiledShellPreview(args[1]); }
+            if (args[0] == "system-launch") { return CompiledSystemLaunch(args[1]); }
             return 24;
         }
         byte[] demo = UserImages.Demo();

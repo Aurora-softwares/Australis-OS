@@ -171,6 +171,7 @@ def screen_lines(screen):
 def read_until(connection, marker, timeout, process):
     deadline = time.monotonic() + timeout
     received = bytearray()
+    left_userland = False
     while marker not in received:
         if process.poll() is not None:
             raise RuntimeError(f"QEMU exited with status {process.returncode}")
@@ -185,6 +186,11 @@ def read_until(connection, marker, timeout, process):
         if not part:
             raise RuntimeError(f"serial connection closed: {bytes(received[-300:])!r}")
         received.extend(part)
+        # Legacy KMon integration checks deliberately leave the first normal
+        # userland session before exercising recovery-console commands.
+        if marker == PROMPT and not left_userland and b"australis> " in received:
+            connection.sendall(b"exit\r")
+            left_userland = True
     return bytes(received)
 
 

@@ -35,10 +35,21 @@ def main() -> None:
             if args.system_apps is not None:
                 if not args.system_apps.is_dir() or args.system_apps.is_symlink():
                     raise Hyfs2Error("system applications source is not a real directory")
-                for executable in sorted(args.system_apps.glob("*.exec")):
+                for executable in sorted(args.system_apps.rglob("*.exec")):
                     if executable.is_symlink() or not executable.is_file():
                         raise Hyfs2Error(f"invalid system executable: {executable}")
-                    image.put("/System/" + executable.name,
+                    relative = executable.relative_to(args.system_apps)
+                    if any(part.startswith(".") for part in relative.parts):
+                        raise Hyfs2Error(f"invalid system executable path: {executable}")
+                    parent = relative.parent
+                    current = "/System"
+                    for part in parent.parts:
+                        current += "/" + part
+                        try:
+                            image.stat(current)
+                        except Hyfs2Error:
+                            image.mkdir(current, record_time=False)
+                    image.put("/System/" + relative.as_posix(),
                               executable.read_bytes(), record_time=False)
             for executable in sorted(args.root.glob("*.exec")):
                 image.put("/Bin/" + executable.name, executable.read_bytes(),

@@ -27,30 +27,38 @@ BOOTX64.EFI
 KERNEL.BIN
     | mounts the root filesystem and starts PID 1
     v
-System.os
-    `-- System.exec                 system manager / PID 1
-        |-- ServiceManager
-        |   |-- Device.service      inventory and hotplug policy
-        |   |-- Storage.service     volume and mount policy
-        |   `-- Network.service     network configuration and policy
-        |-- Launch.service          manifest resolution and launch policy
-        `-- Session.service
-            |-- Login.exec
-            `-- User session
-                |-- CommandShell.exec
-                `-- graphical session, when enabled
-                    |-- Display.service
-                    |   |-- compositor
-                    |   |-- window protocol
-                    |   `-- input routing
-                    |-- DesktopShell.appb
-                    |   |-- desktop
-                    |   |-- taskbar
-                    |   `-- notifications
-                    `-- applications
-                        |-- Explorer.appb
-                        |-- Terminal.appb
-                        `-- Calculator.appb
+System.exec                     system manager / PID 1
+    |-- ServiceManager
+    |   |-- Device.service      inventory and hotplug policy
+    |   |-- Storage.service     volume and mount policy
+    |   `-- Network.service     network configuration and policy
+    |
+    |-- Launch.service          manifest resolution and launch policy
+    |
+    `-- Session.service
+        |
+        |-- Login.exec
+        |
+        `-- User session
+            |
+            |-- CommandShell.exec
+            |
+            `-- graphical session, when enabled
+                |
+                |-- Display.service
+                |   |-- compositor
+                |   |-- window protocol
+                |   `-- input routing
+                |
+                |-- DesktopShell.appb
+                |   |-- desktop
+                |   |-- taskbar
+                |   `-- notifications
+                |
+                `-- applications
+                    |-- Explorer.appb
+                    |-- Terminal.appb
+                    `-- Calculator.appb
 ```
 
 `System.exec` is the first user process. The kernel starts it after mounting

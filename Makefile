@@ -44,6 +44,8 @@ USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
 .PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: test-userland-shell-preview
+.PHONY: test-userland-system-host test-userland-system-boot
 	
 #
 # Tools
@@ -66,13 +68,13 @@ $(EFI_BOOT_IMAGE): $(EFI_BINARY) $(KERNEL_BINARY) | check-image-tools
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 
-$(EFI_BINARY) $(KERNEL_BINARY) &: $(PROJECT) $(OS_SOURCES) $(HYDROGEN) | check-build-tools
-	"$(HYDROGEN)" build "$(PROJECT)" -o "$(EFI_DIR)"
+$(EFI_BINARY) $(KERNEL_BINARY) &: $(PROJECT) $(OS_SOURCES) $(APP_COMPILER) | check-build-tools
+	"$(APP_COMPILER)" build "$(PROJECT)" -o "$(EFI_DIR)"
 
-$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(HYDROGEN) | check-build-tools
+$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(APP_COMPILER) | check-build-tools
 	@rm -rf "$(APPLICATIONS_DIR)"
 	@mkdir -p "$(APPLICATIONS_DIR)"
-	"$(HYDROGEN)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
+	"$(APP_COMPILER)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
 	@touch "$@"
 
 $(APP_COMPILER): $(APP_COMPILER_INPUTS) $(HYDROGEN) | check-build-tools
@@ -132,8 +134,8 @@ $(HYFS1_ISO): $(HYFS1_IMAGE) | check-image-tools
 # BUILD COMMANDS
 #
 all: clean build image iso run-disk
-build: check-build-tools |
-	"$(HYDROGEN)" build "$(PROJECT)" -o "$(EFI_DIR)"
+build: $(APP_COMPILER) check-build-tools
+	"$(APP_COMPILER)" build "$(PROJECT)" -o "$(EFI_DIR)"
 #
 image: $(IMAGE)
 boot_image: $(EFI_BOOT_IMAGE)
@@ -337,13 +339,27 @@ test-userland-stage1: test-userland-stage1-host test-userland-stage1-image
 test-userland-stage1-host: $(APP_COMPILER) test-stage5-host
 	"$(APP_COMPILER)" build tests/user/Stage1App.hyproj -o "$(BUILD_DIR)/stage1-app.exec"
 	"$(BUILD_DIR)/user-runtime-tests" stage1 "$(BUILD_DIR)/stage1-app.exec"
-	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/userland.exec"
-	"$(BUILD_DIR)/user-runtime-tests" stage1-starter "$(BUILD_DIR)/userland.exec"
+	"$(APP_COMPILER)" build tests/user/StarterApp.hyproj -o "$(BUILD_DIR)/stage1-starter.exec"
+	"$(BUILD_DIR)/user-runtime-tests" stage1-starter "$(BUILD_DIR)/stage1-starter.exec"
+
+test-userland-shell-preview: check-build-tools
+	"$(HYDROGEN)" build src/shell/australlis.shell.hyproj -o "$(BUILD_DIR)/CommandShell.exec"
+	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	"$(BUILD_DIR)/user-runtime-tests" shell-preview "$(BUILD_DIR)/CommandShell.exec"
+
+test-userland-system-host: $(APP_COMPILER) check-build-tools
+	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/System.exec"
+	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	"$(BUILD_DIR)/user-runtime-tests" system-launch "$(BUILD_DIR)/System.exec"
+
+test-userland-system-boot: iso-hyfs2 | check-run-tools
+	python3 tests/user/system_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/system_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-userland-stage1-image: $(APP_COMPILER) | check-run-tools
 	"$(APP_COMPILER)" build tests/user/Stage1App.hyproj -o "$(BUILD_DIR)/stage1-app.exec"
-	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/userland.exec"
-	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/stage1-app.exec $(BUILD_DIR)/userland.exec"
+	"$(APP_COMPILER)" build tests/user/StarterApp.hyproj -o "$(BUILD_DIR)/stage1-starter.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/stage1-app.exec $(BUILD_DIR)/stage1-starter.exec"
 
 test-userland-stage1-ahci: test-userland-stage1-image
 	python3 tests/user/stage1_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci

@@ -47,7 +47,7 @@ def main():
                 connection.connect(str(serial))
                 read_until(connection, PROMPT, 90, process)
                 before = capture_record(str(monitor), str(directory / "before.bin"))
-                connection.sendall(b'userland first "two words"\r')
+                connection.sendall(b'stage1-starter first "two words"\r')
                 starter = read_until(connection, b"\n" + PROMPT, 45, process)
                 for expected in (b"first\r\n", b"two words\r\n"):
                     if expected not in starter:
