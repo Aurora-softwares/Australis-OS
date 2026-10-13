@@ -357,9 +357,16 @@ test-userland-cat: iso | check-run-tools
 	python3 tests/user/cat_program_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 .PHONY: test-userland-info
+test-userland-info: PROJECT = tests/user/BootImage.hyproj
 test-userland-info: iso | check-run-tools
 	python3 tests/user/system_info_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 	python3 tests/user/system_info_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+.PHONY: test-userland-files-processes
+test-userland-files-processes: PROJECT = tests/user/BootImage.hyproj
+test-userland-files-processes: iso | check-run-tools
+	python3 tests/user/files_processes_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/files_processes_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-stage6-image: $(APP_COMPILER) | check-run-tools
 	"$(APP_COMPILER)" build tests/user/PersistentFileApp.hyproj -o "$(BUILD_DIR)/stage6-file-test.exec"

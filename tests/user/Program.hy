@@ -585,17 +585,20 @@ public class Program {
         if (new UserArguments(startMemory, duplicatePointers,
             duplicateLengths, 2).IsValid()) { return 41; }
         UserMockFiles processFiles = new UserMockFiles();
+        int[] processInformation = new int[46];
         UserProgramHost processHost = new UserProgramHost(
-            new UserMockTerminal(new byte[0]), processFiles);
+            new UserMockTerminal(new byte[0]), processFiles, processInformation);
         UserExecutable arithmeticImage = new UserExecutable(UserImages.ArithmeticLoop());
         int firstPid = processHost.SpawnForeground(arithmeticImage,
             new UserProcessStart(new UserArguments(new byte[0],
                 new int[0], new int[0], 0)));
-        if (firstPid != 1 || processHost.SpawnForeground(arithmeticImage,
+        if (firstPid != 1 || processInformation[40] != firstPid ||
+            processHost.SpawnForeground(arithmeticImage,
                 new UserProcessStart(startArguments)) != -1 ||
             processHost.Wait(2).Pid() != 0) { return 36; }
         UserProgramResult waited = processHost.Wait(firstPid);
-        if (waited.Pid() != 1 || waited.State() != UserProgramState.Exited() ||
+        if (waited.Pid() != 1 || processInformation[40] != 0 ||
+            waited.State() != UserProgramState.Exited() ||
             waited.ExitCode() != 15 || !processFiles.CloseAllCalled()) { return 37; }
         int secondPid = processHost.SpawnForeground(arithmeticImage,
             new UserProcessStart(startArguments));

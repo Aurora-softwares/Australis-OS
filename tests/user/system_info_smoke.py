@@ -66,7 +66,7 @@ def main():
 
                 system = run(connection, process, b"run sys-info")
                 require(system, b"Australis System Information\r\n", "sys-info")
-                require(system, b"System information API:\r\n2\r\n", "sys-info")
+                require(system, b"System information API:\r\n3\r\n", "sys-info")
                 require(system, b"Boot information ABI:\r\n7\r\n", "sys-info")
                 controller = b"1" if transport == "ahci" else b"2"
                 require(system,

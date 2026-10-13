@@ -65,6 +65,13 @@ def exercise(qemu: str, firmware: str, iso: str, action: str) -> None:
 
                 if selected or debug:
                     time.sleep(0.3)  # allow the injected key release before a possible reset
+                if selected:
+                    serial.sendall(b"mounts\r")
+                    empty_mounts = read_until(serial, b"rescue> ", 15, process)
+                    if (b"No filesystems mounted.\r\n" not in empty_mounts or
+                            b"/: hyfs boot0\r\n" in empty_mounts):
+                        raise AssertionError(
+                            f"early Rescue reported an unavailable root: {empty_mounts!r}")
                 serial.sendall(action.encode() + b"\r")
                 if action == "continue":
                     result = read_until(serial, b"kmon> ", 60, process)

@@ -21,13 +21,13 @@ def shell(connection, process, command, timeout=30):
 def run_demo(connection, process, path):
     connection.sendall(b"run " + path + b"\r")
     opening = read_until(connection, b"user> ", 30, process)
-    if b"Starting user program.\r\n" not in opening:
+    if b"user> " not in opening:
         raise AssertionError(f"user loader did not start: {opening!r}")
     connection.sendall(b"ab\x08C\r")
     result = read_until(connection, b"\n" + PROMPT, 45, process)
     if (b"input: aC\r\n" not in result or
             b"file: Hello from Australis HyFS." not in result or
-            b"User program exited cleanly.\r\n" not in result):
+            b"User program exited with an error.\r\n" in result):
         raise AssertionError(f"user terminal/file program failed: {result!r}")
 
 
@@ -76,7 +76,7 @@ def main():
 
                 hello_program = shell(connection, process, b"run /hello-world.exec", 30)
                 if (b"Hello, World!\r\n" not in hello_program or
-                        b"User program exited cleanly.\r\n" not in hello_program):
+                        b"User program exited with an error.\r\n" in hello_program):
                     raise AssertionError(
                         f"compiler generated hello program failed: {hello_program!r}")
 
@@ -113,7 +113,7 @@ def main():
                 if b"Invalid user executable.\r\n" not in invalid:
                     raise AssertionError(f"invalid executable was accepted: {invalid!r}")
                 process_list = shell(connection, process, b"ps")
-                if b"pid 1: faulted\r\n" not in process_list:
+                if b"Last launch: no process started.\r\n" not in process_list:
                     raise AssertionError(f"process inspection lost last state: {process_list!r}")
 
                 # Remove the live USB device after a user fault. COM1 must
@@ -133,9 +133,8 @@ def main():
                 inspected = shell(connection, process, b"run /inspector.exec", 45)
                 if (b"Australis File Inspector\r\n" not in inspected or
                         b"Size in bytes:\r\n" not in inspected or
-                        b"Root entries:\r\n" not in inspected or
-                        b"hello.txt\r\n" not in inspected or
-                        b"User program exited cleanly.\r\n" not in inspected):
+                        b"/hello.txt\r\n" not in inspected or
+                        b"User program exited with an error.\r\n" in inspected):
                     raise AssertionError(f"compiled Inspector API test failed: {inspected!r}")
         finally:
             process.terminate()

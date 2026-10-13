@@ -132,9 +132,10 @@ level tests; normal programs should use terminal and file operations.
 `StatTimeFlags`, bit 0 marks a known creation time and bit 1 marks a known
 modification time; a missing timestamp must be treated as unavailable.
 
-`SystemInfo.Query(0)` returns system-information API version `2`. Selectors
+`SystemInfo.Query(0)` returns system-information API version `3`. Selectors
 `1`-`3` report the process-start ABI version, maximum argument count, and
-current process ID. Version 2 adds these read-only system selectors:
+current process ID. Version 2 added read-only system selectors `16`-`39`;
+version 3 adds process selectors `40`-`45`:
 
 | Selector | Value |
 | --- | --- |
@@ -153,8 +154,15 @@ current process ID. Version 2 adds these read-only system selectors:
 | `37` | Used kernel heap bytes |
 | `38` | Memory runtime status |
 | `39` | Page table audit status |
+| `40` | Currently running foreground process ID, or zero |
+| `41` | Previous launch process ID, or zero when no process started |
+| `42` | Previous launch state (`2` exited, `3` faulted) |
+| `43` | Previous launch exit status |
+| `44` | Previous launch fault reason |
+| `45` | Number of prior program launch attempts |
 
-The kernel snapshots these values before launching each program. Counts are
+The kernel snapshots boot and previous-launch values before launching each
+program, then updates the active process ID at spawn and wait. Counts are
 clamped to a signed 32-bit integer, and unsupported selectors return the
 negative invalid-argument status.
 

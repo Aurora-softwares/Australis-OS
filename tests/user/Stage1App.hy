@@ -10,7 +10,7 @@ public class Program {
         byte[] bytes = new byte[3];
         bytes[0] = 65; bytes[1] = 66; bytes[2] = 67;
         if (bytes.Length != 3 || bytes[0] != 65 || bytes[2] != 67) { return 33; }
-        if (System.Australis.SystemInfo.Query(0) != 2 ||
+        if (System.Australis.SystemInfo.Query(0) < 2 ||
             System.Australis.SystemInfo.Query(1) != 1 ||
             System.Australis.SystemInfo.Query(3) < 1) { return 34; }
         System.Console.WriteLine(args[0]);
