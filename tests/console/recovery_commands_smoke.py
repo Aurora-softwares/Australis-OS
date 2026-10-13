@@ -72,6 +72,28 @@ def exercise(qemu: str, firmware: str, iso: str, action: str) -> None:
                             b"/: hyfs boot0\r\n" in empty_mounts):
                         raise AssertionError(
                             f"early Rescue reported an unavailable root: {empty_mounts!r}")
+                    serial.sendall(b"devices\r")
+                    devices = read_until(serial, b"rescue> ", 15, process)
+                    if b"boot0: storage not initialized\r\n" not in devices:
+                        raise AssertionError(f"Rescue reported storage ready: {devices!r}")
+                    serial.sendall(b"pages\r")
+                    pages = read_until(serial, b"rescue> ", 15, process)
+                    if b"Physical pages (4 KiB):\r\n" not in pages:
+                        raise AssertionError(f"Rescue cannot inspect allocator: {pages!r}")
+                    serial.sendall(b"memmap\r")
+                    memory_map = read_until(serial, b"rescue> ", 15, process)
+                    if b"EFI memory map:\r\n" not in memory_map:
+                        raise AssertionError(f"Rescue cannot inspect memory map: {memory_map!r}")
+                    for name in (b"devices", b"mounts", b"memmap", b"pages"):
+                        serial.sendall(name + b" extra\r")
+                        usage = read_until(serial, b"rescue> ", 15, process)
+                        if b"Usage: " + name + b"\r\n" not in usage:
+                            raise AssertionError(f"KMon accepted an extra {name!r} argument: {usage!r}")
+                if debug:
+                    serial.sendall(b"memmap\r")
+                    memory_map = read_until(serial, b"kmon> ", 15, process)
+                    if b"type physical-start pages:\r\n" not in memory_map:
+                        raise AssertionError(f"Debug memory ranges unavailable: {memory_map!r}")
                 serial.sendall(action.encode() + b"\r")
                 if action == "continue":
                     result = read_until(serial, b"kmon> ", 60, process)

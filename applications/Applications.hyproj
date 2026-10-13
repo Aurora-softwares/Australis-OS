@@ -2,7 +2,7 @@ format = 2
 name = "AustralisApplications"
 type = "os"
 sources = []
-project_references = ["Australis-BaseConvertor/BaseConvertor.hyproj", "Australis-Calculator/Calculator.hyproj", "Australis-ChangeDirectory/ChangeDirectory.hyproj", "Australis-Clear/Clear.hyproj", "Australis-HelloWorld/HelloWorld.hyproj", "Australis-HexViewer/HexViewer.hyproj", "Australis-Inspector/Inspector.hyproj", "Australis-MemInfo/MemInfo.hyproj", "Australis-SysInfo/SysInfo.hyproj", "Australis-Version/Version.hyproj", "Australis.Dev-user-demo/UserDemo.hyproj", "Australis.Dev-user-fault/UserFault.hyproj", "../src/userland/commands/Cat/Cat.hyproj", "../src/userland/commands/Ls/Ls.hyproj", "../src/userland/commands/Ps/Ps.hyproj"]
+project_references = ["Australis-BaseConvertor/BaseConvertor.hyproj", "Australis-Calculator/Calculator.hyproj", "Australis-ChangeDirectory/ChangeDirectory.hyproj", "Australis-Clear/Clear.hyproj", "Australis-HelloWorld/HelloWorld.hyproj", "Australis-HexViewer/HexViewer.hyproj", "Australis-Inspector/Inspector.hyproj", "Australis-MemInfo/MemInfo.hyproj", "Australis-SysInfo/SysInfo.hyproj", "Australis-Version/Version.hyproj", "Australis.Dev-user-demo/UserDemo.hyproj", "Australis.Dev-user-fault/UserFault.hyproj", "../src/userland/commands/Cat/Cat.hyproj", "../src/userland/commands/Ls/Ls.hyproj", "../src/userland/commands/Ps/Ps.hyproj", "../src/userland/commands/Drivers/Drivers.hyproj", "../src/userland/commands/Mem/Mem.hyproj"]
 
 [package]
 id = "AustralisApplications"

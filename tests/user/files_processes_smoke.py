@@ -62,35 +62,34 @@ def main():
                 mounts = run(connection, process, b"mounts")
                 if b"/: hyfs boot0\r\n" not in mounts:
                     raise AssertionError(f"boot root not reported: {mounts!r}")
-                root = run(connection, process, b"run ls /")
+                root = run(connection, process, b"ls /")
                 for entry in (b"hello.txt\r\n", b"readme.txt\r\n", b"ls.exec\r\n"):
                     if entry not in root:
                         raise AssertionError(f"ls / missing {entry!r}: {root!r}")
-                system = run(connection, process, b"run ls /System")
+                system = run(connection, process, b"ls /System")
                 if b"Core\r\n" not in system or b"hexviewer.exec\r\n" not in system:
                     raise AssertionError(f"ls /System failed: {system!r}")
-                single = run(connection, process, b"run ls /hello.txt")
+                single = run(connection, process, b"ls /hello.txt")
                 if b"/hello.txt\r\n" not in single:
                     raise AssertionError(f"ls file failed: {single!r}")
-                missing = run(connection, process, b"run ls /missing")
+                contents = run(connection, process, b"cat /hello.txt")
+                if b"Hello from Australis HyFS." not in contents:
+                    raise AssertionError(f"bare cat did not run cat.exec: {contents!r}")
+                missing = run(connection, process, b"ls /missing")
                 if (b"ls: stat failed (status):\r\n4\r\n" not in missing or
                         b"User program exited with an error.\r\n" not in missing):
                     raise AssertionError(f"ls missing-file status lost: {missing!r}")
 
-                processes = run(connection, process, b"run ps")
-                live_pid = before["user_pid"] + 5
+                processes = run(connection, process, b"ps")
+                live_pid = before["user_pid"] + 6
                 prior_pid = live_pid - 1
                 if (f"{live_pid} running (foreground)\r\n".encode() not in processes or
                         f"{prior_pid} exited, status 4\r\n".encode() not in processes or
-                        b"program launches: 4\r\n" not in processes):
+                        b"program launches: 5\r\n" not in processes):
                     raise AssertionError(f"ps did not report live and prior process: {processes!r}")
-                monitor = run(connection, process, b"ps")
-                if (f"pid {live_pid}: exited, status 0\r\n".encode() not in monitor or
-                        b"program launches: 5\r\n" not in monitor):
-                    raise AssertionError(f"KMon ps used stale process data: {monitor!r}")
 
                 after = capture_record(str(monitor_path), str(directory / "after.bin"))
-                if (after["user_runs"] != before["user_runs"] + 5 or
+                if (after["user_runs"] != before["user_runs"] + 6 or
                         after["user_state"] != 2 or after["user_exit"] != 0 or
                         after["user_fault"] != 0 or after["user_descriptors"] != 0 or
                         after["allocator_next"] != before["allocator_next"] or

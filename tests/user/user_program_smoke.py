@@ -73,6 +73,12 @@ def main():
                 connection.connect(serial_path)
                 read_until(connection, PROMPT, 75, process)
                 before = capture_record(monitor_path, memory_path)
+                devices = shell(connection, process, b"devices")
+                if b"usb0: mass-storage ready\r\n" not in devices:
+                    raise AssertionError(f"KMon missed live USB storage: {devices!r}")
+                active_drivers = shell(connection, process, b"drivers")
+                if b"usb: xHCI storage ready\r\n" not in active_drivers:
+                    raise AssertionError(f"drivers missed live xHCI storage: {active_drivers!r}")
 
                 hello_program = shell(connection, process, b"run /hello-world.exec", 30)
                 if (b"Hello, World!\r\n" not in hello_program or
@@ -93,7 +99,7 @@ def main():
                 run_demo(connection, process, b"/usb/../user-demo.exec")
                 after_demo = capture_record(monitor_path, memory_path)
                 if (after_demo["user_state"] != 2 or after_demo["user_exit"] != 0 or
-                        after_demo["user_fault"] != 0 or after_demo["user_runs"] != 3 or
+                        after_demo["user_fault"] != 0 or after_demo["user_runs"] != 6 or
                         after_demo["user_instructions"] < 10 or
                         after_demo["allocator_next"] != before["allocator_next"]):
                     raise AssertionError(
@@ -105,7 +111,7 @@ def main():
                     raise AssertionError(f"protected write was not blocked: {faulted!r}")
                 after_fault = capture_record(monitor_path, memory_path)
                 if (after_fault["user_state"] != 3 or after_fault["user_fault"] != 3 or
-                        after_fault["user_runs"] != 4 or
+                        after_fault["user_runs"] != 7 or
                         after_fault["allocator_next"] != before["allocator_next"]):
                     raise AssertionError(f"fault cleanup changed kernel state: {after_fault}")
 
@@ -113,8 +119,10 @@ def main():
                 if b"Invalid user executable.\r\n" not in invalid:
                     raise AssertionError(f"invalid executable was accepted: {invalid!r}")
                 process_list = shell(connection, process, b"ps")
-                if b"Last launch: no process started.\r\n" not in process_list:
-                    raise AssertionError(f"process inspection lost last state: {process_list!r}")
+                if (b"PID STATE\r\n" not in process_list or
+                        b"running (foreground)\r\n" not in process_list or
+                        b"program launches: 8\r\n" not in process_list):
+                    raise AssertionError(f"process executable did not run: {process_list!r}")
 
                 # Remove the live USB device after a user fault. COM1 must
                 # remain the recovery terminal while deferred xHCI work runs.
@@ -127,8 +135,11 @@ def main():
                 if (final["exception"] != 0 or final["ring_dropped"] != 0 or
                         final["event_dropped"] != 0 or final["memory_error"] != 0 or
                         final["allocator_next"] != before["allocator_next"] or
-                        final["user_runs"] != 5):
+                        final["user_runs"] != 9):
                     raise AssertionError(f"stage 5 left an unhealthy kernel: {final}")
+                removed_drivers = shell(connection, process, b"drivers")
+                if b"usb: xHCI initialized, no ready device\r\n" not in removed_drivers:
+                    raise AssertionError(f"drivers retained removed USB device: {removed_drivers!r}")
 
                 inspected = shell(connection, process, b"run /inspector.exec", 45)
                 if (b"Australis File Inspector\r\n" not in inspected or

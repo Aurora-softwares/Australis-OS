@@ -286,7 +286,7 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, continue, reboot, halt, trace, registers, panic (D boot)\r\n")
+                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, memmap, pages, continue, reboot, halt, trace, registers, panic (D boot)\r\n")
                 command(connection, process, b"continue", b"Normal boot is already active.\r\n")
                 trace = command(connection, process, b"trace", b"KMon diagnostic trace:\r\n")
                 if b"recent commands (oldest first):\r\n" not in trace or b"  continue\r\n" not in trace:
@@ -308,15 +308,15 @@ def main():
                 command(connection, process, b"\x1b[A", b"\r\nend\r\n")
                 command(connection, process, b"\x0cecho clear", b"\r\nclear\r\n")
                 command(connection, process, b"x" * 257, b"Input line is too long.\r\n")
-                listing = command(connection, process, b"ls", b"/fault.txt\r\n")
-                for entry in (b"/hello.txt\r\n", b"/readme.txt\r\n",
-                              b"/user-demo.exec\r\n", b"/user-fault.exec\r\n"):
+                listing = command(connection, process, b"ls", b"fault.txt\r\n")
+                for entry in (b"hello.txt\r\n", b"readme.txt\r\n",
+                              b"user-demo.exec\r\n", b"user-fault.exec\r\n"):
                     if entry not in listing:
                         raise AssertionError(f"root listing missing {entry!r}: {listing!r}")
                 if hyfs2:
                     system_listing = command(connection, process, b"ls /System",
-                                             b"/System/Core\r\n")
-                    if b"/System/hexviewer.exec\r\n" not in system_listing:
+                                             b"Core\r\n")
+                    if b"hexviewer.exec\r\n" not in system_listing:
                         raise AssertionError(f"Hex Viewer missing from /System: {system_listing!r}")
                     command(connection, process, b"stat /System/hexviewer.exec",
                             b"type: file\r\n")
@@ -332,8 +332,12 @@ def main():
                             b"Hello, World!\r\n")
                     command(connection, process, b"path /missing", b"PATH directory not found.\r\n")
                     command(connection, process, b"path", b"PATH=/System\r\n")
-                    command(connection, process, b"ls /Bin", b"/Bin/user-demo.exec\r\n")
-                    command(connection, process, b"cat /Bin/user-demo.exec", b"AUEX")
+                    command(connection, process, b"path /System:/Bin:/", b"PATH=/System:/Bin:/\r\n")
+                    command(connection, process, b"ls /Bin", b"user-demo.exec\r\n")
+                    connection.sendall(b"cat /Bin/user-demo.exec\r")
+                    binary = read_until(connection, PROMPT, 30, process)
+                    if b"AUEX" not in binary:
+                        raise AssertionError(f"cat lost executable bytes: {binary[-200:]!r}")
                     metadata = command(connection, process, b"stat /System", b"type: directory\r\n")
                     if b"created: unavailable\r\n" not in metadata or b"id: 0\r\n" in metadata:
                         raise AssertionError(f"HyFS v2 metadata missing: {metadata!r}")
@@ -344,8 +348,8 @@ def main():
                     command(connection, process, b"hello-world", b"Hello, World!\r\n")
                 command(connection, process, b"cat /hello.txt", hello)
                 command(connection, process, b"cat /readme.txt", readme)
-                command(connection, process, b"cat /missing.txt", b"File not found.\r\n")
-                command(connection, process, b"cat", b"Usage: cat /filename\r\n")
+                command(connection, process, b"cat /missing.txt", b"cat: open failed (status):\r\n4\r\n")
+                command(connection, process, b"cat", b"Usage: cat <path>\r\n")
                 command(connection, process, b"unknown", b"Unknown command. Type help.\r\n")
                 command(connection, process, b"version", VERSION)
                 repeat = 0

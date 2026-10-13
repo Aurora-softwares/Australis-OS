@@ -132,10 +132,11 @@ level tests; normal programs should use terminal and file operations.
 `StatTimeFlags`, bit 0 marks a known creation time and bit 1 marks a known
 modification time; a missing timestamp must be treated as unavailable.
 
-`SystemInfo.Query(0)` returns system-information API version `3`. Selectors
+`SystemInfo.Query(0)` returns system-information API version `4`. Selectors
 `1`-`3` report the process-start ABI version, maximum argument count, and
 current process ID. Version 2 added read-only system selectors `16`-`39`;
-version 3 adds process selectors `40`-`45`:
+version 3 added process selectors `40`-`45`; version 4 adds driver-state
+selectors `48`-`54`:
 
 | Selector | Value |
 | --- | --- |
@@ -160,6 +161,13 @@ version 3 adds process selectors `40`-`45`:
 | `43` | Previous launch exit status |
 | `44` | Previous launch fault reason |
 | `45` | Number of prior program launch attempts |
+| `48` | COM1 flags (bit 0 ready, bit 1 receive IRQ enabled) |
+| `49` | Interrupt-backed storage driver (`1` AHCI, `2` NVMe, `0` absent) |
+| `50` | Storage interrupt mode (`1` MSI, `2` MSI-X) |
+| `51` | xHCI lifecycle state (`10` keyboard ready, `20` storage ready) |
+| `52` | USB device kind (`1` keyboard, `2` mass storage) |
+| `53` | Full xHCI BAR mapping retained (`1` yes, `0` no) |
+| `54` | Last xHCI failure cause (`0` while healthy) |
 
 The kernel snapshots boot and previous-launch values before launching each
 program, then updates the active process ID at spawn and wait. Counts are

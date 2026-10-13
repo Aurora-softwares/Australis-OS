@@ -4,6 +4,7 @@
 from pathlib import Path
 import os
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -20,9 +21,23 @@ def main():
     if transport not in ("ahci", "nvme"):
         raise ValueError("transport must be ahci or nvme")
     first_lba, _ = hyfs_partition(iso)
-    # Sorted root entries place fault.txt at HyFS block 2. This sector is
-    # untouched by the boot self-test, then read by the shell command below.
-    sector = first_lba + 2
+    with open(iso, "rb") as image:
+        image.seek(first_lba * 512)
+        superblock = image.read(512)
+        if superblock[:8] != b"HYFS\r\n\x1a\n":
+            raise AssertionError("HyFS v1 superblock missing")
+        directory_start = struct.unpack_from("<Q", superblock, 24)[0]
+        directory_blocks, count = struct.unpack_from("<II", superblock, 32)
+        image.seek((first_lba + directory_start) * 512)
+        directory = image.read(directory_blocks * 512)
+    sector = None
+    for index in range(count):
+        entry = directory[index * 64:(index + 1) * 64]
+        if entry[24:24 + entry[0]] == b"fault.txt":
+            sector = first_lba + struct.unpack_from("<Q", entry, 4)[0]
+            break
+    if sector is None:
+        raise AssertionError("fault.txt missing from HyFS v1 directory")
     with tempfile.TemporaryDirectory(prefix="australis-fault-") as temporary:
         config = os.path.join(temporary, "blkdebug.conf")
         Path(config).write_text(
@@ -61,7 +76,7 @@ def main():
                 before = capture_record(monitor_path, memory_path)
                 connection.sendall(b"cat /fault.txt\r")
                 failed_output = read_until(connection, PROMPT, 30, process)
-                if b"File read failed.\r\n" not in failed_output or b"This file is used" in failed_output:
+                if b"cat: read failed (status):\r\n" not in failed_output or b"This file is used" in failed_output:
                     raise AssertionError(f"failed read exposed data or silenced the error: {failed_output!r}")
                 failed = capture_record(monitor_path, memory_path)
                 if (failed["storage_cause"] == 0 or failed["storage_state"] != 4 or

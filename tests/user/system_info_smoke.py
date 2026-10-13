@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import socket
+import re
 import subprocess
 import sys
 import tempfile
@@ -66,7 +67,7 @@ def main():
 
                 system = run(connection, process, b"run sys-info")
                 require(system, b"Australis System Information\r\n", "sys-info")
-                require(system, b"System information API:\r\n3\r\n", "sys-info")
+                require(system, b"System information API:\r\n4\r\n", "sys-info")
                 require(system, b"Boot information ABI:\r\n7\r\n", "sys-info")
                 controller = b"1" if transport == "ahci" else b"2"
                 require(system,
@@ -79,8 +80,30 @@ def main():
                 require(memory, b"Memory runtime status:\r\n0\r\n", "mem-info")
                 require(memory, b"Page table audit status:\r\n0\r\n", "mem-info")
 
+                device = run(connection, process, b"devices")
+                kind = b"AHCI" if transport == "ahci" else b"NVMe"
+                require(device, b"boot0: " + kind + b" storage ready\r\n", "devices")
+                driver = run(connection, process, b"drivers")
+                require(driver, b"Active kernel drivers:\r\n", "drivers")
+                require(driver, b"serial: COM1 ready\r\n", "drivers")
+                require(driver, b"storage: " + kind + b" (MSI", "drivers")
+                require(driver, b"usb: unavailable\r\n", "drivers")
+                require(driver, b"timer: calibrated\r\n", "drivers")
+                usage = run(connection, process, b"mem")
+                require(usage, b"Memory usage:\r\n", "mem")
+                require(usage, b"page size: 4096\r\n", "mem")
+                require(usage, b"memory runtime status: 0\r\n", "mem")
+                pages = run(connection, process, b"pages")
+                if re.search(rb"available: [1-9][0-9]*\r\n", pages) is None:
+                    raise AssertionError(f"pages omitted allocator capacity: {pages!r}")
+                require(pages, b"allocator status: 0\r\n", "pages")
+                memory_map = run(connection, process, b"memmap")
+                if re.search(rb"descriptors: [1-9][0-9]*\r\n", memory_map) is None:
+                    raise AssertionError(f"memmap omitted descriptor count: {memory_map!r}")
+                require(memory_map, b"Boot D for physical ranges.\r\n", "memmap")
+
                 after = capture_record(str(monitor_path), str(directory / "after.bin"))
-                if (after["user_runs"] != before["user_runs"] + 2 or
+                if (after["user_runs"] != before["user_runs"] + 4 or
                         after["user_state"] != 2 or after["user_exit"] != 0 or
                         after["user_fault"] != 0 or after["user_descriptors"] != 0 or
                         after["allocator_next"] != before["allocator_next"] or
