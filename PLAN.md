@@ -101,15 +101,19 @@ Matching source revisions: bootloader `188ec49`, kernel `40bcb55`, userland
 `b8eea3e`, shell `5aed63a`, rescue `fb99930`, and Hylang compiler `41f5179`.
 The OS repository records these submodule revisions. The application README
 checkouts contain unrelated local edits; they did not affect these builds.
+The later `cat.exec` slice advanced userland to `652bd84` without changing the
+Stage 1 runtime.
 
 ## Stage 2 — external commands and a userland shell
 
 - [ ] Expose the remaining application-facing environment, working-directory,
   terminal, file, metadata, directory, and process-launch/wait operations
   needed by ordinary commands. Keep results versioned and checked.
-- [ ] Build `cat.exec`, `ls.exec`, `version.exec`, `echo.exec`, and
-  `pwd.exec` from separate userland projects and install them under `/Bin`.
-  Use the existing HyFS 2 tree and `PATH` bootstrap.
+- [x] Build `cat.exec` from a separate userland project, install it under
+  `/Bin`, and launch it through the existing `PATH` bootstrap with
+  `run cat /path`. `make test-userland-cat` passed on AHCI and NVMe.
+- [ ] Build `ls.exec`, `version.exec`, `echo.exec`, and `pwd.exec` from
+  separate userland projects and install them under `/Bin`.
 - [ ] Implement `CommandShell.exec` in userland. Keep `cd`, `set`,
   `export`, `unset`, and `exit` as its built-ins. Keep explicit
   `run /path/program.exec` and the current kernel commands as recovery
@@ -121,6 +125,13 @@ checkouts contain unrelated local edits; they did not affect these builds.
 as external programs over COM1 and USB keyboard; serial and framebuffer
 output agree; repeated runs leave descriptor, page, mapping, and queue counts
 stable. The shell survives a bad executable.
+
+The first slice passed `make test-userland-cat` on AHCI and NVMe on
+2026-10-13. `run cat /path` resolved `/Bin/cat.exec` through `PATH`, printed
+a multi-chunk file, stopped cleanly at empty-file EOF, returned a nonzero
+missing-path status, and left descriptor and page counts unchanged. The full
+Stage 2 exit test remains open because bare `cat` still uses the kernel
+recovery built-in and the userland command shell is not yet implemented.
 
 ## Stage 3 — complete the system image and recovery path
 
@@ -195,7 +206,7 @@ physical machines pass the boot and storage failure matrix.
 
 ## Immediate next work
 
-Finish Gate 0 first. Then implement the smallest Stage 2 vertical slice:
-a source-built `cat.exec` using a dynamic path and explicit EOF/error results,
-installed in `/Bin`, launched through `PATH`, and tested on both storage
-paths. Add `ls`, `version`, `echo`, and `pwd` only after that slice passes.
+Gate 0 and the first Stage 2 slice are verified. Continue Stage 2 with the
+remaining external commands and the userland command shell. Keep the kernel
+`cat` built-in available for recovery until the userland shell passes its
+serial and framebuffer exit tests.

@@ -199,6 +199,9 @@ make iso APPLICATION_ARTIFACTS="/path/Calculator.exec /path/Editor.exec"
 The standard build compiles the default aggregate into `build/applications`,
 stages those executables with the static files under `rootfs`, and then creates
 the HyFS image. No Python program generator is involved.
+The default aggregate also references the OS-owned
+`src/userland/commands/Cat/Cat.hyproj`; its `cat.exec` is installed at
+`/Bin/cat.exec` in the HyFS 2 image.
 
 Use `make applications` when you only want to rebuild the `.exec` files.
 On a HyFS 2 boot, the shell's default `PATH` is `/System:/Bin:/`, so typing

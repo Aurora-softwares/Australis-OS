@@ -166,16 +166,18 @@ bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
 then the shell drains that ring after it wakes. A full ring drops new input and
 records the drop count in `KernelBootInfo`.
 
-Run the included user program from either COM1 or the framebuffer terminal:
+The kernel-owned `cat /hello.txt` remains available for recovery. To launch
+the source-built userland command through `PATH`, run:
 
 ```text
-kmon> run /user-demo.exec
-Starting user program.
-user> hello
-input: hello
-file: Hello from Australis HyFS.
-User program exited cleanly.
+kmon> run cat /hello.txt
+Hello from Australis HyFS.
 ```
+
+`/Bin/cat.exec` reads a dynamic path through checked file calls and handles
+EOF and file errors. `make test-userland-cat` tests it on AHCI and NVMe. Bare
+`cat` still selects the kernel recovery built-in; the userland shell will take
+over bare command dispatch in Stage 2.
 
 `run /user-fault.exec` exercises the protected-write failure path and returns
 to the shell. `ps` reports the most recent program state.
