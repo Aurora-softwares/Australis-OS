@@ -111,6 +111,7 @@ System.Australis.Files.WriteResult()
 System.Australis.Files.Status()
 System.Australis.Process.Yield()
 System.Australis.Memory.StoreByte(address, value)
+System.Australis.SystemInfo.Query(selector)
 ```
 
 `ApiVersion()` returns `1` for this AUEX file API. `WriteResult` writes the
@@ -130,6 +131,32 @@ level tests; normal programs should use terminal and file operations.
 `StatKind` returns `1` for a file and `2` for a directory. In
 `StatTimeFlags`, bit 0 marks a known creation time and bit 1 marks a known
 modification time; a missing timestamp must be treated as unavailable.
+
+`SystemInfo.Query(0)` returns system-information API version `2`. Selectors
+`1`-`3` report the process-start ABI version, maximum argument count, and
+current process ID. Version 2 adds these read-only system selectors:
+
+| Selector | Value |
+| --- | --- |
+| `16` | `KernelBootInfo` ABI version |
+| `17` | Boot mode (`0` normal, `1` debug, `3` rescue) |
+| `18` | Kernel initialization flags |
+| `19` | Number of discovered PCI functions |
+| `20` | APIC mode (`0` xAPIC, `1` x2APIC) |
+| `21` | Block controller (`1` AHCI, `2` NVMe) |
+| `22` | Root filesystem flags |
+| `23`, `24` | Framebuffer width and height |
+| `25` | Clock calibration state (`1` ready, `2` failed) |
+| `32` | Physical page size in bytes |
+| `33`, `34`, `35` | Fresh, recycled, and total available physical pages |
+| `36` | Committed kernel heap pages |
+| `37` | Used kernel heap bytes |
+| `38` | Memory runtime status |
+| `39` | Page table audit status |
+
+The kernel snapshots these values before launching each program. Counts are
+clamped to a signed 32-bit integer, and unsupported selectors return the
+negative invalid-argument status.
 
 Filesystem status values are: `0` success, `1` invalid argument, `2` mount
 failure, `3` not mounted, `4` not found, `5` end of file, `6` I/O failure,

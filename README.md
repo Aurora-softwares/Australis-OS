@@ -777,6 +777,8 @@ the four-level paging mode accepted by the current kernel handoff.
 | `2688`–`3457` | `uint8` | Fixed allocation-free NUL-terminated ASCII panic report buffer |
 | `3460` | `uint32` | Active AUEX file descriptors after the last wait |
 | `3464` | `uint32` | Last foreground AUEX process ID |
+| `3472` | `uint32` | Boot mode (`0` normal, `1` debug, `3` rescue) |
+| `3476` | `uint32` | Recovery phase (`0` normal boot, `1` early recovery, `2` recovery shell) |
 
 ## UEFI Framebuffer offsets
 

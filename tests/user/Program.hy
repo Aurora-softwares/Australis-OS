@@ -604,11 +604,13 @@ public class Program {
         UserSystemCalls checkedCalls = new UserSystemCalls(
             new UserMockTerminal(new byte[0]), new UserMockFiles(), 7);
         UserSyscallResult information = checkedCalls.SystemInformation(3);
+        UserSyscallResult unavailableSystem = checkedCalls.SystemInformation(16);
         UserSyscallResult invalidInformation = checkedCalls.SystemInformation(99);
         UserSyscallResult opened = checkedCalls.OpenResult(startMemory,
             UserAddressSpace.DataBase() + 48, 10, false);
         if (information.Status() != UserSyscallStatus.Success() ||
             information.Value() != 7 ||
+            unavailableSystem.Status() != UserSyscallStatus.InvalidArgument() ||
             invalidInformation.Status() != UserSyscallStatus.InvalidArgument() ||
             opened.Status() != UserSyscallStatus.Success() || opened.Value() != 3) {
             return 39;
