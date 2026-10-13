@@ -150,7 +150,7 @@ for the shell, run `make run-usb-storage` (AHCI boot root) or
 `devices`, `mounts`, `ls /usb`, and `cat /usb/hello.txt` to inspect it. The
 normal removable-media fixture uses HyFS 2 because it attaches the default ISO.
 
-Wait for `australis> `, then type `help`. `ls` lists the HyFS root and
+Wait for `kmon> `, then type `help`. `ls` lists the HyFS root and
 `cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
 echoes input and accepts Enter, Backspace/Delete, arrow keys, Home/End,
 Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, Ctrl-U, and eight entries of command history.
@@ -165,7 +165,7 @@ records the drop count in `KernelBootInfo`.
 Run the included user program from either COM1 or the framebuffer terminal:
 
 ```text
-australis> run /user-demo.exec
+kmon> run /user-demo.exec
 Starting user program.
 user> hello
 input: hello

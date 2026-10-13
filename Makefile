@@ -65,15 +65,10 @@ $(EFI_BOOT_IMAGE): $(EFI_BINARY) $(KERNEL_BINARY) | check-image-tools
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 
-$(APP_COMPILER): $(APP_COMPILER_INPUTS) | check-build-tools
-	@mkdir -p "$(BUILD_DIR)"
-	"$(HYDROGEN)" build ../Hylang-Compiler/samples/self_hosting/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj -o "$(APP_COMPILER)"
-	@chmod +x "$(APP_COMPILER)"
-
-$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(APP_COMPILER) | check-build-tools
+$(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(HYDROGEN) | check-build-tools
 	@rm -rf "$(APPLICATIONS_DIR)"
 	@mkdir -p "$(APPLICATIONS_DIR)"
-	"$(APP_COMPILER)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
+	"$(HYDROGEN)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
 	@touch "$@"
 
 $(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(wildcard rootfs/*) $(APPLICATION_ARTIFACTS)

@@ -13,8 +13,8 @@ import tempfile
 import time
 
 
-PROMPT = b"australis> "
-BANNER = b"Australis serial console ready. Type help.\r\n"
+PROMPT = b"kmon> "
+BANNER = b"kmon serial console ready. Type help.\r\n"
 VERSION = b"version: 0.0.1\r\n"
 
 
@@ -371,7 +371,7 @@ def main():
                 visible_lines = screen_lines(root_screen)
                 if not any("Hello from Australis HyFS." in row for row in visible_lines):
                     raise AssertionError(f"root file text is missing from the framebuffer: {visible_lines[-8:]!r}")
-                if not visible_lines[-1].startswith("australis> _"):
+                if not visible_lines[-1].startswith("kmon> _"):
                     raise AssertionError(f"framebuffer prompt or cursor is missing: {visible_lines[-1][:25]!r}")
 
                 # A blank command advances exactly one text row. Once the
