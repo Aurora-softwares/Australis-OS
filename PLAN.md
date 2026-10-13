@@ -37,7 +37,7 @@ Automatic fallback from a failed normal boot or PID 1 remains future work.
 | Area | What exists | What is still missing |
 | --- | --- | --- |
 | Bootloader | Stage 1 handoff and AHCI/NVMe QEMU boot pass; explicit `R` Rescue works from an EFI-only disk. | Negative image/handoff tests, automated `D`/`N`/`S` mode checks, physical firmware coverage. |
-| Kernel | Freestanding kernel, COM1/framebuffer console, drivers, VFS, and checked AUEX execution. | Native ring 3, independent runnable processes, preemption, and the general process table needed by PID 1. |
+| Kernel | Freestanding kernel, COM1/framebuffer console, KMon recovery controls, drivers, VFS, and checked AUEX execution. | Native ring 3, independent runnable processes, preemption, and the general process table needed by PID 1. |
 | Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, and recovery tests are documented. | A packaged system manager and a tested missing/corrupt userland fallback. |
 | Userland | Stage 1 process input/runtime work passes hosted and AHCI/NVMe QEMU tests from source. | Stage 2 external command set and a userland command shell. |
 | System | The architecture, system contract README, and `/System/Core` directory exist. | `System.exec`, PID 1 launch, and services. The current image has an empty `/System/Core`. |
@@ -103,6 +103,23 @@ The OS repository records these submodule revisions. The application README
 checkouts contain unrelated local edits; they did not affect these builds.
 The later `cat.exec` slice advanced userland to `652bd84` without changing the
 Stage 1 runtime.
+
+### KMon recovery commands, 2026-10-13
+
+The [kernel command audit](src/kernel/README.md) retains 22 required commands
+and records 14 excess standalone commands for removal. `continue`, `reboot`,
+`halt`, `trace`, `panic`, and `registers` now run in KMon. Early `R` Rescue
+`continue` resets into a fresh normal boot because that route skips controller
+and storage bootstrap; `panic` requires `D` Debug boot. The old `panic-test`
+alias was removed. The compiler gained freestanding interrupt-disable and
+live-register intrinsics used by these commands.
+
+`make build`, `make test-kmon-recovery`, `make test-kernel-panic`,
+`make test-rescue-boot`, and the AHCI/NVMe HyFS 2 serial console tests passed
+with the source-built image. The compiler rebuilt itself to an identical
+binary. Matching revisions are kernel `7f2d00e`, rescue `6ff01c7`, and Hylang
+compiler `bc4914e`. Hardware reset behavior still needs physical-machine
+validation.
 
 ## Stage 2 — external commands and a userland shell
 

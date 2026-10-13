@@ -257,9 +257,12 @@ clean:
 #
 # TESTS
 #
-.PHONY: test-rescue-boot
+.PHONY: test-rescue-boot test-kmon-recovery
 test-rescue-boot: image | check-run-tools
 	python3 tests/console/rescue_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(IMAGE)"
+
+test-kmon-recovery: iso | check-run-tools
+	python3 tests/console/recovery_commands_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
 
 test-stage2: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"

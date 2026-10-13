@@ -11,8 +11,8 @@ import tempfile
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "console"))
-from serial_boot_smoke import (PROMPT, capture_record, capture_screen, read_until,
-                               screen_lines)
+from serial_boot_smoke import (PROMPT, capture_record, capture_screen,
+                               monitor_command, read_until, screen_lines)
 
 
 def main():
@@ -44,8 +44,24 @@ def main():
                 time.sleep(0.05)
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(serial_path)
-                read_until(connection, PROMPT, 60, process)
-                connection.sendall(b"panic-test\r")
+                connection.settimeout(0.2)
+                opening = bytearray()
+                deadline = time.monotonic() + 60
+                last_key = 0.0
+                while PROMPT not in opening:
+                    if process.poll() is not None:
+                        raise RuntimeError("QEMU exited before Debug KMon prompt")
+                    if time.monotonic() >= deadline:
+                        raise AssertionError(f"Debug KMon prompt missing: {opening[-500:]!r}")
+                    if b"[BOOT] Debug mode selected." not in opening and \
+                            time.monotonic() - last_key >= 1.0:
+                        monitor_command(monitor_path, "sendkey d 70")
+                        last_key = time.monotonic()
+                    try:
+                        opening.extend(connection.recv(4096))
+                    except socket.timeout:
+                        pass
+                connection.sendall(b"panic\r")
                 report = read_until(connection,
                     b"System halted. Power cycle or reset to continue.\r\n", 20, process)
 

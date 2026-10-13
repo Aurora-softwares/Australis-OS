@@ -265,8 +265,9 @@ for CPU exceptions, legacy PIC vectors `0x20`–`0x2f`, local-APIC timer vector
 exceptions enter a common allocation-free panic path. It disables interrupts,
 captures the error code, return frame, `CR2`, and all general registers, then
 writes the same hexadecimal report directly to polled COM1 and the GOP
-framebuffer before halting. The `panic-test` shell command deliberately reads
-the protected null page so this path can be exercised under QEMU.
+framebuffer before halting. In `D` Debug boot, KMon's `panic` command
+deliberately reads the protected null page so this path can be exercised under
+QEMU.
 The PIC is remapped and masked, so it cannot deliver device IRQs before a driver
 has registered ownership. The local APIC is enabled in either xAPIC or x2APIC
 mode; xAPIC receives an uncached identity mapping when its page is absent from

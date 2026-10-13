@@ -286,7 +286,18 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, panic-test\r\n")
+                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, continue, reboot, halt, trace, registers, panic (D boot)\r\n")
+                command(connection, process, b"continue", b"Normal boot is already active.\r\n")
+                trace = command(connection, process, b"trace", b"KMon diagnostic trace:\r\n")
+                if b"recent commands (oldest first):\r\n" not in trace or b"  continue\r\n" not in trace:
+                    raise AssertionError(f"KMon trace missing recent commands: {trace!r}")
+                registers = command(connection, process, b"registers", b"Live CPU registers (decimal):\r\n")
+                for name in (b"RIP: ", b"RSP: ", b"RBP: ", b"RFLAGS: ", b"CR3: "):
+                    if re.search(re.escape(name) + rb"[1-9][0-9]*\r\n", registers) is None:
+                        raise AssertionError(f"KMon register snapshot missing {name!r}: {registers!r}")
+                command(connection, process, b"panic", b"panic requires D debug boot.\r\n")
+                for name in (b"continue", b"reboot", b"halt", b"trace", b"registers", b"panic"):
+                    command(connection, process, name + b" extra", b"Usage: " + name + b"\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")
