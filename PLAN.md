@@ -1,6 +1,6 @@
 # Australis OS active plan
 
-Reviewed 2026-10-12. This file is the implementation order and set of exit
+Reviewed 2026-10-13. This file is the implementation order and set of exit
 gates for the current OS. The earlier bootstrap checklist in this file is
 retained in Git history; completed bootstrap work is summarized here rather
 than treated as the next milestone.
@@ -24,31 +24,29 @@ valid volume is available; it cannot be the only recovery route.
 Follow [the architecture](src/README.md) for these boundaries and package
 names, [the userland stages](src/userland/README.md) for feature order, and the
 [bootloader](src/bootloader/README.md) and [kernel](src/kernel/README.md)
-READMEs for their completion criteria. The intended system README at
-`src/system/README.md` is absent: its architecture content was moved to
-`src/README.md`, but links still point to the old path. The
-[rescue README](src/rescue/README.md) contains only a heading, and its program
-is empty. The [shell README](src/shell/README.md) uses `ASTRALIS.OS` and
-`SHELL.OS`, while the architecture names `System.os`, `System.exec`, and
-`CommandShell.exec`. Resolve those names in the documentation before
-packaging new system components; use the architecture names meanwhile.
+READMEs for their completion criteria. The architecture uses `System.exec`
+and `CommandShell.exec`; the system contract is at
+[src/userland/system/README.md](src/userland/system/README.md). The
+[rescue README](src/rescue/README.md) distinguishes the kernel monitor from
+the optional `rescue.exec`. The current normal monitor prompt is `kmon>`;
+the explicit `R` boot selection enters `rescue>` without mounting a root.
+Automatic fallback from a failed normal boot or PID 1 remains future work.
 
 ## Current baseline
 
 | Area | What exists | What is still missing |
 | --- | --- | --- |
-| Bootloader | Stage 1 handoff and AHCI/NVMe QEMU boot are documented as passing. | Negative image/handoff tests, boot configuration and modes, physical firmware coverage. |
+| Bootloader | Stage 1 handoff and AHCI/NVMe QEMU boot pass; explicit `R` Rescue works from an EFI-only disk. | Negative image/handoff tests, automated `D`/`N`/`S` mode checks, physical firmware coverage. |
 | Kernel | Freestanding kernel, COM1/framebuffer console, drivers, VFS, and checked AUEX execution. | Native ring 3, independent runnable processes, preemption, and the general process table needed by PID 1. |
 | Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, and recovery tests are documented. | A packaged system manager and a tested missing/corrupt userland fallback. |
-| Userland | Stage 1 process input/runtime work passed hosted and AHCI/NVMe QEMU tests in the current working tree. | Stage 2 external command set and a userland command shell. Stage 1 changes across the OS, kernel, userland, and compiler repositories are not yet integrated into a clean baseline. |
-| System | The architecture and `/System/Core` directory exist. | `System.exec`, PID 1 launch, services, and a maintained system-specific README. The current built image has an empty `/System/Core`. |
-| Rescue | The kernel console currently provides recovery. | A defined KMon/rescue contract, a usable `rescue.exec`, and failure-path boot tests. |
+| Userland | Stage 1 process input/runtime work passes hosted and AHCI/NVMe QEMU tests from source. | Stage 2 external command set and a userland command shell. |
+| System | The architecture, system contract README, and `/System/Core` directory exist. | `System.exec`, PID 1 launch, and services. The current image has an empty `/System/Core`. |
+| Rescue | `R` enters a kernel monitor without HyFS; an EFI-only QEMU boot passes. | Automatic normal-boot and PID 1 failure fallback, optional `rescue.exec`. |
 | Shell | The recovery shell already parses arguments and searches `PATH`. | Userland shell implementation; `src/shell/program.hy` is empty. |
 
-This table distinguishes observed files and recent Stage 1 test results from
-capabilities documented by older tests. Re-run each gate on a clean build
-before changing its status to complete. The current test ISO includes Stage 1
-fixtures; a normal image must be checked separately.
+The baseline checks below distinguish the Stage 1 fixture image from the
+normal image. Unrelated local edits in application README files are outside
+this source baseline.
 
 ## Execution rules
 
@@ -66,21 +64,43 @@ fixtures; a normal image must be checked separately.
 
 ## Gate 0 — reconcile and freeze the baseline
 
-- [ ] Review and integrate the pending Stage 1 edits in the OS, kernel,
+- [x] Review and integrate the pending Stage 1 edits in the OS, kernel,
   userland, and Hylang compiler repositories; record the matching submodule
   revisions. Build a normal ISO separately from the Stage 1 fixture ISO.
-- [ ] Re-run `make test-userland-stage1`, the existing HyFS 2 host/write and
+- [x] Re-run `make test-userland-stage1`, the existing HyFS 2 host/write and
   AHCI/NVMe persistence checks, and a normal serial boot on both controllers.
   Record failures before adding features.
-- [ ] Restore a system-specific README or fix every stale
-  `src/system/README.md` link to `src/README.md`. Complete the rescue
-  contract in its README and reconcile the shell's package names with the
-  architecture.
-- [ ] Define the exact KMon entry, PID 1 failure fallback, and normal versus
+- [x] Maintain the system contract at `src/userland/system/README.md`;
+  document the rescue contract and use `System.exec`, `CommandShell.exec`,
+  `kmon>`, and `rescue>` consistently.
+- [x] Define the exact KMon entry, PID 1 failure fallback, and normal versus
   debugging boot behavior. Recovery must not depend on HyFS or AUEX.
 
 **Exit:** clean, reproducible build; one documented name and owner for each
 boot component; baseline tests pass; a failure can still reach KMon.
+
+### Gate 0 verification, 2026-10-13
+
+All commands below passed in the OS checkout:
+
+- `make build` and `make BUILD_DIR=/tmp/australis-gate0-clean-20261013 iso`:
+  source-built EFI loader, raw kernel, applications, and HyFS 2 ISO from an
+  empty output directory.
+- `make test-userland-stage1`: hosted runtime plus AHCI and NVMe QEMU boots.
+- `make test-hyfs2`: HyFS 2 host image and writer checks, including the HyFS 1
+  compatibility fixture.
+- `make test-stage6-ahci test-stage6-nvme`: persistent writes, reboot, and
+  removal on both controllers using disposable data images.
+- `make iso`, then `make test-hyfs2-serial-ahci test-hyfs2-serial-nvme`:
+  normal image without Stage 1 or persistence fixtures; both interactive
+  serial boots passed.
+- `make test-rescue-boot`: `R` reached `rescue>` and ran `help` from a FAT-only
+  EFI disk with no HyFS partition.
+
+Matching source revisions: bootloader `188ec49`, kernel `40bcb55`, userland
+`b8eea3e`, shell `5aed63a`, rescue `fb99930`, and Hylang compiler `41f5179`.
+The OS repository records these submodule revisions. The application README
+checkouts contain unrelated local edits; they did not affect these builds.
 
 ## Stage 2 — external commands and a userland shell
 

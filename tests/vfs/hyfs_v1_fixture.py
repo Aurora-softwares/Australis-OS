@@ -14,7 +14,7 @@ import zlib
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(REPOSITORY / "tools"))
-from make_hyfs_image import pack  # noqa: E402
+from make_hyfs1_image import pack  # noqa: E402
 
 
 EXPECTED_SHA256 = "257b8a183c55b57ab59af56bfb6382c84496906c3cd67ce0556dd72f2df2fd2f"

@@ -37,6 +37,7 @@ HYFS2_DATA_DISK ?= $(BUILD_DIR)/hyfs2-data.img
 HYFS2_AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(HYFS2_ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 HYFS2_NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(HYFS2_ISO)" -device nvme,serial=australis,drive=nvme0
 PROJECT := src/australlis.hyproj
+OS_SOURCES := $(wildcard src/bootloader/*.hy src/bootloader/*.hyproj src/kernel/*.hy src/kernel/*.hyproj src/kernel/*/*.hy)
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
@@ -47,7 +48,7 @@ USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,
 #
 # Tools
 #
-$(IMAGE): check-image-tools
+$(IMAGE): $(EFI_BINARY) $(KERNEL_BINARY) | check-image-tools
 	@mkdir -p "$(BUILD_DIR)"
 	@rm -f "$(IMAGE)"
 	truncate -s 64M "$(IMAGE)"
@@ -65,11 +66,19 @@ $(EFI_BOOT_IMAGE): $(EFI_BINARY) $(KERNEL_BINARY) | check-image-tools
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 
+$(EFI_BINARY) $(KERNEL_BINARY) &: $(PROJECT) $(OS_SOURCES) $(HYDROGEN) | check-build-tools
+	"$(HYDROGEN)" build "$(PROJECT)" -o "$(EFI_DIR)"
+
 $(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(HYDROGEN) | check-build-tools
 	@rm -rf "$(APPLICATIONS_DIR)"
 	@mkdir -p "$(APPLICATIONS_DIR)"
 	"$(HYDROGEN)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
 	@touch "$@"
+
+$(APP_COMPILER): $(APP_COMPILER_INPUTS) $(HYDROGEN) | check-build-tools
+	@mkdir -p "$(dir $@)"
+	"$(HYDROGEN)" build ../Hylang-Compiler/samples/self_hosting/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj -o "$@"
+	@chmod +x "$@"
 
 $(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(wildcard rootfs/*) $(APPLICATION_ARTIFACTS)
 	@rm -rf "$(GENERATED_ROOTFS)"
@@ -248,6 +257,10 @@ clean:
 #
 # TESTS
 #
+.PHONY: test-rescue-boot
+test-rescue-boot: image | check-run-tools
+	python3 tests/console/rescue_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(IMAGE)"
+
 test-stage2: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/kernel/Stage2.hyproj -o "$(BUILD_DIR)/stage2-tests"

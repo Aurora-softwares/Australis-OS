@@ -10,13 +10,17 @@ Australis OS is an x86_64 freestanding kernel booted from a UEFI ISO. The
 Hylang bootloader loads the separate raw `KERNEL.BIN`, captures the final
 memory map, leaves boot services, prepares paging and interrupts, switches to
 a kernel stack, and calls the kernel entry. The kernel uses no firmware API.
-The firmware console shows the early handoff:
+The Australis bootloader starts silently by default. During the two-second
+boot window, press `D` for boot diagnostics, `N` for normal early status
+messages, `R` for Rescue, or `S` to select Silent explicitly.
+Boot errors remain visible in every mode.
+
+With debug mode selected, the firmware console shows handoff diagnostics:
 
 ```text
-[BOOT] Australis bootloader started.
-[BOOT] Loading raw kernel image.
-[BOOT] Preparing kernel handoff.
-[BOOT] Leaving UEFI boot services.
+[BOOT:DEBUG] AUKR kernel validated.
+[BOOT:DEBUG] GOP framebuffer captured.
+[BOOT:DEBUG] Exiting UEFI boot services.
 ```
 
 The self-hosted compiler emits the bootloader as PE32+ and the kernel as an
