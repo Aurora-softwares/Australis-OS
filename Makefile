@@ -275,6 +275,10 @@ clean:
 test-rescue-boot: image | check-run-tools
 	python3 tests/console/rescue_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(IMAGE)"
 
+.PHONY: test-bootloader-negative
+test-bootloader-negative: image | check-run-tools
+	python3 tests/bootloader/negative_kernel_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(IMAGE)" "$(KERNEL_BINARY)"
+
 test-kmon-recovery: iso | check-run-tools
 	python3 tests/console/recovery_commands_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
 
