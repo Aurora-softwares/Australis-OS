@@ -1,0 +1,5 @@
+format = 2
+name = "AustralisIpcProbe"
+type = "exec"
+output = "ipc-probe.exec"
+sources = ["./IpcProbe.hy"]

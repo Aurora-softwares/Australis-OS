@@ -1,61 +1,29 @@
 # Australis OS roadmap
 
-This file tracks **OS development milestones**, not component ABI versions or
-published releases. The detailed implementation plans are in [PLAN.md](PLAN.md)
-and the [userland plan](src/userland/README.md). Subsystem completion criteria
-are in the [bootloader](src/bootloader/README.md) and
-[kernel](src/kernel/README.md) notes.
+This file tracks **development milestones**, not published releases or ABI numbers. The detailed implementation and exit checks are in [PLAN.md](PLAN.md), with subsystem notes in the [bootloader](src/bootloader/README.md), [kernel](src/kernel/README.md), and [system userland](src/userland/system/README.md) guides.
 
 ## Current position
 
-**Recommended development version: `0.0.7`.** The working tree has a booting
-Hylang kernel, a read-only HyFS 2 root, a terminal shell, USB input and storage, and
-checked AUEX programs with a cooperative scheduler. The next milestone is
-arguments and external userland commands. This assessment describes source
-capability; it is not a claim that `0.0.7` has been tagged or released.
+The default HyFS 2 ISO boots under QEMU/OVMF with AHCI or NVMe. The freestanding kernel mounts a read-only system root, starts `System.exec` as PID 1, runs ordered readiness checks, and launches a text shell. Checked AUEX programs have arguments, environment and directory context, terminal and file APIs, bounded process scheduling, and channel IPC. A small AUN1 native child path runs in ring 3 with private user mappings and a guarded stack; faults return control to PID 1 and KMon. The current native syscall surface covers PID and exit.
 
-Version metadata needs alignment when this milestone is adopted: the shell
-reports `0.0.1`, while the top-level OS project declares `0.1.0`. Neither
-currently identifies the development milestone accurately. Component package
-versions and the AUKR, AUEX, HyFS, and boot-information ABI versions are
-separate and should not be changed just to match the OS version.
+These are source-tree and QEMU results. They do not establish a tagged version, physical-machine compatibility, or a stable release. Component versions and the `AUKR`, `AUEX`, `AUN1`, HyFS, and boot-information ABI versions are separate from any eventual OS release number.
 
-## Milestones
+## Milestone status
 
-The completed rows describe the **minimum working scope** reached in the
-current development tree. They do not imply that each subsystem is feature
-complete or validated on physical hardware.
+| Area | Working development scope | Next gate |
+| --- | --- | --- |
+| Boot and recovery | PE32+ loader, raw `AUKR` kernel, final UEFI handoff, selectable boot modes, KMon fallback | Broader negative paths, ACPI/configuration, supported physical machines |
+| Storage and VFS | AHCI/NVMe, GPT, read-only HyFS 2 system root, optional writable `/data`, HyFS 1 compatibility | Wider reset, corruption, timeout, and physical-media matrix |
+| Text userland | PID 1, manifest startup, bounded retries, external shell commands, AUEX process records | Persistent services, sessions and shutdown policy |
+| IPC and capabilities | Bounded versioned AUEX channels, peer identity, read-only grants, exit cleanup | Additional capability types and shared-buffer/event interfaces |
+| Native user mode | AUN1 ring-3 entry, private mappings, guarded stack, PID/exit, contained #PF/#GP | Native terminal/file/IPC calls, preemption, resource accounting |
+| Graphical userland | Planned | Display service, compositor, input/window protocol, desktop and apps |
 
-| Version | Status | Bootloader | Kernel and system exit criterion |
-| --- | --- | --- | --- |
-| `0.0.1` | Implemented | Load and enter a separate kernel image. | Boot and print through the kernel console. |
-| `0.0.2` | Implemented | Pass versioned boot information. | Initialise essential CPU state and capture exceptions. |
-| `0.0.3` | Implemented | Hand over the final memory map and leave boot services. | Allocate physical pages, manage virtual mappings, and run on a kernel stack. |
-| `0.0.4` | Implemented | Report boot progress and handoff errors. | Provide a heap, calibrated timer, interrupts, and an interactive serial terminal. |
-| `0.0.5` | Implemented | Validate the kernel image before entry. | Read AHCI/NVMe block devices, discover GPT partitions, and expose a VFS. |
-| `0.0.6` | Implemented | Boot the storage-backed kernel under QEMU/OVMF. | Mount read-only HyFS, read files, and accept USB keyboard input and USB storage through xHCI. |
-| `0.0.7` | Current development milestone | Maintain the existing handoff. | Run an initial shell and checked AUEX programs with file descriptors, terminal calls, bounded cooperative scheduling, and fault cleanup. |
-| `0.0.8` | Next | Preserve the existing handoff and recovery console. | Pass arguments to AUEX programs, add process start/wait results, and run source-built external commands from the shell. |
-| `0.0.9` | Planned | Add selectable debug/silent modes and boot configuration. | Harden writable HyFS 2 recovery and allocation, then start and supervise `System.exec` as PID 1. |
-| `0.1.0` | Planned stable baseline | Pass negative-path boot tests and supported physical UEFI boot checks. | Run native user programs in ring 3 with hardware-enforced isolation and system calls, and pass the release test matrix. |
+Run `make test-userland-system-boot`, `make test-userland-stage4-supervision`, `make test-userland-stage5-ipc`, and `make test-native-user-mode` for the current AHCI/NVMe checks. `make test-kernel-panic` exercises the separate debug panic path. The full target matrix is in the [Makefile](Makefile).
 
-## Outstanding work before `0.1.0`
+## Release gates
 
-- **Userland and isolation:** AUEX currently runs in a checked interpreter.
-  Process arguments, external shell commands, PID 1, native ring-3 execution,
-  hardware privilege separation, native system calls, context switching, and
-  preemptive threads remain open.
-- **Writable storage:** The HyFS 2 root and removable USB volumes mount
-  read-only by policy, while the typed `/data` volume supports transactional
-  writes. A consistency checker and broader reset, timeout, and physical-media
-  validation remain open.
-- **Boot experience:** Boot progress output is always enabled. Selectable
-  debug/silent modes, configuration, ACPI discovery, and negative-path QEMU
-  coverage remain open.
-- **Device breadth and release validation:** xHCI supports one root device at a
-  time. Hubs, multiple simultaneous devices, broader hardware coverage, and
-  physical-machine validation remain open.
-
-For the current integration checks, see `make test-stage3`, `make test-stage4`,
-and `make test-stage5` in the [Makefile](Makefile). A stable release also needs
-the completion gates documented in the bootloader and kernel notes above.
+- Complete the native process and syscall contract, including terminal, file, IPC, scheduling, and lifetime accounting; retain AUEX as a compatibility format during migration.
+- Expand bootloader negative tests, storage recovery, USB breadth, and physical hardware validation.
+- Define users, permissions, credentials, package trust, update/recovery policy, limits, and audit records before claiming general-purpose multiuser isolation.
+- Keep a supported text boot while developing optional graphical sessions.

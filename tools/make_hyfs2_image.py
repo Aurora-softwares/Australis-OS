@@ -10,6 +10,16 @@ import tempfile
 sys.dont_write_bytecode = True
 from hyfs2 import Hyfs2Image, Hyfs2Error  # noqa: E402
 
+REQUIRED_SYSTEM_EXECUTABLES = (
+    "/System/Core/System.exec",
+    "/System/Core/CommandShell.exec",
+    "/System/Core/Device.exec",
+    "/System/Core/Storage.exec",
+    "/System/Bin/cat.exec",
+    "/System/Bin/ls.exec",
+    "/System/Bin/version.exec",
+)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,12 +36,28 @@ def main() -> None:
             staged = Path(workspace) / "root.img"
             image = Hyfs2Image.create(staged, args.size_mib * 1024 * 1024,
                                       args.root)
-            for directory in ("/System", "/System/Core", "/Bin", "/Applications",
+            for directory in ("/System", "/System/Core", "/System/Bin", "/Applications",
                               "/Users", "/Volumes", "/Temporary"):
                 try:
                     image.stat(directory)
                 except Hyfs2Error:
                     image.mkdir(directory, record_time=False)
+            image.mkdir("/System/Config", record_time=False)
+            manifest = (Path(__file__).resolve().parents[1] / "src" / "userland" /
+                        "system" / "startup.manifest")
+            contents = manifest.read_bytes()
+            if not contents.startswith(b"AUSM1\nDevice|") or len(contents) > 256:
+                raise Hyfs2Error("invalid source startup manifest")
+            image.put("/System/Config/startup.manifest", contents,
+                      record_time=False)
+            capability_manifest = (Path(__file__).resolve().parents[1] / "src" /
+                                   "userland" / "system" / "capabilities.manifest")
+            capability_contents = capability_manifest.read_bytes()
+            if (not capability_contents.startswith(b"AUSC1\n") or
+                    len(capability_contents) > 4096):
+                raise Hyfs2Error("invalid source capability manifest")
+            image.put("/System/Config/capabilities.manifest", capability_contents,
+                      record_time=False)
             if args.system_apps is not None:
                 if not args.system_apps.is_dir() or args.system_apps.is_symlink():
                     raise Hyfs2Error("system applications source is not a real directory")
@@ -52,8 +78,16 @@ def main() -> None:
                     image.put("/System/" + relative.as_posix(),
                               executable.read_bytes(), record_time=False)
             for executable in sorted(args.root.glob("*.exec")):
-                image.put("/Bin/" + executable.name, executable.read_bytes(),
+                image.put("/System/Bin/" + executable.name, executable.read_bytes(),
                           record_time=False)
+            if args.system_apps is not None:
+                for path in REQUIRED_SYSTEM_EXECUTABLES:
+                    try:
+                        contents = image.read_file(path)
+                    except Hyfs2Error as error:
+                        raise Hyfs2Error(f"required system executable missing: {path}") from error
+                    if len(contents) < 32 or contents[:4] != b"AUEX":
+                        raise Hyfs2Error(f"invalid packaged system executable: {path}")
             os.replace(staged, args.output)
     except (Hyfs2Error, OSError) as error:
         parser.exit(1, f"make_hyfs2_image: {error}\n")

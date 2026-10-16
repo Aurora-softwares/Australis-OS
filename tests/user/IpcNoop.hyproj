@@ -1,0 +1,5 @@
+format = 2
+name = "AustralisIpcNoop"
+type = "exec"
+output = "ipc-noop.exec"
+sources = ["./IpcNoop.hy"]

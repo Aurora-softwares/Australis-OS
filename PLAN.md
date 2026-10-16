@@ -38,12 +38,12 @@ or failed PID 1 falls back to `kmon>`.
 | Area | What exists | What is still missing |
 | --- | --- | --- |
 | Bootloader | Stage 1 handoff and AHCI/NVMe QEMU boot pass; explicit `R` Rescue works from an EFI-only disk. | Negative image/handoff tests, automated `D`/`N`/`S` mode checks, physical firmware coverage. |
-| Kernel | Freestanding kernel, COM1/framebuffer console, KMon recovery controls, drivers, VFS, and checked AUEX execution. | Native ring 3, independent runnable processes, preemption, and the general process table needed by PID 1. |
-| Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, and packaged `/System/Core` executables. | Complete missing/corrupt system-image recovery coverage. |
-| Userland | Stage 1 process input/runtime work passes hosted and AHCI/NVMe QEMU tests from source. | Stage 2 command parsing, `PATH` lookup, and launch from the userland shell. |
-| System | `System.exec` starts as PID 1 and launches a foreground shell child. | Process table, services, and session supervision. |
+| Kernel | Freestanding kernel, COM1/framebuffer console, KMon recovery controls, drivers, VFS, checked AUEX execution, bounded process records, live AUEX instruction-round scheduling, and AUN1 ring-3 children with bounded memory. | Native syscall parity, interrupt preemption, and process-wide resource accounting. |
+| Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, packaged `/System/Core` executables, and KMon fallback for damaged root or PID 1. | Removable-media flush and physical-device coverage. |
+| Userland | Stage 1 inputs, Essentials commands, child context, launch errors, editable `PATH`, terminal parity, and read-only command cleanup pass hosted and AHCI/NVMe checks. | Precise release after filesystem mutation and broader process APIs. |
+| System | PID 1 reads the versioned startup manifest, starts Device and Storage checks before the shell, waits for readiness, and bounds retries per record. | Persistent service control, dependency graphs beyond manifest order, and session supervision. |
 | Rescue | `R` enters a kernel monitor without HyFS; missing or failed PID 1 falls back to KMon. | Optional `rescue.exec` and broader fault recovery coverage. |
-| Shell | The userland shell preview reads input and supports `help` and `exit`. | External command launch and Stage 2 completion gate. |
+| Shell | The userland shell parses quoted input, owns `cd`/`pwd`/history, editable `PATH`, `set`/`export`/`unset`, and launches foreground executables with context. | Background jobs require Stage 4 process support. |
 
 The baseline checks below distinguish the Stage 1 fixture image from the
 normal image. Unrelated local edits in application README files are outside
@@ -65,16 +65,16 @@ this source baseline.
 
 ## Gate 0 — reconcile and freeze the baseline
 
-- [x] Review and integrate the pending Stage 1 edits in the OS, kernel,
+- 🟢 Review and integrate the pending Stage 1 edits in the OS, kernel,
   userland, and Hylang compiler repositories; record the matching submodule
   revisions. Build a normal ISO separately from the Stage 1 fixture ISO.
-- [x] Re-run `make test-userland-stage1`, the existing HyFS 2 host/write and
+- 🟢 Re-run `make test-userland-stage1`, the existing HyFS 2 host/write and
   AHCI/NVMe persistence checks, and a normal serial boot on both controllers.
   Record failures before adding features.
-- [x] Maintain the system contract at `src/userland/system/README.md`;
+- 🟢 Maintain the system contract at `src/userland/system/README.md`;
   document the rescue contract and use `System.exec`, `CommandShell.exec`,
   `kmon>`, and `rescue>` consistently.
-- [x] Define the exact KMon entry, PID 1 failure fallback, and normal versus
+- 🟢 Define the exact KMon entry, PID 1 failure fallback, and normal versus
   debugging boot behavior. Recovery must not depend on HyFS or AUEX.
 
 **Exit:** clean, reproducible build; one documented name and owner for each
@@ -124,42 +124,55 @@ validation.
 
 ## Stage 2 — external commands and a userland shell
 
-- [ ] Expose the remaining application-facing environment, working-directory,
-  terminal, file, metadata, directory, and process-launch/wait operations
-  needed by ordinary commands. Keep results versioned and checked.
-- [x] Build `cat.exec` from a separate userland project, install it under
-  `/Bin`, and launch it through the existing `PATH` bootstrap with
+- 🟢 Checked terminal, file, metadata, directory, and foreground process
+  operations support the Essentials commands, child environment and
+  working-directory inheritance, terminal end-of-input, and distinct
+  process-launch results.
+- 🟢 Build `cat.exec` from a separate userland project, install it under
+  `/System/Bin`, and launch it through the existing `PATH` bootstrap with
   `run cat /path`. `make test-userland-cat` passed on AHCI and NVMe.
-- [ ] Build `ls.exec`, `version.exec`, `echo.exec`, and `pwd.exec` from
-  separate userland projects and install them under `/Bin`.
-- [ ] Implement `CommandShell.exec` in userland. Keep `cd`, `set`,
-  `export`, `unset`, and `exit` as its built-ins. Keep explicit
-  `run /path/program.exec` and the current kernel commands as recovery
-  fallbacks until the new shell passes.
-- [ ] Add failure handling for unknown commands, invalid images, program
-  faults, EOF, and nonzero exits without losing the interactive terminal.
+- 🟢 Build and install `ls.exec`, `version.exec`, and `echo.exec` under
+  `/System/Bin`. `pwd` is a shell built-in because it reads shell-owned directory
+  state.
+- 🟢 Implement foreground command launch, argument passing, quoted input,
+  `cd`, `pwd`, `history`, `help`, `exit`, and explicit `run` in
+  `CommandShell.exec`; KMon remains the recovery fallback.
+- 🟢 Add session-local `PATH` lookup with the `path` built-in.
+- 🟢 Add environment built-ins (`set`, `export`, `unset`) and child
+  environment propagation.
+- 🟢 Unknown commands, faults, and nonzero exits return to the prompt.
+  Missing-image, invalid-image, permission, and terminal EOF results have
+  distinct user-facing handling.
+- 🟢 COM1, USB, serial, and framebuffer behavior pass the Stage 2 boot test.
+  Repeated read-only and missing-image launches keep allocator, descriptor,
+  mapping, and input-queue counters stable.
 
 **Exit:** `cat /hello.txt`, `ls /`, and `version` resolve via `PATH`
 as external programs over COM1 and USB keyboard; serial and framebuffer
-output agree; repeated runs leave descriptor, page, mapping, and queue counts
-stable. The shell survives a bad executable.
+output agree; repeated read-only and failed launches leave descriptor, page,
+mapping, and queue counts stable. The shell survives a bad executable.
 
-The first slice passed `make test-userland-cat` on AHCI and NVMe on
-2026-10-13. `run cat /path` resolved `/Bin/cat.exec` through `PATH`, printed
-a multi-chunk file, stopped cleanly at empty-file EOF, returned a nonzero
-missing-path status, and left descriptor and page counts unchanged. The full
-Stage 2 exit test remains open because bare `cat` still uses the kernel
-recovery built-in and the userland command shell is not yet implemented.
+`make test-userland-essentials` boots both AHCI and NVMe, runs shell
+built-ins and external file commands, copies a multi-chunk file, mutates a
+disposable `/data` volume, and returns to KMon after `exit`.
+`make test-userland-shell-preview` verifies the compiled shell's argument
+handoff in the hosted runtime. `make test-userland-stage2` covers child
+context, launch errors, EOF, and COM1/USB plus serial/framebuffer parity.
+The Stage 2 exit checks pass on AHCI and NVMe. The shell's command boundary
+reclaims managed pages for read-only and failed launches; filesystem mutation
+commands keep pages that may be referenced by persistent HyFS 2 metadata.
+Precise ownership and release for those retained pages remains later kernel
+memory work.
 
 ## Stage 3 — complete the system image and recovery path
 
-- [ ] Make the HyFS 2 image builder package OS-owned commands, libraries, and
+- 🟢 Make the HyFS 2 image builder package OS-owned commands, libraries, and
   system components at the paths in `src/README.md`. Do not use a dummy
   `System.exec` to claim PID 1 works.
-- [ ] Verify the required `/System`, `/Bin`, `/Applications`, `/Users`,
+- 🟢 Verify the required `/System`, `/System/Bin`, `/Applications`, `/Users`,
   `/Volumes`, and `/Temporary` hierarchy on AHCI and NVMe. Keep HyFS 1
   compatibility separate from this boot contract.
-- [ ] Add boot tests for missing, malformed, and corrupt system executables
+- 🟢 Add boot tests for missing, malformed, and corrupt system executables
   and root metadata. Define how KMon enters before or after a failed normal
   boot. If `rescue.exec` is supplied, make its relationship to KMon explicit.
 
@@ -167,40 +180,66 @@ recovery built-in and the userland command shell is not yet implemented.
 controllers, rejects corrupt metadata or an invalid system image, and offers
 KMon with no dependency on PID 1 or writable storage.
 
+`make test-userland-stage3` booted disposable images on AHCI and NVMe and
+reached a working `kmon>` after removal of `System.exec`, replacement with a
+malformed payload, and corruption of both HyFS 2 superblocks. The normal
+image packer verifies the required system paths and AUEX headers before
+publishing the ISO.
+
 ## Stage 4 — PID 1 and supervised text startup
 
-- [ ] Add a real process table with identity, parent/child state, exit/fault
-  records, blocking waits, timers, and multiple runnable AUEX processes.
-  Establish the scheduling behavior required by services before adding them.
-- [x] Build and install `/System/Core/System.exec`; start it as PID 1 after
+- 🟢 Keep bounded kernel process records with PID, parent PID, running,
+  waiting, exit/fault status, and instruction counts. Live AUEX children can
+  spawn independently, wait, report readiness, terminate, and sleep under
+  bounded instruction-round scheduling with separate descriptor owners.
+- 🟡 Timer-backed sleep and instruction quanta provide cooperative scheduling
+  for AUEX programs. Interrupt preemption and native context switching remain.
+- 🟢 Build and install `/System/Core/System.exec`; start it as PID 1 after
   mounting the root. It launches `CommandShell.exec` for a text session.
-- [ ] Add versioned service manifests and bounded readiness, restart,
-  shutdown, and structured failure behavior. Start with Device, Storage, and
-  Launch policy; retain drivers and mechanism in the kernel.
-- [x] Provide an explicit boot bypass into KMon and a fallback when PID 1
+- 🟡 Package an `AUSM1` startup manifest. PID 1 starts one-shot Device and
+  Storage readiness checks, then CommandShell, in declared order. Each record
+  has a bounded readiness wait and retry limit; failures are logged and PID 1
+  returns to KMon when exhausted. Persistent services, dependency graphs,
+  graceful shutdown, and Launch policy remain.
+- 🟢 Bound `CommandShell.exec` restarts in PID 1 to three failed launches,
+  emit attempt and status records, and stop on a normal shell exit.
+- 🟢 Provide an explicit boot bypass into KMon and a fallback when PID 1
   cannot be loaded. Bounded repeated-failure handling remains open.
 
 **Exit:** PID 1 starts the shell, restarts one deliberately failing service
 only up to its limit, records why it stopped, and leaves KMon usable. No
 service executes in an interrupt handler or retains resources after exit.
 
+`make test-userland-stage4-supervision` replaces the shell with a valid
+faulting AUEX image on disposable AHCI and NVMe boot volumes. It verifies
+three attempts, the limit record, and an interactive KMon fallback.
+
 ## Stage 5 — IPC and capabilities
 
-- [ ] Add bounded, versioned channels, events, process handles, and shared
-  buffers with explicit ownership and cleanup.
-- [ ] Authenticate peers by process identity and grant only declared
-  capabilities for devices, mounts, process inspection, display, input, and
-  service control.
+- 🟢 Add a kernel-owned, bounded versioned channel primitive with PID-owned
+  endpoints, copied messages, stale-handle rejection, and close-on-process-exit
+  cleanup.
+- 🟡 Expose checked AUEX channel open, accept, send, receive, wait, peer, and
+  close calls. Shared buffers and general event waits remain.
+- 🟡 Authenticate channel peers by process identity and grant channel creation
+  only to paths listed in the read-only `AUSC1` capability manifest. Device,
+  mount, process inspection, display, input, and service grants remain.
 
 **Exit:** an unprivileged program can use its terminal and allowed files but
 cannot control mounts, inspect protected processes, or map the framebuffer;
 closing either endpoint releases queued messages and pages.
 
+The hosted channel tests cover peer PID checks, protocol version, queue bounds,
+payload copying, close cleanup, and stale handles. The AHCI/NVMe IPC image
+test checks an allowed exchange, denied open, and exit cleanup.
+
 ## Stage 6 — sessions and optional graphical userland
 
-- [ ] Add login and per-session environment, directory, terminal, and process
-  ownership. Keep a supported text-only boot.
-- [ ] Build Display service, compositor, window/input protocol, DesktopShell,
+- 🔴 Add login and per-session environment, directory, terminal, and process
+  ownership. Keep a supported text-only boot. At this stage `Login.exec` may
+  start a session; it must not claim to enforce authentication until Stage 7
+  supplies protected credentials, access control, and process isolation.
+- 🔴 Build Display service, compositor, window/input protocol, DesktopShell,
   Terminal, and Explorer on the public service contracts.
 
 **Exit:** a graphical session launches an external command and recovers from
@@ -208,15 +247,19 @@ a faulty client while COM1 remains an independent recovery console.
 
 ## Stage 7 — native user mode and release hardening
 
-- [ ] Port the established process/syscall contracts to ring 3 with
-  per-process page tables, guarded stacks, user exception delivery, and
-  hardware-enforced privilege separation. Keep AUEX as a compatibility format
-  if useful.
-- [ ] Complete bootloader negative tests, ACPI/configuration and selectable
+- 🟢 Run AUN1 children with bounded memory from the read-only system volume in ring 3,
+  with supervisor-only copied kernel mappings, owned code/data/stack pages,
+  an unmapped stack guard, TSS entry, `int 0x80` PID/exit, and contained
+  page and general-protection faults. Record native exit/fault state in the
+  shared process table. AHCI and NVMe checks preserve PID 1 and KMon.
+- 🟡 Move the remaining terminal, file, IPC, and scheduling contracts into
+  native syscalls; add native interrupt preemption and resource accounting.
+  Keep AUEX as a compatibility format during migration.
+- 🔴 Complete bootloader negative tests, ACPI/configuration and selectable
   diagnostics as required for release; test cold boot, restart, and failure
   paths on physical supported machines.
-- [ ] Add users, groups, permissions, package trust, update/recovery policy,
-  resource limits, and audit records.
+- 🔴 Add users, groups, permissions, protected credential verification,
+  package trust, update/recovery policy, resource limits, and audit records.
 
 **Exit:** a native process cannot access kernel pages or privileges, and its
 fault returns resources without taking down PID 1 or recovery. Supported
@@ -224,7 +267,8 @@ physical machines pass the boot and storage failure matrix.
 
 ## Immediate next work
 
-Gate 0 and the first Stage 2 slice are verified. Continue Stage 2 with the
-remaining external commands and the userland command shell. Keep the kernel
-`cat` built-in available for recovery until the userland shell passes its
-serial and framebuffer exit tests.
+Gate 0, Stage 2, and the Stage 3 image and recovery path pass their stated
+exit checks. Stage 4 now has live AUEX children and ordered manifest startup.
+The native ring-3 entry and fault-containment path now passes QEMU boot checks.
+Next, extend the native syscall surface, persistent service control, and
+precise lifetime handling for pages retained by filesystem writes.

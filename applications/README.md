@@ -204,22 +204,43 @@ public class Program {
 }
 ```
 
-The shell passes `-an`, `--argument`, and paths as separate unchanged tokens;
-each app interprets its own options. Quotes or backslash-escaped spaces group
+The shell passes `-an` and `--argument` as separate tokens; the normal shell
+normalizes paths for its file commands before launch. Each app interprets its
+own options. Quotes or backslash-escaped spaces group
 one argument. The current limit is 16 arguments and a 256-byte shell line.
 An app can pass an argument string to the checked read and metadata calls.
-For example, `inspector /Bin/inspector.exec` reports its filesystem metadata
+For example, `inspector /System/Bin/inspector.exec` reports its filesystem metadata
 and AUEX header, while `inspector /System` lists that directory. With no path,
 Inspector uses `/hello.txt`.
-Application method calls, general strings and arrays, and process creation
-remain future work tracked in `src/userland/README.md`.
+The AUEX backend now supports application method calls, bounded strings and
+byte arrays, and concurrent child processes. `System.Australis.Process.Spawn`
+returns a child PID; `Wait` returns its exit status, `WaitReady` waits up to a
+bounded number of scheduler rounds for `Ready`, and `Terminate` stops a child.
+`Sleep` suspends the current AUEX process for 1–60000 milliseconds. These
+calls are specific to Australis and do not provide native thread preemption.
+
+For parent/child IPC, `System.Australis.Channel.Open(childPid, version)` creates
+a channel when the parent has the channel capability. The child calls
+`Accept(version)`. Both peers can use `Send(handle, version, byte[])`,
+`Wait(handle, maxRounds)`, `Receive(handle, byte[])`, `Peer(handle)`, and
+`Close(handle)`. Messages contain at most 256 copied bytes; each channel has
+four queued messages. `Receive` returns the byte count, and `Wait` returns
+zero when a message is ready. Negative results indicate no message, denial,
+invalid arguments, a full queue, or a closed endpoint. Either peer's exit
+closes the channel and invalidates its handle.
+
+The read-only `/System/Config/capabilities.manifest` contains `AUSC1`, followed
+by absolute executable paths and integer grants, one `path|mask` per line.
+Currently bit `1` permits channel creation to the caller's direct child.
+Unknown paths and invalid manifests receive no grant. This is an AUEX policy
+boundary; hardware-enforced process isolation is still being developed.
 
 ## Including separate repositories in the OS image
 
 `Applications.hyproj` is an aggregate project. Add each checked out app
 project to its `project_references` list. Every referenced app selects its
 root filesystem name through `output`. Plain `.exec` filenames go in the
-root and `/Bin` of the HyFS 2 image. An output under `system/` is installed in
+root and `/System/Bin` of the HyFS 2 image. An output under `system/` is installed in
 `/System` of the HyFS 2 image; for example, `system/hexviewer.exec` becomes
 `/System/hexviewer.exec`.
 The repositories may be outside this repository because project references
@@ -244,11 +265,12 @@ stages those executables with the static files under `rootfs`, and then creates
 the HyFS image. No Python program generator is involved.
 The default aggregate also references the OS-owned
 `src/userland/commands/Cat/Cat.hyproj`; its `cat.exec` is installed at
-`/Bin/cat.exec` in the HyFS 2 image.
+`/System/Bin/cat.exec` in the HyFS 2 image.
 
 Use `make applications` when you only want to rebuild the `.exec` files.
-On a HyFS 2 boot, the shell's default `PATH` is `/System:/Bin:/`, so typing
-`hexviewer` runs `/System/hexviewer.exec`. `PATH=/System:/Bin` changes the
-search list for the current shell session, and `path` displays it. Both bare
-commands and explicit `run /path/program.exec` pass trailing arguments to
-`Main(string[] args)`.
+On a HyFS 2 boot, KMon's recovery `PATH` is `/System/Bin:/System:/`, so typing
+`hexviewer` there runs `/System/hexviewer.exec`. KMon's `path` command can
+change that search list. The normal `CommandShell.exec` currently resolves
+bare commands through its editable `PATH`; use `run /System/hexviewer.exec` for a system
+program. Both shells pass trailing
+arguments to `Main(string[] args)`.

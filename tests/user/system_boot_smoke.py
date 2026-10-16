@@ -45,12 +45,12 @@ def main() -> None:
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(str(serial))
                 opening = read_until(connection, b"australis> ", 90, process)
-                if (b"Australis command shell (early preview)" not in opening or
+                if (b"Australis command shell" not in opening or
                         PROMPT in opening):
                     raise AssertionError(f"normal boot missed PID 1 shell: {opening!r}")
                 connection.sendall(b"help\r")
                 help_text = read_until(connection, b"australis> ", 30, process)
-                if b"Return to KMon" not in help_text:
+                if b"Built-ins: help cd pwd path set export unset history exit" not in help_text:
                     raise AssertionError(f"shell help failed: {help_text!r}")
                 connection.sendall(b"exit\r")
                 fallback = read_until(connection, PROMPT, 30, process)

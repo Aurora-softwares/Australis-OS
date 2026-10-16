@@ -38,6 +38,7 @@ HYFS2_AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format
 HYFS2_NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(HYFS2_ISO)" -device nvme,serial=australis,drive=nvme0
 PROJECT := src/australlis.hyproj
 OS_SOURCES := $(wildcard src/bootloader/*.hy src/bootloader/*.hyproj src/kernel/*.hy src/kernel/*.hyproj src/kernel/*/*.hy)
+NATIVE_RUNTIME_BLOB := src/kernel/user/NativeRuntimeBlob.hy
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
@@ -46,6 +47,14 @@ USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,
 .PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 .PHONY: test-userland-shell-preview
 .PHONY: test-userland-system-host test-userland-system-boot
+.PHONY: test-userland-essentials
+.PHONY: test-userland-stage3
+.PHONY: test-userland-stage4-supervision
+.PHONY: test-userland-stage4-concurrency test-userland-stage4-concurrency-image
+.PHONY: test-userland-stage5-ipc test-userland-stage5-ipc-image
+.PHONY: test-native-user-mode
+.PHONY: test-native-user-mode-image
+.PHONY: test-userland-stage2
 	
 #
 # Tools
@@ -68,7 +77,10 @@ $(EFI_BOOT_IMAGE): $(EFI_BINARY) $(KERNEL_BINARY) | check-image-tools
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$(EFI_BOOT_IMAGE)" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 
-$(EFI_BINARY) $(KERNEL_BINARY) &: $(PROJECT) $(OS_SOURCES) $(APP_COMPILER) | check-build-tools
+$(NATIVE_RUNTIME_BLOB): src/kernel/user/native_runtime.S tools/generate_native_runtime_blob.py
+	python3 tools/generate_native_runtime_blob.py "$<" "$@"
+
+$(EFI_BINARY) $(KERNEL_BINARY) &: $(PROJECT) $(OS_SOURCES) $(NATIVE_RUNTIME_BLOB) $(APP_COMPILER) | check-build-tools
 	"$(APP_COMPILER)" build "$(PROJECT)" -o "$(EFI_DIR)"
 
 $(APPLICATIONS_STAMP): force-applications $(APPLICATIONS_PROJECT) $(APP_COMPILER) | check-build-tools
@@ -105,7 +117,7 @@ $(HYFS2_TOOL): $(HYFS2_PROJECT) $(HYFS2_SOURCES)
 	@mkdir -p "$(dir $@)"
 	"$(HYDROGEN)" build "$(HYFS2_PROJECT)" -o "$@"
 
-$(HYFS2_IMAGE): tools/hyfs2.py tools/make_hyfs2_image.py $(ROOTFS_STAMP)
+$(HYFS2_IMAGE): tools/hyfs2.py tools/make_hyfs2_image.py src/userland/system/startup.manifest src/userland/system/capabilities.manifest $(ROOTFS_STAMP)
 	python3 tools/make_hyfs2_image.py "$(GENERATED_ROOTFS)" "$@" --system-apps "$(APPLICATIONS_DIR)/system"
 $(HYFS2_DATA_DISK): | $(HYFS2_ISO)
 	python3 tools/make_hyfs2_data_disk.py "$(HYFS2_ISO)" "$@"
@@ -134,7 +146,7 @@ $(HYFS1_ISO): $(HYFS1_IMAGE) | check-image-tools
 # BUILD COMMANDS
 #
 all: clean build image iso run-disk
-build: $(APP_COMPILER) check-build-tools
+build: $(APP_COMPILER) $(NATIVE_RUNTIME_BLOB) check-build-tools
 	"$(APP_COMPILER)" build "$(PROJECT)" -o "$(EFI_DIR)"
 #
 image: $(IMAGE)
@@ -272,7 +284,7 @@ test-stage2: check-build-tools
 	"$(BUILD_DIR)/stage2-tests"
 
 test-kernel-panic: iso | check-run-tools
-	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)"
+	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
 
 test-stage2-boot: test-stage2-boot-ahci test-stage2-boot-nvme
 test-stage2-boot-ahci: iso | check-run-tools
@@ -342,19 +354,70 @@ test-userland-stage1-host: $(APP_COMPILER) test-stage5-host
 	"$(APP_COMPILER)" build tests/user/StarterApp.hyproj -o "$(BUILD_DIR)/stage1-starter.exec"
 	"$(BUILD_DIR)/user-runtime-tests" stage1-starter "$(BUILD_DIR)/stage1-starter.exec"
 
-test-userland-shell-preview: check-build-tools
-	"$(HYDROGEN)" build src/shell/australlis.shell.hyproj -o "$(BUILD_DIR)/CommandShell.exec"
+test-userland-shell-preview: $(APP_COMPILER) check-build-tools
+	"$(APP_COMPILER)" build src/shell/australlis.shell.hyproj -o "$(BUILD_DIR)/CommandShell.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" shell-preview "$(BUILD_DIR)/CommandShell.exec"
+	"$(BUILD_DIR)/user-runtime-tests" shell-commands "$(BUILD_DIR)/CommandShell.exec"
 
 test-userland-system-host: $(APP_COMPILER) check-build-tools
 	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/System.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" system-launch "$(BUILD_DIR)/System.exec"
+	"$(BUILD_DIR)/user-runtime-tests" system-failure "$(BUILD_DIR)/System.exec"
 
 test-userland-system-boot: iso-hyfs2 | check-run-tools
 	python3 tests/user/system_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 	python3 tests/user/system_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-userland-essentials: iso-hyfs2 | check-run-tools
+	python3 tests/user/essentials_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/essentials_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-userland-stage2: iso-hyfs2 | check-run-tools
+	"$(APP_COMPILER)" build tests/user/ContextProbe.hyproj -o "$(BUILD_DIR)/context-probe.exec"
+	python3 tests/user/stage2_shell_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" "$(BUILD_DIR)/context-probe.exec" ahci
+	python3 tests/user/stage2_shell_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" "$(BUILD_DIR)/context-probe.exec" nvme
+
+test-userland-stage3: iso-hyfs2 | check-run-tools
+	python3 tests/user/system_image_recovery_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/system_image_recovery_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-userland-stage4-supervision: iso-hyfs2 | check-run-tools
+	python3 tests/user/stage4_supervision_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" "$(APPLICATIONS_DIR)/user-fault.exec" ahci
+	python3 tests/user/stage4_supervision_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" "$(APPLICATIONS_DIR)/user-fault.exec" nvme
+
+test-userland-stage4-concurrency-image: $(APP_COMPILER) | check-run-tools
+	"$(APP_COMPILER)" build tests/user/ConcurrentA.hyproj -o "$(BUILD_DIR)/concurrent-a.exec"
+	"$(APP_COMPILER)" build tests/user/ConcurrentB.hyproj -o "$(BUILD_DIR)/concurrent-b.exec"
+	"$(APP_COMPILER)" build tests/user/ConcurrentProbe.hyproj -o "$(BUILD_DIR)/concurrent-probe.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/concurrent-a.exec $(BUILD_DIR)/concurrent-b.exec $(BUILD_DIR)/concurrent-probe.exec"
+
+test-userland-stage4-concurrency: test-userland-stage4-concurrency-image
+	python3 tests/user/stage4_concurrency_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/stage4_concurrency_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-userland-stage5-ipc-image: $(APP_COMPILER) | check-run-tools
+	"$(APP_COMPILER)" build tests/user/IpcProbe.hyproj -o "$(BUILD_DIR)/ipc-probe.exec"
+	"$(APP_COMPILER)" build tests/user/IpcChild.hyproj -o "$(BUILD_DIR)/ipc-child.exec"
+	"$(APP_COMPILER)" build tests/user/IpcExit.hyproj -o "$(BUILD_DIR)/ipc-exit.exec"
+	"$(APP_COMPILER)" build tests/user/IpcDenied.hyproj -o "$(BUILD_DIR)/ipc-denied.exec"
+	"$(APP_COMPILER)" build tests/user/IpcNoop.hyproj -o "$(BUILD_DIR)/ipc-noop.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/ipc-probe.exec $(BUILD_DIR)/ipc-child.exec $(BUILD_DIR)/ipc-exit.exec $(BUILD_DIR)/ipc-denied.exec $(BUILD_DIR)/ipc-noop.exec"
+
+test-userland-stage5-ipc: test-userland-stage5-ipc-image
+	python3 tests/user/stage5_ipc_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/stage5_ipc_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-native-user-mode-image:
+	python3 tools/make_native_test_image.py tests/user/native_pid.S "$(BUILD_DIR)/native-pid.exec"
+	python3 tools/make_native_test_image.py tests/user/native_fault.S "$(BUILD_DIR)/native-fault.exec"
+	python3 tools/make_native_test_image.py tests/user/native_privilege.S "$(BUILD_DIR)/native-privilege.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec"
+
+test-native-user-mode: test-native-user-mode-image
+	python3 tests/user/native_user_mode_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/native_user_mode_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-userland-stage1-image: $(APP_COMPILER) | check-run-tools
 	"$(APP_COMPILER)" build tests/user/Stage1App.hyproj -o "$(BUILD_DIR)/stage1-app.exec"

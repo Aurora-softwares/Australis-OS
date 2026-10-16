@@ -1,6 +1,7 @@
 # HyFS v1 format and compatibility contract
 
-HyFS v1 is Australis's read-only bootstrap filesystem. A HyFS partition has
+HyFS v1 is Australis's legacy read-only bootstrap filesystem. The default OS
+image now uses HyFS 2; build `make iso-hyfs1` for compatibility tests. A HyFS v1 partition has
 one superblock, one flat directory allocation, and contiguous regular-file
 extents. All integers are unsigned little-endian unless a field is described
 otherwise. Filesystem block numbers are relative to the beginning of the GPT

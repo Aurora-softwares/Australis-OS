@@ -1,0 +1,13 @@
+format = 2
+name = "australis-context-probe"
+version = "0.0.1"
+type = "exec"
+output = "context-probe.exec"
+sources = ["./ContextProbe.hy"]
+project_references = []
+
+[package]
+id = "australis-context-probe"
+description = "Stage 2 child process context fixture"
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -28,47 +28,21 @@ KERNEL.BIN
     | mounts the root filesystem and starts PID 1
     v
 System.exec                     system manager / PID 1
-    |-- ServiceManager
-    |   |-- Device.service      inventory and hotplug policy
-    |   |-- Storage.service     volume and mount policy
-    |   `-- Network.service     network configuration and policy
-    |
-    |-- Launch.service          manifest resolution and launch policy
-    |
-    `-- Session.service
-        |
-        |-- Login.exec
-        |
-        `-- User session
-            |
-            |-- CommandShell.exec
-            |
-            `-- graphical session, when enabled
-                |
-                |-- Display.service
-                |   |-- compositor
-                |   |-- window protocol
-                |   `-- input routing
-                |
-                |-- DesktopShell.appb
-                |   |-- desktop
-                |   |-- taskbar
-                |   `-- notifications
-                |
-                `-- applications
-                    |-- Explorer.appb
-                    |-- Terminal.appb
-                    `-- Calculator.appb
+    |-- Device.exec              one-shot readiness check
+    |-- Storage.exec             one-shot readiness check
+    `-- CommandShell.exec        text session
+        |-- checked AUEX commands and children
+        `-- bounded native AUN1 children from /System/Bin
 ```
 
 `System.exec` is the first user process. The kernel starts it after mounting
-the root filesystem. The system manager supervises services and creates a
-session. A text-only boot can start `CommandShell.exec` without starting any
-GUI component.
+the root filesystem. It follows a versioned startup manifest: Device and
+Storage report readiness, then `CommandShell.exec` starts as the text session.
+The kernel performs bounded retries and retains KMon as an independent
+recovery path. Persistent services, login, and graphical sessions remain planned.
 
-The former `SYSTEM.EFI` placeholder has been retired. It will be replaced by
-the user executable described above once process arguments, process waiting,
-and service supervision exist.
+The former `SYSTEM.EFI` placeholder has been retired in favor of the packaged
+`/System/Core/System.exec` user executable.
 
 ## Source layout
 
@@ -81,7 +55,7 @@ src/
 |-- bootloader/                    UEFI boot stage
 |-- kernel/                        privileged kernel
 |-- rescue/                        optional disk-backed rescue program
-|-- shell/                         future userland command shell
+|-- shell/                         current text userland command shell
 `-- userland/
     |-- system/                    PID 1 and service supervision
     |-- services/                  core system services
@@ -101,10 +75,11 @@ checked out for an image build and may live in their own repositories.
 
 ## Filesystem layout
 
-The default HyFS 2 image already creates `/System`, `/System/Core`, `/Bin`,
-`/Applications`, `/Users`, `/Volumes`, and `/Temporary`. The entries under
-`/System` below are the intended packaged system layout; `System.exec` and
-services are not yet installed. The retained HyFS 1 compatibility image
+The default HyFS 2 image creates `/System`, `/System/Core`, `/System/Config`,
+`/System/Bin`, `/Applications`, `/Users`, `/Volumes`, and `/Temporary`.
+`System.exec`, the Device and Storage checks, `CommandShell.exec`, and the
+startup manifest are packaged under `/System`. The larger service layout
+below is planned. The retained HyFS 1 compatibility image
 contains only flat root files:
 
 ```text
@@ -115,26 +90,26 @@ contains only flat root files:
 |-- Drivers/*.driver
 |-- Settings/*.settings
 `-- Resources/
-/Bin/*.exec
+/System/Bin/*.exec
 /Applications/*.appb
 /Users/<name>/
 /Volumes/<name>/
 /Temporary/
 ```
 
-`/Bin` is the default location for command-line programs. The current kernel
-recovery shell searches `PATH=/System:/Bin:/`. The first userland shell should
-use `PATH=/Bin:/System` until a `/System/Bin` directory is actually packaged.
-A command containing `/` is resolved directly; other commands are searched in
-`PATH`, with `.exec` appended when the name has no extension.
+`/System/Bin` is the default location for command-line programs. The kernel recovery
+shell searches `PATH=/System/Bin:/System:/`. The userland shell starts with
+`PATH=/System/Bin`; `path /System/Bin:/data/bin` changes its search list for
+the current session.
+Explicit `run /path/program.exec` selects an absolute program path.
 
 ## Shell and process boundary
 
-The shell owns command parsing, environment expansion, `PATH` lookup, and
-foreground job control. The kernel owns process creation, argument transfer,
+The shell owns command parsing, environment values, `PATH` lookup, and
+foreground launch. The kernel owns process creation, argument transfer,
 waiting, termination, and resource cleanup.
 
-Most commands become external programs:
+Many current commands are external AUEX programs:
 
 | External program | Kernel interface required |
 | --- | --- |
@@ -142,9 +117,7 @@ Most commands become external programs:
 | `ls.exec` | Directory enumeration and file metadata. |
 | `version.exec` | Read-only system information. |
 | `echo.exec` | Arguments and terminal output. |
-| `pwd.exec` | Process working-directory query. |
-| `devices.exec` | Read-only device inventory. |
-| `mounts.exec` | Read-only mount inventory. |
+| `drivers.exec` | Read-only driver category summary. |
 | `ps.exec` | Read-only process inventory. |
 
 Commands that change the shell process remain built-ins: `cd`, `set`,
@@ -152,8 +125,9 @@ Commands that change the shell process remain built-ins: `cd`, `set`,
 
 ## Executables and bundles
 
-An extension identifies packaging and intent. Privilege comes from the loader,
-manifest, signature, and granted capabilities rather than the filename.
+An extension identifies packaging and intent. Current execution policy comes
+from the loader and read-only capability manifest, not the filename. Signature
+and package trust policy are future work.
 
 | Extension | Meaning | Example |
 | --- | --- | --- |

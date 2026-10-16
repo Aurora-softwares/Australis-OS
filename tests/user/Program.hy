@@ -3,10 +3,17 @@ using Australis.User;
 
 public class UserMockTerminal : IUserTerminal {
     private byte[] input; private int inputCursor; private byte[] output; private int outputLength;
+    private int delayedReads;
     public UserMockTerminal(byte[] inputBytes) {
         input = inputBytes; inputCursor = 0; output = new byte[4096]; outputLength = 0;
+        delayedReads = 0;
+    }
+    public UserMockTerminal(byte[] inputBytes, int delay) {
+        input = inputBytes; inputCursor = 0; output = new byte[4096]; outputLength = 0;
+        delayedReads = delay;
     }
     public int ReadByte() {
+        if (delayedReads > 0) { delayedReads = delayedReads - 1; return -3; }
         if (inputCursor >= input.Length) { return -1; }
         int value = input[inputCursor]; inputCursor = inputCursor + 1; return value;
     }
@@ -31,21 +38,138 @@ public class UserMockChildLauncher : IUserChildLauncher {
     private int launches;
     public UserMockChildLauncher() { launches = 0; }
     public int Launches() { return launches; }
-    public int RunChild(byte[] path) {
+    public int RunChild(byte[] path, UserArguments arguments) {
         if (path == null || path.Length != 30 || path[0] != 47 ||
             path[1] != 83 || path[7] != 47 || path[12] != 47 ||
-            path[29] != 99) { return -1; }
+            path[29] != 99 || arguments == null || arguments.Count() != 0) {
+            return -1;
+        }
         launches = launches + 1;
         return 0;
     }
+    public int RunChildWithContext(int parentPid, byte[] path, UserArguments arguments,
+        UserArguments environment, byte[] workingDirectory) {
+        return RunChild(path, arguments);
+    }
+    public int SpawnChildWithContext(int parentPid, byte[] path,
+        UserArguments arguments, UserArguments environment,
+        byte[] workingDirectory) {
+        if (path == null || path.Length < 20 || path[0] != 47 ||
+            arguments == null || arguments.Count() != 0) { return -4; }
+        launches = launches + 1;
+        return launches + 1;
+    }
+    public int WaitChild(int parentPid, int childPid) { return 0; }
+    public int WaitReadyChild(int parentPid, int childPid, int maxRounds) { return 0; }
+    public int TerminateChild(int parentPid, int childPid) { return -4; }
+    public int SleepProcess(int processId, int milliseconds) { return -4; }
+    public int ChannelOpen(int processId, int childPid, int version) { return -4; }
+    public int ChannelAccept(int processId, int version) { return -4; }
+    public int ChannelSend(int processId, int handle, int version,
+        byte[] source, int length) { return -4; }
+    public int ChannelReceive(int processId, int handle, byte[] destination) { return -4; }
+    public int ChannelWait(int processId, int handle, int maxRounds) { return -4; }
+    public int ChannelPeer(int processId, int handle) { return -4; }
+    public int ChannelClose(int processId, int handle) { return -4; }
+    public long ClockNow() { return 0; }
+    public long ClockDeadlineAfter(int milliseconds) { return 0; }
+    public int MarkReady(int processId) { return 0; }
+    public void ProcessExited(UserProgramResult result) { }
+    public void BeforeTerminalInput(int processId) { }
+    public void AfterTerminalInput(int processId) { }
+}
+
+public class UserMockFailingChildLauncher : IUserChildLauncher {
+    private int launches;
+    public UserMockFailingChildLauncher() { launches = 0; }
+    public int Launches() { return launches; }
+    public int RunChild(byte[] path, UserArguments arguments) {
+        launches = launches + 1; return -100;
+    }
+    public int RunChildWithContext(int parentPid, byte[] path, UserArguments arguments,
+        UserArguments environment, byte[] workingDirectory) {
+        return RunChild(path, arguments);
+    }
+    public int SpawnChildWithContext(int parentPid, byte[] path,
+        UserArguments arguments, UserArguments environment,
+        byte[] workingDirectory) {
+        launches = launches + 1; return launches + 1;
+    }
+    public int WaitChild(int parentPid, int childPid) {
+        if (childPid <= 3) { return 0; }
+        return -100;
+    }
+    public int WaitReadyChild(int parentPid, int childPid, int maxRounds) {
+        if (childPid <= 3) { return 0; }
+        return -1;
+    }
+    public int TerminateChild(int parentPid, int childPid) { return -4; }
+    public int SleepProcess(int processId, int milliseconds) { return -4; }
+    public int ChannelOpen(int processId, int childPid, int version) { return -4; }
+    public int ChannelAccept(int processId, int version) { return -4; }
+    public int ChannelSend(int processId, int handle, int version,
+        byte[] source, int length) { return -4; }
+    public int ChannelReceive(int processId, int handle, byte[] destination) { return -4; }
+    public int ChannelWait(int processId, int handle, int maxRounds) { return -4; }
+    public int ChannelPeer(int processId, int handle) { return -4; }
+    public int ChannelClose(int processId, int handle) { return -4; }
+    public long ClockNow() { return 0; }
+    public long ClockDeadlineAfter(int milliseconds) { return 0; }
+    public int MarkReady(int processId) { return 0; }
+    public void ProcessExited(UserProgramResult result) { }
+    public void BeforeTerminalInput(int processId) { }
+    public void AfterTerminalInput(int processId) { }
+}
+
+public class UserMockCommandLauncher : IUserChildLauncher {
+    private int launches;
+    public UserMockCommandLauncher() { launches = 0; }
+    public int Launches() { return launches; }
+    public int RunChild(byte[] path, UserArguments arguments) {
+        if (path == null || path.Length != 20 || path[0] != 47 ||
+            path[1] != 83 || path[8] != 66 || path[12] != 99 ||
+            path[19] != 99 || arguments == null || arguments.Count() != 1 ||
+            arguments.Length(0) != 10 || arguments.ByteAt(0, 0) != 47 ||
+            arguments.ByteAt(0, 1) != 104 || arguments.ByteAt(0, 9) != 116) {
+            return -1;
+        }
+        launches = launches + 1;
+        return 0;
+    }
+    public int RunChildWithContext(int parentPid, byte[] path, UserArguments arguments,
+        UserArguments environment, byte[] workingDirectory) {
+        return RunChild(path, arguments);
+    }
+    public int SpawnChildWithContext(int parentPid, byte[] path,
+        UserArguments arguments, UserArguments environment,
+        byte[] workingDirectory) { return -4; }
+    public int WaitChild(int parentPid, int childPid) { return -4; }
+    public int WaitReadyChild(int parentPid, int childPid, int maxRounds) { return -4; }
+    public int TerminateChild(int parentPid, int childPid) { return -4; }
+    public int SleepProcess(int processId, int milliseconds) { return -4; }
+    public int ChannelOpen(int processId, int childPid, int version) { return -4; }
+    public int ChannelAccept(int processId, int version) { return -4; }
+    public int ChannelSend(int processId, int handle, int version,
+        byte[] source, int length) { return -4; }
+    public int ChannelReceive(int processId, int handle, byte[] destination) { return -4; }
+    public int ChannelWait(int processId, int handle, int maxRounds) { return -4; }
+    public int ChannelPeer(int processId, int handle) { return -4; }
+    public int ChannelClose(int processId, int handle) { return -4; }
+    public long ClockNow() { return 0; }
+    public long ClockDeadlineAfter(int milliseconds) { return 0; }
+    public int MarkReady(int processId) { return 0; }
+    public void ProcessExited(UserProgramResult result) { }
+    public void BeforeTerminalInput(int processId) { }
+    public void AfterTerminalInput(int processId) { }
 }
 
 public class UserMockFiles : IUserFiles {
     private bool open; private int position; private bool closeAllCalled;
+    private bool manifestOpen;
     private bool created; private bool writeOpen; private byte[] content;
     private int contentLength;
     public UserMockFiles() {
-        open = false; position = 0; closeAllCalled = false;
+        open = false; position = 0; closeAllCalled = false; manifestOpen = false;
         created = false; writeOpen = false; content = new byte[32]; contentLength = 0;
     }
     private bool NewPath(byte[] path, int count) {
@@ -53,15 +177,178 @@ public class UserMockFiles : IUserFiles {
             path[2] == 97 && path[3] == 116 && path[4] == 97 &&
             path[5] == 47 && path[6] == 110 && path[7] == 101 && path[8] == 119;
     }
+    private byte[] MockManifest() {
+        byte[] manifest = new byte[143];
+        manifest[0] = 65;
+        manifest[1] = 85;
+        manifest[2] = 83;
+        manifest[3] = 77;
+        manifest[4] = 49;
+        manifest[5] = 10;
+        manifest[6] = 68;
+        manifest[7] = 101;
+        manifest[8] = 118;
+        manifest[9] = 105;
+        manifest[10] = 99;
+        manifest[11] = 101;
+        manifest[12] = 124;
+        manifest[13] = 47;
+        manifest[14] = 83;
+        manifest[15] = 121;
+        manifest[16] = 115;
+        manifest[17] = 116;
+        manifest[18] = 101;
+        manifest[19] = 109;
+        manifest[20] = 47;
+        manifest[21] = 67;
+        manifest[22] = 111;
+        manifest[23] = 114;
+        manifest[24] = 101;
+        manifest[25] = 47;
+        manifest[26] = 68;
+        manifest[27] = 101;
+        manifest[28] = 118;
+        manifest[29] = 105;
+        manifest[30] = 99;
+        manifest[31] = 101;
+        manifest[32] = 46;
+        manifest[33] = 101;
+        manifest[34] = 120;
+        manifest[35] = 101;
+        manifest[36] = 99;
+        manifest[37] = 124;
+        manifest[38] = 50;
+        manifest[39] = 124;
+        manifest[40] = 53;
+        manifest[41] = 48;
+        manifest[42] = 48;
+        manifest[43] = 48;
+        manifest[44] = 124;
+        manifest[45] = 79;
+        manifest[46] = 10;
+        manifest[47] = 83;
+        manifest[48] = 116;
+        manifest[49] = 111;
+        manifest[50] = 114;
+        manifest[51] = 97;
+        manifest[52] = 103;
+        manifest[53] = 101;
+        manifest[54] = 124;
+        manifest[55] = 47;
+        manifest[56] = 83;
+        manifest[57] = 121;
+        manifest[58] = 115;
+        manifest[59] = 116;
+        manifest[60] = 101;
+        manifest[61] = 109;
+        manifest[62] = 47;
+        manifest[63] = 67;
+        manifest[64] = 111;
+        manifest[65] = 114;
+        manifest[66] = 101;
+        manifest[67] = 47;
+        manifest[68] = 83;
+        manifest[69] = 116;
+        manifest[70] = 111;
+        manifest[71] = 114;
+        manifest[72] = 97;
+        manifest[73] = 103;
+        manifest[74] = 101;
+        manifest[75] = 46;
+        manifest[76] = 101;
+        manifest[77] = 120;
+        manifest[78] = 101;
+        manifest[79] = 99;
+        manifest[80] = 124;
+        manifest[81] = 50;
+        manifest[82] = 124;
+        manifest[83] = 53;
+        manifest[84] = 48;
+        manifest[85] = 48;
+        manifest[86] = 48;
+        manifest[87] = 124;
+        manifest[88] = 79;
+        manifest[89] = 10;
+        manifest[90] = 67;
+        manifest[91] = 111;
+        manifest[92] = 109;
+        manifest[93] = 109;
+        manifest[94] = 97;
+        manifest[95] = 110;
+        manifest[96] = 100;
+        manifest[97] = 83;
+        manifest[98] = 104;
+        manifest[99] = 101;
+        manifest[100] = 108;
+        manifest[101] = 108;
+        manifest[102] = 124;
+        manifest[103] = 47;
+        manifest[104] = 83;
+        manifest[105] = 121;
+        manifest[106] = 115;
+        manifest[107] = 116;
+        manifest[108] = 101;
+        manifest[109] = 109;
+        manifest[110] = 47;
+        manifest[111] = 67;
+        manifest[112] = 111;
+        manifest[113] = 114;
+        manifest[114] = 101;
+        manifest[115] = 47;
+        manifest[116] = 67;
+        manifest[117] = 111;
+        manifest[118] = 109;
+        manifest[119] = 109;
+        manifest[120] = 97;
+        manifest[121] = 110;
+        manifest[122] = 100;
+        manifest[123] = 83;
+        manifest[124] = 104;
+        manifest[125] = 101;
+        manifest[126] = 108;
+        manifest[127] = 108;
+        manifest[128] = 46;
+        manifest[129] = 101;
+        manifest[130] = 120;
+        manifest[131] = 101;
+        manifest[132] = 99;
+        manifest[133] = 124;
+        manifest[134] = 51;
+        manifest[135] = 124;
+        manifest[136] = 53;
+        manifest[137] = 48;
+        manifest[138] = 48;
+        manifest[139] = 48;
+        manifest[140] = 124;
+        manifest[141] = 83;
+        manifest[142] = 10;
+        return manifest;
+    }
     public int Open(byte[] path, int count) {
+        if (path != null && count == 31 && path[0] == 47 &&
+            path[1] == 83 && path[8] == 67 && path[15] == 115 &&
+            path[30] == 116) {
+            open = true; manifestOpen = true; position = 0; return 3;
+        }
         if (path == null || count != 10 || path[0] != 47 || path[1] != 104 ||
             path[2] != 101 || path[3] != 108 || path[4] != 108 || path[5] != 111 ||
             path[6] != 46 || path[7] != 116 || path[8] != 120 || path[9] != 116) { return -1; }
-        open = true; position = 0; return 3;
+        open = true; manifestOpen = false; position = 0; return 3;
     }
     public int Read(int descriptor, byte[] destination, int capacity) {
         if (!open || descriptor != 3 || destination == null || capacity < 0 ||
             capacity > destination.Length) { return -1; }
+        if (manifestOpen) {
+            byte[] manifest = MockManifest();
+            int count = manifest.Length - position;
+            if (count > capacity) { count = capacity; }
+            int index = 0;
+            while (index < count) {
+                destination[index] = manifest[position + index];
+                index = index + 1;
+            }
+            position = position + count; return count;
+        }
         if (capacity == 4 && position == 0) {
             destination[0] = 1; destination[1] = 2;
             destination[2] = 3; destination[3] = 255;
@@ -121,6 +408,15 @@ public class UserMockFiles : IUserFiles {
     public int Rename(byte[] source, int sourceCount, byte[] destination,
         int destinationCount) { return 8; }
     public UserFileInfo Stat(byte[] path, int count) {
+        if (count == 20 && path[0] == 47 && path[1] == 83 &&
+            path[7] == 47 && path[8] == 66 && path[11] == 47 &&
+            path[12] == 99) {
+            return new UserFileInfo(0, 1, 1, 19, 0, 0, 0, 0);
+        }
+        if (count == 11 && path[0] == 47 && path[1] == 83 &&
+            path[7] == 47 && path[8] == 66) {
+            return new UserFileInfo(0, 2, 0, 20, 0, 0, 0, 0);
+        }
         if (count == 10 && path[0] == 47 && path[1] == 104) {
             return new UserFileInfo(0, 1, 5, 17, 0, 0, 0, 0);
         }
@@ -148,10 +444,10 @@ public class UserMockFiles : IUserFiles {
     public bool Close(int descriptor) {
         if (descriptor == 4 && writeOpen) { writeOpen = false; return true; }
         if (!open || descriptor != 3) { return false; }
-        open = false; return true;
+        open = false; manifestOpen = false; return true;
     }
     public void CloseAll() {
-        open = false; writeOpen = false; closeAllCalled = true;
+        open = false; manifestOpen = false; writeOpen = false; closeAllCalled = true;
     }
     public bool CloseAllCalled() { return closeAllCalled; }
     public bool Created() { return created; }
@@ -349,8 +645,21 @@ public class Program {
             new int[55], launcher, 1).Run(executable);
         if (result.Pid() != 1 || result.State() != UserProgramState.Exited() ||
             result.ExitCode() != 0 || result.Fault() != UserFault.None() ||
-            launcher.Launches() != 1) { return 49; }
+            launcher.Launches() != 3) { return 49; }
         System.Console.WriteLine("Compiled PID 1 launcher passed");
+        return 0;
+    }
+    private static int CompiledSystemFailure(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 54; }
+        UserMockFailingChildLauncher launcher = new UserMockFailingChildLauncher();
+        UserProgramResult result = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), new UserMockFiles(),
+            new int[55], launcher, 1).Run(executable);
+        if (result.Pid() != 1 || result.State() != UserProgramState.Exited() ||
+            result.ExitCode() != 1 || launcher.Launches() != 5) { return 55; }
+        System.Console.WriteLine("PID 1 bounded restart passed");
         return 0;
     }
     private static int CompiledShellPreview(string imagePath) {
@@ -361,20 +670,48 @@ public class Program {
         input[0] = 104; input[1] = 101; input[2] = 108; input[3] = 112;
         input[4] = 13; input[5] = 101; input[6] = 120; input[7] = 105;
         input[8] = 116; input[9] = 13;
-        UserMockTerminal terminal = new UserMockTerminal(input);
+        UserMockTerminal terminal = new UserMockTerminal(input, 40);
         UserProgramResult result = new UserProgramHost(terminal,
             new UserMockFiles()).Run(executable);
-        byte[] expected = new byte[13];
-        expected[0] = 82; expected[1] = 101; expected[2] = 116;
-        expected[3] = 117; expected[4] = 114; expected[5] = 110;
-        expected[6] = 32; expected[7] = 116; expected[8] = 111;
-        expected[9] = 32; expected[10] = 75; expected[11] = 77;
-        expected[12] = 111;
+        byte[] expected = new byte[10];
+        expected[0] = 66; expected[1] = 117; expected[2] = 105;
+        expected[3] = 108; expected[4] = 116; expected[5] = 45;
+        expected[6] = 105; expected[7] = 110; expected[8] = 115;
+        expected[9] = 58;
         if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
             result.Fault() != UserFault.None() || !terminal.Contains(expected)) {
             return 47;
         }
         System.Console.WriteLine("Compiled shell preview passed");
+        return 0;
+    }
+    private static int CompiledShellCommands(string imagePath) {
+        UserExecutable executable = new UserExecutable(
+            System.IO.File.ReadAllBytes(imagePath));
+        if (!executable.IsValid()) { return 50; }
+        byte[] input = new byte[25];
+        input[0] = 99; input[1] = 97; input[2] = 116; input[3] = 32;
+        input[4] = 47; input[5] = 104; input[6] = 101; input[7] = 108;
+        input[8] = 108; input[9] = 111; input[10] = 46; input[11] = 116;
+        input[12] = 120; input[13] = 116; input[14] = 13;
+        input[15] = 112; input[16] = 119; input[17] = 100; input[18] = 13;
+        input[19] = 101; input[20] = 120; input[21] = 105;
+        input[22] = 116; input[23] = 13;
+        UserMockTerminal terminal = new UserMockTerminal(input);
+        UserMockCommandLauncher launcher = new UserMockCommandLauncher();
+        UserProgramResult result = new UserProgramHost(terminal,
+            new UserMockFiles(), new int[55], launcher, 1).Run(executable);
+        byte[] expected = new byte[3];
+        expected[0] = 47; expected[1] = 13; expected[2] = 10;
+        if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
+            result.Fault() != UserFault.None() || launcher.Launches() != 1 ||
+            !terminal.Contains(expected)) {
+            System.Console.WriteLine("shell state=" + result.State() +
+                " exit=" + result.ExitCode() + " fault=" + result.Fault() +
+                " launches=" + launcher.Launches());
+            return 51;
+        }
+        System.Console.WriteLine("Compiled shell command launch passed");
         return 0;
     }
     private static int CompiledInspector(string imagePath) {
@@ -520,7 +857,9 @@ public class Program {
             if (args[0] == "stage1") { return CompiledStage1(args[1]); }
             if (args[0] == "stage1-starter") { return CompiledStage1Starter(args[1]); }
             if (args[0] == "shell-preview") { return CompiledShellPreview(args[1]); }
+            if (args[0] == "shell-commands") { return CompiledShellCommands(args[1]); }
             if (args[0] == "system-launch") { return CompiledSystemLaunch(args[1]); }
+            if (args[0] == "system-failure") { return CompiledSystemFailure(args[1]); }
             return 24;
         }
         byte[] demo = UserImages.Demo();
@@ -657,6 +996,126 @@ public class Program {
             new UserProcessStart(startArguments));
         waited = processHost.Wait(secondPid);
         if (secondPid != 2 || waited.Pid() != 2 || waited.ExitCode() != 15) { return 38; }
+        UserMockFiles runnableFilesA = new UserMockFiles();
+        UserMockFiles runnableFilesB = new UserMockFiles();
+        UserProgramHost runnableHost = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), new UserMockFiles());
+        UserProcessStart runnableStart = new UserProcessStart(
+            new UserArguments(new byte[0], new int[0], new int[0], 0));
+        int runnableA = runnableHost.SpawnRunnable(arithmeticImage, runnableStart,
+            runnableFilesA);
+        int runnableB = runnableHost.SpawnRunnable(arithmeticImage, runnableStart,
+            runnableFilesB);
+        if (runnableA != 1 || runnableB != 2 || runnableHost.RunRound() != 2 ||
+            runnableHost.Instructions(runnableA) < 1 ||
+            runnableHost.Instructions(runnableB) < 1) { return 46; }
+        if (runnableHost.Wait(runnableA).ExitCode() != 15 ||
+            runnableHost.Wait(runnableB).ExitCode() != 15 ||
+            !runnableFilesA.CloseAllCalled() || !runnableFilesB.CloseAllCalled()) {
+            return 47;
+        }
+        int[] parentInformation = new int[55];
+        int[] childInformation = new int[55];
+        UserProgramHost blockedHost = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), new UserMockFiles(),
+            parentInformation);
+        int blockedParent = blockedHost.SpawnRunnable(arithmeticImage,
+            runnableStart, new UserMockFiles());
+        int blockedChild = blockedHost.SpawnRunnable(arithmeticImage,
+            runnableStart, new UserMockFiles(), childInformation);
+        if (!blockedHost.Block(blockedParent) || blockedHost.RunRound() != 1 ||
+            blockedHost.Instructions(blockedParent) != 0 ||
+            blockedHost.Instructions(blockedChild) < 1 ||
+            parentInformation[40] != blockedParent ||
+            childInformation[40] != blockedChild ||
+            blockedHost.Wait(blockedChild).ExitCode() != 15 ||
+            parentInformation[40] != blockedParent) { return 57; }
+        blockedHost.Unblock(blockedParent);
+        if (blockedHost.Wait(blockedParent).ExitCode() != 15) { return 58; }
+        UserMockFiles supervisedFiles = new UserMockFiles();
+        UserProgramHost supervisedHost = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), new UserMockFiles());
+        int supervisedPid = supervisedHost.SpawnRunnable(arithmeticImage,
+            runnableStart, supervisedFiles);
+        if (supervisedPid != 1 || supervisedHost.WaitReady(supervisedPid, 1) != -2 ||
+            supervisedHost.MarkReady(supervisedPid) != 0 ||
+            supervisedHost.WaitReady(supervisedPid, 1) != 0 ||
+            supervisedHost.Terminate(supervisedPid) != 0 ||
+            supervisedHost.Wait(supervisedPid).Fault() != UserFault.Terminated() ||
+            !supervisedFiles.CloseAllCalled()) { return 60; }
+        UserProgramHost sleepingHost = new UserProgramHost(
+            new UserMockTerminal(new byte[0]), new UserMockFiles());
+        int sleepingPid = sleepingHost.SpawnRunnable(arithmeticImage,
+            runnableStart, new UserMockFiles());
+        if (sleepingPid != 1 || sleepingHost.Sleep(sleepingPid, 3) != 0 ||
+            sleepingHost.RunRound() != 1 || sleepingHost.RunRound() != 1 ||
+            sleepingHost.Instructions(sleepingPid) != 0 ||
+            sleepingHost.RunRound() != 1 ||
+            sleepingHost.Instructions(sleepingPid) < 1 ||
+            sleepingHost.Wait(sleepingPid).ExitCode() != 15) { return 61; }
+        UserProcessTable table = new UserProcessTable();
+        if (!table.Start(1, 0, 1) || !table.Start(2, 1) ||
+            !table.WaitForChild(1, 2) || table.Find(1).State() != 4 ||
+            table.Find(2).ParentPid() != 1 || table.Start(2, 1) ||
+            table.ActiveCount() != 2) { return 48; }
+        UserChannelTable channels = new UserChannelTable(table);
+        int channel = channels.Open(1, 2, 1);
+        byte[] message = new byte[2]; message[0] = 65; message[1] = 66;
+        byte[] reply = new byte[2];
+        if (channel < 1 || channels.Open(2, 1, 1) != -2 ||
+            channels.Accept(2, 2) != -1 || channels.Accept(2, 1) != channel ||
+            channels.Peer(channel, 2) != 1 ||
+            channels.Send(channel, 3, 1, message, 2) != -2 ||
+            channels.Send(channel, 1, 2, message, 2) != -3 ||
+            channels.Send(channel, 1, 1, message, 2) != 0 ||
+            channels.Queued(channel, 2) != 1 ||
+            channels.QueuedFor(channel, 1) != 0 ||
+            channels.QueuedFor(channel, 2) != 1) { return 50; }
+        message[0] = 90;
+        if (channels.Receive(channel, 2, reply) != 2 || reply[0] != 65 ||
+            reply[1] != 66 || channels.Receive(channel, 2, reply) != -1) {
+            return 51;
+        }
+        if (channels.Send(channel, 1, 1, message, 2) != 0 ||
+            channels.Send(channel, 1, 1, message, 2) != 0 ||
+            channels.Send(channel, 1, 1, message, 2) != 0 ||
+            channels.Send(channel, 1, 1, message, 2) != 0 ||
+            channels.Send(channel, 1, 1, message, 2) != -5 ||
+            channels.Queued(channel, 1) != 4 ||
+            channels.Receive(channel, 2, new byte[1]) != -4 ||
+            channels.Queued(channel, 2) != 4) { return 52; }
+        channels.CloseForProcess(2);
+        int replacement = channels.Open(1, 2, 1);
+        if (channels.Queued(channel, 1) != -1 || replacement == channel ||
+            channels.Queued(replacement, 1) != 0 ||
+            channels.Receive(channel, 2, reply) != -1) { return 53; }
+        int channelRound = 0;
+        while (channelRound < 100) {
+            if (!channels.Close(replacement, 1)) { return 58; }
+            replacement = channels.Open(1, 2, 1);
+            if (replacement < 1 || channels.Send(replacement, 1, 1,
+                message, 2) != 0 || channels.Receive(replacement, 2, reply) != 2) {
+                return 59;
+            }
+            channelRound = channelRound + 1;
+        }
+        if (!table.Finish(new UserProgramResult(2, UserProgramState.Exited(),
+                7, UserFault.None(), 42)) || !table.Resume(1) ||
+            table.Find(2).ExitCode() != 7 || table.Find(2).Instructions() != 42 ||
+            table.ActiveCount() != 1 ||
+            !table.Finish(new UserProgramResult(1, UserProgramState.Exited(),
+                0, UserFault.None(), 10))) { return 49; }
+        int recycledPid = 3;
+        while (recycledPid <= 70) {
+            if (!table.Start(recycledPid, 0) ||
+                !table.Finish(new UserProgramResult(recycledPid,
+                    UserProgramState.Exited(), 0, UserFault.None(), 1))) {
+                return 56;
+            }
+            recycledPid = recycledPid + 1;
+        }
+        if (table.Find(70) == null || table.Find(70).State() !=
+            UserProgramState.Exited() || table.Find(1) != null) { return 57; }
         UserSystemCalls checkedCalls = new UserSystemCalls(
             new UserMockTerminal(new byte[0]), new UserMockFiles(), 7);
         UserSyscallResult information = checkedCalls.SystemInformation(3);

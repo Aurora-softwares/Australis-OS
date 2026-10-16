@@ -1,0 +1,5 @@
+format = 2
+name = "AustralisIpcExit"
+type = "exec"
+output = "ipc-exit.exec"
+sources = ["./IpcExit.hy"]

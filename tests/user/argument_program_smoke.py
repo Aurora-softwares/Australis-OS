@@ -65,7 +65,7 @@ def main():
                 command(connection, process, b"inspector /hello.txt",
                         b"Australis File Inspector\r\n/hello.txt\r\n")
                 inspected = command(connection, process,
-                                    b"inspector /Bin/inspector.exec",
+                                    b"inspector /System/Bin/inspector.exec",
                                     b"Target: Australis bytecode\r\n")
                 image = (Path(iso).parent / "applications" / "inspector.exec").read_bytes()
                 if b"Format version:\r\n1\r\n" not in inspected:

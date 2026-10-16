@@ -21,6 +21,7 @@ public class MockNvmeController : INvmeControllerIo {
     private int configuredDelay;
     private int pauses;
     private long epoch;
+    private bool highCid;
 
     public MockNvmeController() {
         pages = new byte[20480]; disk = new byte[128 * 512];
@@ -56,6 +57,7 @@ public class MockNvmeController : INvmeControllerIo {
     public int Commands() { return commands; }
     public int Writes() { return writes; }
     public int Flushes() { return flushes; }
+    public bool SawHighCid() { return highCid; }
     public long Read32(int offset) {
         if (offset == 0) { return 1; } // MQES=1, queue depth two
         if (offset == 4) { return 32; } // CSS.NVM, DSTRD=0, MPSMIN=0
@@ -81,6 +83,7 @@ public class MockNvmeController : INvmeControllerIo {
             byte[] command = new byte[64];
             int i = 0;
             while (i < 64) { command[i] = pages[sqPage * 4096 + slot * 64 + i]; i = i + 1; }
+            if (command[3] != 0) { highCid = true; }
             commands = commands + 1;
             if (queue == 0 && command[0] == 6) {
                 i = 0; while (i < 4096) { pages[16384 + i] = 0; i = i + 1; }
@@ -163,6 +166,15 @@ public class Program {
             if (roundTrip[check] != payload[check]) { return 33; }
             check = check + 1;
         }
+        MockNvmeController wrapMock = new MockNvmeController();
+        NvmeController wrap = new NvmeController(wrapMock, 32);
+        if (!wrap.Initialize()) { return 56; }
+        byte[] wrapData = new byte[512]; int repeat = 0;
+        while (repeat < 300) {
+            if (!wrap.Read(1, 1, wrapData) || wrapData[0] != 1) { return 57; }
+            repeat = repeat + 1;
+        }
+        if (wrapMock.SawHighCid()) { return 58; }
         MockNvmeController writeFailureMock = new MockNvmeController();
         NvmeController writeFailure = new NvmeController(writeFailureMock, 16);
         if (!writeFailure.Initialize()) { return 34; }

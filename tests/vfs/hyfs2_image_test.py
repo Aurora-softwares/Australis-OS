@@ -27,6 +27,18 @@ class Hyfs2ImageTests(unittest.TestCase):
     def reopen(self):
         return Hyfs2Image.open(self.path)
 
+    def test_new_volume_has_two_valid_superblocks(self):
+        with self.path.open("r+b") as volume:
+            first = volume.read(512)
+            second = volume.read(512)
+            self.assertEqual(first, second)
+            volume.seek(0)
+            volume.write(bytes(512))
+        recovered = self.reopen()
+        self.assertEqual(recovered.snapshot.generation, 1)
+        self.assertEqual(recovered.snapshot.slot, 1)
+        self.assertEqual(recovered.list_directory("/"), [])
+
     def test_nested_crud_and_metadata(self):
         self.image.mkdir("/Users")
         self.image.mkdir("/Users/Ada")

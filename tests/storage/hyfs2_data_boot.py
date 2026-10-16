@@ -47,7 +47,8 @@ def boot_record(path):
                             "controller": u32(304), "data_mounted": u32(2688),
                             "data_mount_status": u32(2692),
                             "data_lba": u64(2696), "data_blocks": u64(2704),
-                            "probe": u32(2712)}
+                            "probe": u32(2712),
+                            "nvme_cause": u32(1236), "nvme_state": u32(1240)}
             location += 4
 
 

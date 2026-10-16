@@ -170,9 +170,12 @@ class Hyfs2Image:
             image.write(table)
             image.flush()
             os.fsync(image.fileno())
+            # Format both slots so the first writable mount needs no repair I/O.
+            header = superblock(1, size_bytes // BLOCK_SIZE, 2, 1, 1,
+                                zlib.crc32(table))
             image.seek(0)
-            image.write(superblock(1, size_bytes // BLOCK_SIZE, 2, 1, 1,
-                                   zlib.crc32(table)))
+            image.write(header)
+            image.write(header)
             image.flush()
             os.fsync(image.fileno())
         result = cls.open(path)

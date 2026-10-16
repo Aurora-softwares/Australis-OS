@@ -46,6 +46,8 @@ def kernel_record(path):
                 return {
                     "state": struct.unpack_from("<I", memory, position + 36)[0],
                     "allocator_next": struct.unpack_from("<Q", memory, position + 40)[0],
+                    "heap_next": struct.unpack_from("<Q", memory, position + 88)[0],
+                    "heap_end": struct.unpack_from("<Q", memory, position + 96)[0],
                     "exception": struct.unpack_from("<I", memory, position + 188)[0],
                     "last_vector": struct.unpack_from("<I", memory, position + 184)[0],
                     "serial_flags": struct.unpack_from("<I", memory, position + 1140)[0],
@@ -326,9 +328,9 @@ def main():
                         raise AssertionError(f"Hex Viewer missing from /System: {system_listing!r}")
                     command(connection, process, b"stat /System/hexviewer.exec",
                             b"type: file\r\n")
-                    command(connection, process, b"path", b"PATH=/System:/Bin:/\r\n")
+                    command(connection, process, b"path", b"PATH=/System/Bin:/System:/\r\n")
                     command(connection, process, b"hexviewer", b"Hello, World!\r\n")
-                    command(connection, process, b"path /Bin:/System", b"PATH=/Bin:/System\r\n")
+                    command(connection, process, b"path /System/Bin:/System", b"PATH=/System/Bin:/System\r\n")
                     command(connection, process, b"run hexviewer", b"Hello, World!\r\n")
                     command(connection, process, b"PATH=/System", b"PATH=/System\r\n")
                     command(connection, process, b"hexviewer", b"Hello, World!\r\n")
@@ -338,16 +340,16 @@ def main():
                             b"Hello, World!\r\n")
                     command(connection, process, b"path /missing", b"PATH directory not found.\r\n")
                     command(connection, process, b"path", b"PATH=/System\r\n")
-                    command(connection, process, b"path /System:/Bin:/", b"PATH=/System:/Bin:/\r\n")
-                    command(connection, process, b"ls /Bin", b"user-demo.exec\r\n")
-                    connection.sendall(b"cat /Bin/user-demo.exec\r")
+                    command(connection, process, b"path /System/Bin:/System:/", b"PATH=/System/Bin:/System:/\r\n")
+                    command(connection, process, b"ls /System/Bin", b"user-demo.exec\r\n")
+                    connection.sendall(b"cat /System/Bin/user-demo.exec\r")
                     binary = read_until(connection, PROMPT, 30, process)
                     if b"AUEX" not in binary:
                         raise AssertionError(f"cat lost executable bytes: {binary[-200:]!r}")
                     metadata = command(connection, process, b"stat /System", b"type: directory\r\n")
                     if b"created: unavailable\r\n" not in metadata or b"id: 0\r\n" in metadata:
                         raise AssertionError(f"HyFS v2 metadata missing: {metadata!r}")
-                    command(connection, process, b"stat /Bin/user-demo.exec/",
+                    command(connection, process, b"stat /System/Bin/user-demo.exec/",
                             b"File not found.\r\n")
                 else:
                     command(connection, process, b"stat /hello.txt", b"id: unavailable\r\n")

@@ -1,0 +1,5 @@
+format = 2
+name = "AustralisIpcChild"
+type = "exec"
+output = "ipc-child.exec"
+sources = ["./IpcChild.hy"]

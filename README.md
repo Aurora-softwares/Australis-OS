@@ -87,8 +87,8 @@ The bootloader reads `KERNEL.BIN` from the same FAT volume, validates its
 `AUKR` header and exact size, and places it in executable loader memory before
 the final memory-map capture. After `ExitBootServices`, it switches to a
 dedicated 64 KiB kernel stack and enters the raw code. The former unused
-`SYSTEM.EFI` placeholder is no longer packaged; the planned system manager is
-a user program named `/System/Core/System.exec`.
+`SYSTEM.EFI` placeholder is no longer packaged. The kernel starts the minimal
+userland manager `/System/Core/System.exec` as PID 1 on normal boot.
 The raw header is 16 bytes: `AUKR`, version `1`, code length, and entry offset
 `16`, all little endian. The code is position independent.
 The ISO is hybrid: it contains an El Torito UEFI boot entry for optical media,
@@ -141,46 +141,51 @@ namespace.
 Click the QEMU display once so it captures keyboard input. QEMU's default key
 combination for releasing the pointer and keyboard is Ctrl+Alt+G.
 
-For the interactive kernel console in the terminal, run:
+For the normal userland command shell in the terminal, run:
 
 ```bash
 make run-serial
-# or: make run-serial-nvme
+# or: make run-nvme-serial
 ```
 
 To attach the ISO as a second read-only USB mass-storage volume and use COM1
 for the shell, run `make run-usb-storage` (AHCI boot root) or
 `make run-usb-storage-nvme`. The removable HyFS volume appears at `/usb`; use
-`devices`, `mounts`, `ls /usb`, and `cat /usb/hello.txt` to inspect it. The
-normal removable-media fixture uses HyFS 2 because it attaches the default ISO.
+`ls /usb` and `cat /usb/hello.txt` to inspect it. KMon also has `devices` and
+`mounts`. The normal removable-media fixture uses HyFS 2 because it attaches
+the default ISO.
 
-Wait for `kmon> `, then type `help`. `ls` lists the HyFS root and
-`cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The console
-echoes input and accepts Enter, Backspace/Delete, arrow keys, Home/End,
-Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, Ctrl-U, and eight entries of command history.
-Its line buffer holds 256 bytes. Namespace paths canonicalize repeated `/`, `.`,
-and `..`, and cross the removable mount at `/usb`. Compatibility HyFS 1 images
-remain limited to flat 32-byte names. `cat` accepts files up to 64 KiB. The UART
+Wait for `australis> `, then type `help`. `ls` lists the HyFS root and
+`cat /hello.txt` reads a file from the mounted AHCI or NVMe device. The
+userland shell handles quoted arguments, relative paths, `cd`, `pwd`, and
+eight entries of command history. `set`, `export`, and `unset` manage child
+environment values; `path` edits the executable search path. `exit` or
+terminal Ctrl-D returns to KMon. The kernel recovery
+console also accepts Enter, Backspace/Delete, arrow keys, Home/End,
+Ctrl-A/Ctrl-E, Ctrl-C, Ctrl-L, and Ctrl-U. Its line buffer holds 256 bytes.
+Namespace paths canonicalize repeated `/`, `.`, and `..`, and cross the
+removable mount at `/usb`. Compatibility HyFS 1 images remain limited to flat
+32-byte names. KMon's built-in `cat` accepts files up to 64 KiB. The UART
 uses COM1 at 115200 baud, 8 data bits, no parity, and one stop
 bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
 then the shell drains that ring after it wakes. A full ring drops new input and
 records the drop count in `KernelBootInfo`.
 
-The kernel-owned `cat /hello.txt` remains available for recovery. To launch
-the source-built userland command through `PATH`, run:
+The kernel-owned `cat /hello.txt` remains available in KMon for recovery. To
+launch the source-built userland command explicitly from KMon, run:
 
 ```text
 kmon> run cat /hello.txt
 Hello from Australis HyFS.
 ```
 
-`/Bin/cat.exec` reads a dynamic path through checked file calls and handles
-EOF and file errors. `make test-userland-cat` tests it on AHCI and NVMe. Bare
-`cat` still selects the kernel recovery built-in; the userland shell will take
-over bare command dispatch in Stage 2.
+`/System/Bin/cat.exec` reads a dynamic path through checked file calls and handles
+EOF and file errors. `make test-userland-essentials` runs bare `cat` in the
+userland shell on AHCI and NVMe, together with the other Essentials commands.
+Bare `cat` inside KMon selects the kernel recovery built-in.
 
-`run /user-fault.exec` exercises the protected-write failure path and returns
-to the shell. `ps` reports the most recent program state.
+`run /System/Bin/user-fault.exec` in KMon exercises the protected-write failure path.
+`ps` reports the most recent program state.
 
 For the post-handoff framebuffer console, run QEMU with OVMF and its standard
 VGA device:
@@ -381,10 +386,31 @@ the aggregate project workflow for applications kept in separate repositories.
 Use `make iso APPLICATIONS_PROJECT=/path/to/MyApplications.hyproj` for another
 source aggregate, or pass ready artifacts through `APPLICATION_ARTIFACTS`.
 
-This is software enforced isolation for the AUEX instruction set. Native x86-64
-ring-3 execution, hardware page-table privilege separation, and preemptive
-threads are later work. The current boundary establishes the executable,
-terminal, descriptor, failure, and scheduling contracts before that transition.
+This is software enforced isolation for the AUEX instruction set. A native
+x86-64 ring-3 path with bounded memory is also available for read-only system images;
+the broader AUEX terminal, file, IPC, and scheduling APIs have not yet moved
+to native syscalls.
+
+### Native AUN1 programs
+
+An `AUN1` `.exec` file under `/System/Bin` contains an eight-byte header:
+`AUN1`, a little-endian 16-bit code length, and two zero reserved bytes. One
+code page is permitted. `run /System/Bin/name.exec` starts it in a private
+page table, with read-only executable code, a writable non-executable startup
+page, a writable non-executable stack, and an unmapped guard below the stack.
+The kernel mappings remain supervisor-only. The native child receives an
+`AUSP` v2 startup record in `RDI`; its layout matches the AUEX start record,
+but the argument, environment, and working-directory entries are offsets from
+`RDI` because native addresses are 64-bit. `RAX=1` with `RDI=exit status`
+exits through `int 0x80`; `RAX=2` returns the child PID. Other syscall numbers
+return `-38`. Page faults and general-protection faults finish only that child,
+release its pages, and preserve the parent shell and KMon recovery path.
+
+Run `make test-native-user-mode` for the AHCI and NVMe ring-3 matrix, including
+native image launch, PID/exit, kernel-memory denial, privileged-instruction
+denial, and parent/recovery continuity. AUN1 execution is currently restricted
+to the read-only system bin directory; native preemption and the remaining
+terminal, file, and IPC syscalls are later work.
 
 The planned OS layer keeps the kernel, system userland, and application
 userland separate. The GUI is an optional userland subsystem. See
@@ -501,26 +527,28 @@ namespace normalizes nested paths. HyFS v1 stores only flat root files.
 HyFS v2 is the default boot and removable-media format, with nested directories
 and file metadata. `make iso` builds it, and the ordinary `make run`,
 `make run-serial`, and `make run-nvme` targets boot it. The explicit
-`iso-hyfs2`, `run-hyfs2-serial`, and `run-hyfs2-nvme-serial` names remain as
-compatibility aliases for existing workflows. Run `make test-hyfs2` and
+`iso-hyfs2`, `run-serial-hyfs2`, and `run-nvme-serial-hyfs2` are explicit
+HyFS 2 targets. Run `make test-hyfs2` and
 `make test-serial-ahci` (or `make test-serial-nvme`). The v2 shell can list
-`/System`, `/Bin`, `/Applications`, `/Users`, `/Volumes`, and `/Temporary`; executable copies
-are available in `/Bin`. The Hex Viewer executable is installed at
+`/System`, `/System/Bin`, `/Applications`, `/Users`, `/Volumes`, and `/Temporary`; executable copies
+are available in `/System/Bin`. The Hex Viewer executable is installed at
 `/System/hexviewer.exec`. `stat /System` reports kind, size, object ID, and
 timestamps when the image contains them. The kernel continues to mount v1
 images. The versioned disk format and its recovery rules are in
 `docs/hyfs-v2.md`.
 
 Build and run the legacy format explicitly with `make iso-hyfs1`,
-`make run-hyfs1`, `make run-hyfs1-serial`, `make run-hyfs1-nvme`, or
-`make run-hyfs1-nvme-serial`. Its host compatibility suite is
+`make run-hyfs1`, `make run-serial-hyfs1`, `make run-nvme-hyfs1`, or
+`make run-nvme-serial-hyfs1`. Its host compatibility suite is
 `make test-hyfs1`; AHCI and NVMe boot checks are available through
 `make test-hyfs1-boot-ahci` and `make test-hyfs1-boot-nvme`.
 
-The shell searches `PATH=/System:/Bin:/` for bare executable names and adds
+KMon searches `PATH=/System/Bin:/System:/` for bare executable names and adds
 `.exec` automatically. Type `hexviewer` to run `/System/hexviewer.exec` or
-`PATH=/System:/Bin` to change the search directories for the current session.
-Use `path` to show the current value. Explicit `run /path/program.exec` still
+`PATH=/System` to change KMon's search directories for the current session.
+The normal userland shell starts with `PATH=/System/Bin`; type `path` to show
+it or `path /System/Bin:/data/bin` to change it for that session. Explicit
+`run /path/program.exec` still
 works. Both forms pass arguments to `Main(string[] args)`:
 `program /path/to/item -an --argument "two words"` and
 `run /path/program.exec /path/to/item -an --argument` are valid. Single and
@@ -528,7 +556,7 @@ double quotes, plus backslash-escaped spaces, keep text in one argument.
 Options are passed unchanged for each application to interpret; `-an` is one
 argument and a long option begins with two ASCII hyphens (`--`). The shell
 accepts up to 16 arguments within its 256-byte input line.
-`inspector /Bin/inspector.exec` reports filesystem metadata and its AUEX
+`inspector /System/Bin/inspector.exec` reports filesystem metadata and its AUEX
 header; `inspector /System` lists that directory. Apps can pass an argument
 path to the checked `Stat*`, `DirectoryCount`, `DirectoryName`, `OpenRead`,
 and `OpenWrite` file APIs. `Files.ApiVersion()` reports the current AUEX file
@@ -541,8 +569,8 @@ image. For example, after `python3 tools/hyfs2.py create volume.img`, run
 `python3 tools/hyfs2.py ls volume.img /Users`. It also supports `cat`, `stat`,
 `mv`, and `rm`. Each edit publishes a new checked generation; the previous
 generation can be used if an interrupted commit leaves the new one invalid.
-The separate HyFS 2 data volume can be built with `make hyfs2-data-disk` and
-booted with `make run-hyfs2-data-ahci` or `make run-hyfs2-data-nvme`. It appears
+The separate HyFS 2 data volume can be built with `make data-disk-hyfs2` and
+booted with `make run-data-ahci` or `make run-data-nvme`. It appears
 at `/data`; the boot image remains at `/` and removable media at `/usb`. The
 data disk is a persistent raw image and is created only if absent, so normal
 builds do not overwrite its contents. The default path is
