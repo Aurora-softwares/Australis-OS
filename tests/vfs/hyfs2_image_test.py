@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from hyfs2 import (  # noqa: E402
     Hyfs2Error, Hyfs2Image, KIND_DIRECTORY, KIND_FILE,
-    CREATED_VALID, MODIFIED_VALID,
+    CREATED_VALID, MODIFIED_VALID, scan_image,
 )
 
 
@@ -38,6 +38,25 @@ class Hyfs2ImageTests(unittest.TestCase):
         self.assertEqual(recovered.snapshot.generation, 1)
         self.assertEqual(recovered.snapshot.slot, 1)
         self.assertEqual(recovered.list_directory("/"), [])
+
+    def test_read_only_scanner_reports_generations_and_unowned_blocks(self):
+        self.image.put("/file", b"first" * 120)
+        self.image.put("/file", b"second" * 120)
+        self.image.put("/file", b"third" * 120)
+        before = self.path.read_bytes()
+        report = "\n".join(scan_image(self.path))
+        self.assertIn("slot 0: valid generation", report)
+        self.assertIn("slot 1: valid generation", report)
+        unowned = next(line for line in report.splitlines()
+                       if line.startswith("unreferenced nonzero blocks"))
+        self.assertGreater(int(unowned.rsplit(": ", 1)[1]), 0)
+        self.assertEqual(self.path.read_bytes(), before)
+        with self.path.open("r+b") as volume:
+            volume.seek(self.image.snapshot.slot * 512 + 48)
+            volume.write(b"\0")
+        report = "\n".join(scan_image(self.path))
+        self.assertIn(f"slot {self.image.snapshot.slot}: invalid", report)
+        self.assertIn("selected:", report)
 
     def test_nested_crud_and_metadata(self):
         self.image.mkdir("/Users")
@@ -150,6 +169,19 @@ class Hyfs2ImageTests(unittest.TestCase):
         self.assertEqual(recovered.snapshot.generation, old_generation)
         self.assertEqual([entry.name for entry in recovered.list_directory("/")],
                          ["first"])
+
+    def test_repeated_replacement_preserves_previous_file_generation(self):
+        self.image.put("/file", b"first" * 120)
+        self.image.put("/file", b"second" * 120)
+        fallback = self.image.snapshot
+        fallback_contents = self.image.read_file("/file")
+        self.image.put("/file", b"third" * 120)
+        with self.path.open("r+b") as volume:
+            volume.seek(self.image.snapshot.slot * 512 + 48)
+            volume.write(b"\0")
+        recovered = self.reopen()
+        self.assertEqual(recovered.snapshot.generation, fallback.generation)
+        self.assertEqual(recovered.read_file("/file"), fallback_contents)
 
     def test_rejects_invalid_updates_without_changing_disk(self):
         self.image.mkdir("/one")

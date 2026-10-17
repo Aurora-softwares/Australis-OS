@@ -348,11 +348,12 @@ class Hyfs2Image:
             raise Hyfs2Error("parent is not a directory")
         return parent, parts[-1]
 
-    def _used_blocks(self) -> set[int]:
+    @staticmethod
+    def _snapshot_blocks(snapshot: Snapshot) -> set[int]:
         used = {0, 1}
-        used.update(range(self.snapshot.table_first,
-                          self.snapshot.table_first + self.snapshot.table_blocks))
-        for entry in self.entries.values():
+        used.update(range(snapshot.table_first,
+                          snapshot.table_first + snapshot.table_blocks))
+        for entry in snapshot.entries:
             if entry.kind == KIND_FILE and entry.length:
                 used.update(range(entry.first_block,
                                   entry.first_block + blocks_for(entry.length)))
@@ -376,7 +377,25 @@ class Hyfs2Image:
         if max(proposed) > 0xFFFFFFFF:
             raise Hyfs2Error("object IDs exhausted")
         changed_data = changed_data or {}
-        used = self._used_blocks()
+        # A valid older slot is the recovery fallback until its superblock is
+        # replaced. Keep both generations' extents intact during this commit.
+        candidates = []
+        with self.path.open("rb") as image:
+            for slot in (0, 1):
+                try:
+                    candidates.append(self._read_snapshot(image, slot, self.volume_blocks))
+                except Hyfs2Error:
+                    pass
+        if not candidates:
+            raise Hyfs2Error("no valid HyFS v2 generation")
+        current = max(candidates, key=lambda snapshot: snapshot.generation)
+        if (current.generation != self.snapshot.generation or
+                current.slot != self.snapshot.slot or
+                current.table_first != self.snapshot.table_first):
+            raise Hyfs2Error("image changed; reopen before editing")
+        used = {0, 1}
+        for snapshot in candidates:
+            used.update(self._snapshot_blocks(snapshot))
         proposed = dict(proposed)
         writes = []
         for object_id, contents in changed_data.items():
@@ -395,11 +414,6 @@ class Hyfs2Image:
         table_first = self._allocate(table_blocks, used)
         # Validate the proposed tree before touching the image.
         self._validate_structure(ordered, table_first, table_blocks)
-        current = Hyfs2Image.open(self.path).snapshot
-        if (current.generation != self.snapshot.generation or
-                current.slot != self.snapshot.slot or
-                current.table_first != self.snapshot.table_first):
-            raise Hyfs2Error("image changed; reopen before editing")
         inactive = 1 - self.snapshot.slot
         with self.path.open("r+b") as image:
             for first, contents in writes:
@@ -548,9 +562,52 @@ class Hyfs2Image:
                 raise Hyfs2Error(f"unsupported source type: {child}")
 
 
+def scan_image(path: Path) -> list[str]:
+    """Inspect both generations and block ownership without changing the image."""
+    path = Path(path)
+    size = path.stat().st_size
+    if size < 8 * BLOCK_SIZE or size % BLOCK_SIZE:
+        raise Hyfs2Error("invalid image size")
+    volume_blocks = size // BLOCK_SIZE
+    snapshots: list[Snapshot] = []
+    lines: list[str] = []
+    with path.open("rb") as image:
+        for slot in (0, 1):
+            try:
+                snapshot = Hyfs2Image._read_snapshot(image, slot, volume_blocks)
+            except Hyfs2Error as error:
+                lines.append(f"slot {slot}: invalid ({error})")
+            else:
+                snapshots.append(snapshot)
+                lines.append(f"slot {slot}: valid generation {snapshot.generation}, "
+                             f"{len(snapshot.entries)} objects")
+        if not snapshots:
+            raise Hyfs2Error("no valid HyFS v2 generation; " + "; ".join(lines))
+        selected = max(snapshots, key=lambda snapshot: snapshot.generation)
+        lines.append(f"selected: slot {selected.slot}, generation {selected.generation}")
+        # The two valid roots both own their extents until a later commit
+        # replaces one. Unowned nonzero data may be stale COW data or a leak;
+        # the format has no allocation bitmap that could distinguish them.
+        used = {0, 1}
+        for snapshot in snapshots:
+            used.update(Hyfs2Image._snapshot_blocks(snapshot))
+        unreferenced_nonzero = 0
+        for block in range(2, volume_blocks):
+            if block in used:
+                continue
+            image.seek(block * BLOCK_SIZE)
+            if any(image.read(BLOCK_SIZE)):
+                unreferenced_nonzero += 1
+        lines.append(f"owned blocks (both valid generations): {len(used)}/{volume_blocks}")
+        lines.append(f"unreferenced nonzero blocks (stale or leaked): {unreferenced_nonzero}")
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    check = sub.add_parser("check", help="read-only consistency and allocation scan")
+    check.add_argument("image", type=Path)
     create = sub.add_parser("create")
     create.add_argument("image", type=Path)
     create.add_argument("--size-mib", type=int, default=4)
@@ -571,6 +628,10 @@ def main() -> None:
     try:
         if args.command == "create":
             Hyfs2Image.create(args.image, args.size_mib * 1024 * 1024, args.source)
+            return
+        if args.command == "check":
+            for line in scan_image(args.image):
+                print(line)
             return
         image = Hyfs2Image.open(args.image)
         if args.command == "ls":

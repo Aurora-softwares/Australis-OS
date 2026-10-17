@@ -89,7 +89,8 @@ def main():
                 if (after["storage_cause"] != 0 or after["storage_state"] != 0 or
                         after["storage_irqs"] <= failed["storage_irqs"] or
                         after["allocator_next"] != before["allocator_next"] or
-                        after["memory_error"] != 0 or after["dynamic_mapping_base"] != 0):
+                        after["memory_error"] != 0 or
+                        after["dynamic_mapping_base"] != before["dynamic_mapping_base"]):
                     raise AssertionError(f"shell or allocator did not recover: {after}")
             print(f"Australis {transport.upper()} failed-completion QEMU test passed")
         finally:

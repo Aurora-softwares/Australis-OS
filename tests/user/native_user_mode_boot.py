@@ -71,6 +71,8 @@ def main() -> None:
                         f"native fault containment failed: {opening[-3500:]!r}")
                 for image, expected in (
                     ("native-pid", b"shell: exit status "),
+                    ("native-hydrogen", b"hydrogen-aun1-ok"),
+                    ("native-write-invalid", b"native-invalid-pointers-ok"),
                     ("native-fault", b"shell: program fault: -103"),
                     ("native-privilege", b"shell: program fault: -102"),
                 ):
@@ -84,6 +86,8 @@ def main() -> None:
                         status = re.search(rb"shell: exit status (\d+)", response)
                         if status is None or int(status.group(1)) in (0, 99):
                             raise AssertionError(f"invalid native PID: {response!r}")
+                    if image == "native-hydrogen" and b"shell: exit status 7" not in response:
+                        raise AssertionError(f"wrong Hydrogen exit status: {response!r}")
                 connection.sendall(b"help\r")
                 help_text = read_until(connection, b"australis> ", 30, process)
                 if b"Built-ins: help" not in help_text:

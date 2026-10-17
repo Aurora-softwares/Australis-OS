@@ -12,6 +12,7 @@ import time
 
 
 ERROR = b"[BOOT] Failed to start kernel."
+NO_GOP = b"[KERNEL] GOP framebuffer is unavailable."
 
 
 def variant(kernel: bytes, name: str) -> bytes | None:
@@ -19,6 +20,8 @@ def variant(kernel: bytes, name: str) -> bytes | None:
         return None
     if name == "short":
         return kernel[:16]
+    if name == "no-gop":
+        return kernel
     if name == "oversized":
         return kernel + bytes(1048577 - len(kernel))
     data = bytearray(kernel)
@@ -65,6 +68,9 @@ def check(qemu: str, firmware: str, base: Path, kernel: bytes,
         else:
             command += ["-drive", f"if=none,id=nvme0,format=raw,file={image}",
                         "-device", "nvme,serial=australis,drive=nvme0"]
+        expected = NO_GOP if name == "no-gop" else ERROR
+        if name == "no-gop":
+            command += ["-vga", "none"]
         process = subprocess.Popen(command, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.PIPE)
         try:
@@ -78,7 +84,7 @@ def check(qemu: str, firmware: str, base: Path, kernel: bytes,
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(str(serial))
                 received = bytearray()
-                while ERROR not in received:
+                while expected not in received:
                     if process.poll() is not None:
                         raise RuntimeError(f"QEMU exited before boot rejection: {received[-500:]!r}")
                     remaining = deadline - time.monotonic()
@@ -92,7 +98,8 @@ def check(qemu: str, firmware: str, base: Path, kernel: bytes,
                     if not part:
                         raise RuntimeError(f"serial closed before rejection: {received[-500:]!r}")
                     received.extend(part)
-                if b"[KERNEL]" in received or b"australis>" in received:
+                if (name != "no-gop" and b"[KERNEL]" in received) or \
+                        b"australis>" in received:
                     raise AssertionError(f"{transport} {name}: entered invalid kernel")
         finally:
             process.terminate()
@@ -111,9 +118,9 @@ def main() -> None:
         raise ValueError("the source kernel is not a valid AUKR test fixture")
     for transport in ("ahci", "nvme"):
         for name in ("missing", "short", "oversized", "bad-magic",
-                     "bad-version", "bad-length", "bad-entry"):
+                     "bad-version", "bad-length", "bad-entry", "no-gop"):
             check(qemu, firmware, Path(base_image), kernel, transport, name)
-            print(f"Australis {transport} {name} kernel rejected", flush=True)
+            print(f"Australis {transport} {name} boot failure caught", flush=True)
 
 
 if __name__ == "__main__":

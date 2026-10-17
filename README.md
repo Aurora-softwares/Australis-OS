@@ -171,8 +171,8 @@ bit. Its PIC IRQ4 handler copies received data into a 1024-byte kernel ring,
 then the shell drains that ring after it wakes. A full ring drops new input and
 records the drop count in `KernelBootInfo`.
 
-The kernel-owned `cat /hello.txt` remains available in KMon for recovery. To
-launch the source-built userland command explicitly from KMon, run:
+KMon can launch the packaged `cat.exec` when a root filesystem is mounted.
+To launch it explicitly from KMon, run:
 
 ```text
 kmon> run cat /hello.txt
@@ -182,7 +182,8 @@ Hello from Australis HyFS.
 `/System/Bin/cat.exec` reads a dynamic path through checked file calls and handles
 EOF and file errors. `make test-userland-essentials` runs bare `cat` in the
 userland shell on AHCI and NVMe, together with the other Essentials commands.
-Bare `cat` inside KMon selects the kernel recovery built-in.
+Bare `cat` in KMon also resolves the packaged executable through its search
+path; early Rescue has no filesystem-backed `cat` command.
 
 `run /System/Bin/user-fault.exec` in KMon exercises the protected-write failure path.
 `ps` reports the most recent program state.
@@ -567,7 +568,9 @@ image. For example, after `python3 tools/hyfs2.py create volume.img`, run
 `python3 tools/hyfs2.py mkdir volume.img /Users`,
 `python3 tools/hyfs2.py put volume.img note.txt /Users/note.txt`, and
 `python3 tools/hyfs2.py ls volume.img /Users`. It also supports `cat`, `stat`,
-`mv`, and `rm`. Each edit publishes a new checked generation; the previous
+`mv`, and `rm`. `python3 tools/hyfs2.py check volume.img` scans both generations
+and reports invalid records and unreferenced nonzero blocks without writing.
+Each edit publishes a new checked generation; the previous
 generation can be used if an interrupted commit leaves the new one invalid.
 The separate HyFS 2 data volume can be built with `make data-disk-hyfs2` and
 booted with `make run-data-ahci` or `make run-data-nvme`. It appears

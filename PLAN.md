@@ -255,7 +255,7 @@ a faulty client while COM1 remains an independent recovery console.
 - 🟡 Move the remaining terminal, file, IPC, and scheduling contracts into
   native syscalls; add native interrupt preemption and resource accounting.
   Keep AUEX as a compatibility format during migration.
-- 🔴 Complete bootloader negative tests, ACPI/configuration and selectable
+- 🔴 Complete remaining bootloader firmware-failure tests, ACPI/configuration and selectable
   diagnostics as required for release; test cold boot, restart, and failure
   paths on physical supported machines.
 - 🔴 Add users, groups, permissions, protected credential verification,
@@ -266,6 +266,9 @@ fault returns resources without taking down PID 1 or recovery. Supported
 physical machines pass the boot and storage failure matrix.
 
 ## Immediate next work
+
+The [checklist ownership audit](docs/checklist-audit.md) maps the remaining
+bootloader, kernel, storage, userland, and Hydrogen work to its owner.
 
 Gate 0, Stage 2, and the Stage 3 image and recovery path pass their stated
 exit checks. Stage 4 now has live AUEX children and ordered manifest startup.

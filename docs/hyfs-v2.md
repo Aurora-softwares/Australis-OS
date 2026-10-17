@@ -37,8 +37,9 @@ nonzero reserved bytes fail validation. A volume has at least 8 blocks. The
 object table is at most 64 KiB, lies at or after block 2, and does not overlap
 either superblock.
 
-Updates use copy-on-write. The kernel writer never overwrites blocks in the selected
-snapshot or the other valid superblock generation before committing. It writes
+Updates use copy-on-write. The kernel and offline writers never overwrite blocks
+in the selected snapshot or the other valid superblock generation before
+committing. The kernel writer writes
 changed file contents to unused blocks,
 flushes, writes a new complete object table to unused blocks, flushes, then
 writes the inactive superblock with the next generation and flushes. Failure

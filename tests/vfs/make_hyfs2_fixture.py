@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from hyfs2 import Hyfs2Image  # noqa: E402
 
 
-FIXTURE_SHA256 = "8869f1e9921a7bc9f26655320761549d45ac32d0435fed4c6a7378d604e0824e"
+FIXTURE_SHA256 = "cfee952ab0d7603c63e6ff66e0210c72cb24931520567d8cc5cbd0269dbed1ca"
 
 
 def main() -> None:

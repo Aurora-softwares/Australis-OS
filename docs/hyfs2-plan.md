@@ -191,8 +191,10 @@ mock.
 
 ## Milestone 5: safe HyFS 2 updates
 
-- 🔴 Implement free-space accounting and allocation with checks against
-  double allocation, leaks, reserved blocks, and volume exhaustion.
+- 🟢 Account for blocks owned by both valid generations when allocating;
+  reject overlapping or reserved extents and volume exhaustion. The kernel
+  writer already protects both roots; the offline tool now does too. Old
+  copy-on-write blocks become free once neither root refers to them.
 - 🟢 Specify a transaction protocol. A practical first option is
   copy-on-write metadata and file data with two checksummed superblock slots
   carrying generation numbers. Write new data, flush it, write new metadata,
@@ -203,8 +205,12 @@ mock.
   operation guarantees across an interrupted write.
 - 🟢 Expose VFS and userland write calls with per-volume permissions and
   checked open modes. Keep raw block access out of ordinary applications.
-- 🔴 Add a checker/repair or at least a read-only consistency scanner that
-  reports leaked and orphaned objects without silently rewriting them.
+- 🟢 Add a read-only consistency scanner. `python3 tools/hyfs2.py check IMAGE`
+  validates both superblock generations, object parent links and extents, and
+  reports owned blocks plus nonzero unreferenced blocks without changing the
+  image. The latter can be stale copy-on-write data or leaked writes; this
+  format has no allocation bitmap to distinguish them. Invalid orphaned
+  records are reported as a rejected generation.
 - 🟢 Test after every injected interruption point, including data write,
   metadata write, flush, and superblock publication. Remount must expose
   either the old valid state or the new valid state, never a mixed tree.

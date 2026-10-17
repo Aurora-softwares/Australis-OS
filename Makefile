@@ -33,6 +33,7 @@ HYFS2_TOOL := $(BUILD_DIR)/tools/hyfs2-image
 HYFS2_PROJECT := tools/HyFS2Image/HyFS2Image.hyproj
 HYFS2_ISO_ROOT := $(BUILD_DIR)/iso-root-hyfs2
 HYFS2_ISO := $(BUILD_DIR)/australis-hyfs2.iso
+ISO := $(HYFS2_ISO)
 HYFS2_DATA_DISK ?= $(BUILD_DIR)/hyfs2-data.img
 HYFS2_AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(HYFS2_ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 HYFS2_NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(HYFS2_ISO)" -device nvme,serial=australis,drive=nvme0
@@ -279,6 +280,10 @@ test-rescue-boot: image | check-run-tools
 test-bootloader-negative: image | check-run-tools
 	python3 tests/bootloader/negative_kernel_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(IMAGE)" "$(KERNEL_BINARY)"
 
+.PHONY: test-boot-modes
+test-boot-modes: iso | check-run-tools
+	python3 tests/bootloader/boot_modes.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
+
 test-kmon-recovery: iso | check-run-tools
 	python3 tests/console/recovery_commands_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
 
@@ -413,11 +418,13 @@ test-userland-stage5-ipc: test-userland-stage5-ipc-image
 	python3 tests/user/stage5_ipc_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 	python3 tests/user/stage5_ipc_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
-test-native-user-mode-image:
+test-native-user-mode-image: $(APP_COMPILER)
 	python3 tools/make_native_test_image.py tests/user/native_pid.S "$(BUILD_DIR)/native-pid.exec"
 	python3 tools/make_native_test_image.py tests/user/native_fault.S "$(BUILD_DIR)/native-fault.exec"
 	python3 tools/make_native_test_image.py tests/user/native_privilege.S "$(BUILD_DIR)/native-privilege.exec"
-	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec"
+	python3 tools/make_native_test_image.py tests/user/native_write_invalid.S "$(BUILD_DIR)/native-write-invalid.exec"
+	"$(APP_COMPILER)" build ../Hylang-Compiler/tests/phase6/Aun1Hello.hyproj -o "$(BUILD_DIR)/native-hydrogen.exec" --hide-progress
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec $(BUILD_DIR)/native-write-invalid.exec $(BUILD_DIR)/native-hydrogen.exec"
 
 test-native-user-mode: test-native-user-mode-image
 	python3 tests/user/native_user_mode_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci

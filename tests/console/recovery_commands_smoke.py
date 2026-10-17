@@ -47,6 +47,7 @@ def exercise(qemu: str, firmware: str, iso: str, action: str) -> None:
                 prompt = b"rescue> " if selected else b"kmon> "
                 selected_marker = b"[BOOT] Rescue mode selected." if selected else b"[BOOT] Debug mode selected."
                 last_key = 0.0
+                exited_shell = False
                 opening = bytearray()
                 deadline = time.monotonic() + 50
                 while prompt not in opening:
@@ -62,6 +63,9 @@ def exercise(qemu: str, firmware: str, iso: str, action: str) -> None:
                         opening.extend(serial.recv(4096))
                     except socket.timeout:
                         pass
+                    if not selected and not debug and not exited_shell and b"australis> " in opening:
+                        serial.sendall(b"exit\r")
+                        exited_shell = True
 
                 if selected or debug:
                     time.sleep(0.3)  # allow the injected key release before a possible reset
@@ -84,7 +88,15 @@ def exercise(qemu: str, firmware: str, iso: str, action: str) -> None:
                     memory_map = read_until(serial, b"rescue> ", 15, process)
                     if b"EFI memory map:\r\n" not in memory_map:
                         raise AssertionError(f"Rescue cannot inspect memory map: {memory_map!r}")
-                    for name in (b"devices", b"mounts", b"memmap", b"pages"):
+                    serial.sendall(b"status\r")
+                    status = read_until(serial, b"rescue> ", 15, process)
+                    if b"KMon system status:\r\n" not in status or b"root: unavailable\r\n" not in status:
+                        raise AssertionError(f"Rescue status is invalid: {status!r}")
+                    serial.sendall(b"bootinfo\r")
+                    bootinfo = read_until(serial, b"rescue> ", 15, process)
+                    if b"KernelBootInfo:\r\nABI version: 7\r\n" not in bootinfo:
+                        raise AssertionError(f"Rescue boot information is invalid: {bootinfo!r}")
+                    for name in (b"devices", b"mounts", b"memmap", b"pages", b"status", b"bootinfo"):
                         serial.sendall(name + b" extra\r")
                         usage = read_until(serial, b"rescue> ", 15, process)
                         if b"Usage: " + name + b"\r\n" not in usage:
