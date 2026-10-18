@@ -249,9 +249,9 @@ a faulty client while COM1 remains an independent recovery console.
 
 - 🟢 Run AUN1 children with bounded memory from the read-only system volume in ring 3,
   with supervisor-only copied kernel mappings, owned code/data/stack pages,
-  an unmapped stack guard, TSS entry, `int 0x80` PID/exit, and contained
-  page and general-protection faults. Record native exit/fault state in the
-  shared process table. AHCI and NVMe checks preserve PID 1 and KMon.
+  an unmapped stack guard, TSS entry, `int 0x80` PID/exit/terminal-write,
+  and contained page and general-protection faults. Record native exit/fault
+  state in the shared process table. AHCI and NVMe checks preserve PID 1 and KMon.
 - 🟡 Move the remaining terminal, file, IPC, and scheduling contracts into
   native syscalls; add native interrupt preemption and resource accounting.
   Keep AUEX as a compatibility format during migration.

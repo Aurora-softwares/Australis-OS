@@ -65,3 +65,12 @@ Hydrogen currently lowers only a flat `static Main(string[] args)` body with
 ASCII literal `System.Australis.Terminal.Write(...)` calls and a literal return
 status for this target. Other source constructs fail compilation rather than
 producing an image with different semantics.
+
+## QEMU integration proof
+
+From the Australis OS repository, run `make test-native-user-mode`. The target
+builds the Hydrogen source fixture as AUN1 v2, packages it in the HyFS 2 ISO,
+and boots the image with AHCI and NVMe separately. On each boot the harness
+checks the source program's terminal marker and exit status, the PID syscall,
+rejected supervisor and page-crossing pointers and oversized writes, contained
+page and privilege faults, continued PID 1 shell commands, and KMon recovery.

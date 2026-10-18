@@ -88,6 +88,8 @@ def main() -> None:
                             raise AssertionError(f"invalid native PID: {response!r}")
                     if image == "native-hydrogen" and b"shell: exit status 7" not in response:
                         raise AssertionError(f"wrong Hydrogen exit status: {response!r}")
+                    if image == "native-write-invalid" and b"shell: exit status 17" not in response:
+                        raise AssertionError(f"invalid-pointer checks did not finish: {response!r}")
                 connection.sendall(b"help\r")
                 help_text = read_until(connection, b"australis> ", 30, process)
                 if b"Built-ins: help" not in help_text:

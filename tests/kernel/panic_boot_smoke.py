@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trigger a real kernel page fault and verify both panic terminals."""
+"""Trigger kernel page and general-protection faults; verify both panic terminals."""
 
 from pathlib import Path
 import os
@@ -15,8 +15,7 @@ from serial_boot_smoke import (PROMPT, capture_record, capture_screen,
                                monitor_command, read_until, screen_lines)
 
 
-def main():
-    qemu, firmware, iso = sys.argv[1:4]
+def run_fault(qemu, firmware, iso, command, vector):
     with tempfile.TemporaryDirectory(prefix="australis-panic-") as temporary:
         serial_path = os.path.join(temporary, "serial.sock")
         monitor_path = os.path.join(temporary, "monitor.sock")
@@ -61,16 +60,15 @@ def main():
                         opening.extend(connection.recv(4096))
                     except socket.timeout:
                         pass
-                connection.sendall(b"panic\r")
+                connection.sendall(command + b"\r")
                 report = read_until(connection,
                     b"System halted. Power cycle or reset to continue.\r\n", 20, process)
 
             required = [
                 b"*** AUSTRALIS KERNEL PANIC ***\r\n",
                 b"Fatal CPU exception; interrupts are disabled.\r\n",
-                b"VECTOR  =0x000000000000000E\r\n",
+                f"VECTOR  =0x{vector:016X}\r\n".encode(),
                 b"ERROR   =0x0000000000000000\r\n",
-                b"CR2     =0x0000000000000000\r\n",
                 b"R15     =0x",
             ]
             for marker in required:
@@ -81,9 +79,10 @@ def main():
                     raise AssertionError(f"serial panic register missing: {register!r}")
 
             record = capture_record(monitor_path, memory_path)
-            if (record["exception"] != 14 or record["panic_vector"] != 14 or
+            if (record["exception"] != vector or record["panic_vector"] != vector or
                     record["panic_error_valid"] != 1 or record["panic_error"] != 0 or
-                    record["panic_cr2"] != 0 or record["panic_rip"] == 0 or
+                    (vector == 14 and record["panic_cr2"] != 0) or
+                    record["panic_rip"] == 0 or
                     record["panic_rsp"] == 0 or record["panic_state"] != 2):
                 raise AssertionError(f"invalid captured panic state: {record}")
 
@@ -91,11 +90,11 @@ def main():
                 capture_screen(monitor_path, screen_path))]
             visible = "\n".join(lines)
             for marker in ("*** AUSTRALIS KERNEL PANIC ***",
-                           "VECTOR  =0x000000000000000E",
+                           f"VECTOR  =0x{vector:016X}",
                            "RIP     =0x", "System halted. Power cycle or reset to continue."):
                 if marker not in visible:
                     raise AssertionError(f"framebuffer panic report missing {marker!r}")
-            print("Australis kernel panic QEMU test passed")
+            print(f"Australis kernel panic {command.decode()} QEMU test passed")
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -105,6 +104,11 @@ def main():
                     process.kill()
             if process.stderr is not None:
                 process.stderr.close()
+
+def main():
+    qemu, firmware, iso = sys.argv[1:4]
+    run_fault(qemu, firmware, iso, b"panic", 14)
+    run_fault(qemu, firmware, iso, b"panic gp", 13)
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ _start:
     int 0x80
     cmp rax, passed_end - passed
     jne invalid
-    xor edi, edi
+    mov edi, 17                 // distinct success status for the boot harness
     mov eax, 1
     int 0x80
     ud2
