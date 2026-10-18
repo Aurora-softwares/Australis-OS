@@ -294,7 +294,7 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, status, bootinfo, memmap, pages, continue, reboot, halt, trace, registers, panic (D boot)\r\n")
+                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, status, bootinfo, memmap, pages, continue, reboot, halt, trace, registers, panic [gp] (D boot)\r\n")
                 command(connection, process, b"status", b"KMon system status:\r\n")
                 command(connection, process, b"bootinfo", b"KernelBootInfo:\r\nABI version: 7\r\n")
                 command(connection, process, b"continue", b"Normal boot is already active.\r\n")
@@ -306,8 +306,9 @@ def main():
                     if re.search(re.escape(name) + rb"[1-9][0-9]*\r\n", registers) is None:
                         raise AssertionError(f"KMon register snapshot missing {name!r}: {registers!r}")
                 command(connection, process, b"panic", b"panic requires D debug boot.\r\n")
-                for name in (b"continue", b"reboot", b"halt", b"trace", b"status", b"bootinfo", b"registers", b"panic"):
+                for name in (b"continue", b"reboot", b"halt", b"trace", b"status", b"bootinfo", b"registers"):
                     command(connection, process, name + b" extra", b"Usage: " + name + b"\r\n")
+                command(connection, process, b"panic extra", b"Usage: panic [gp]\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")

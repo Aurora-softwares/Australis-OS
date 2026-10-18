@@ -272,8 +272,10 @@ exceptions enter a common allocation-free panic path. It disables interrupts,
 captures the error code, return frame, `CR2`, and all general registers, then
 writes the same hexadecimal report directly to polled COM1 and the GOP
 framebuffer before halting. In `D` Debug boot, KMon's `panic` command
-deliberately reads the protected null page so this path can be exercised under
-QEMU.
+deliberately reads the protected null page; `panic gp` accesses a noncanonical
+address to exercise general-protection classification under QEMU. See the
+[kernel reliability contract](docs/kernel-reliability.md) for ownership rules
+and report interpretation.
 The PIC is remapped and masked, so it cannot deliver device IRQs before a driver
 has registered ownership. The local APIC is enabled in either xAPIC or x2APIC
 mode; xAPIC receives an uncached identity mapping when its page is absent from
@@ -810,6 +812,7 @@ the four-level paging mode accepted by the current kernel handoff.
 | `3464` | `uint32` | Last foreground AUEX process ID |
 | `3472` | `uint32` | Boot mode (`0` normal, `1` debug, `3` rescue) |
 | `3476` | `uint32` | Recovery phase (`0` normal boot, `1` early recovery, `2` recovery shell) |
+| `3608` | `uint64` | PhysicalPages ownership floor recorded before the first kernel allocation |
 
 ## UEFI Framebuffer offsets
 

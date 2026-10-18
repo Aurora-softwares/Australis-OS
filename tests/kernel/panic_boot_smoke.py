@@ -94,7 +94,7 @@ def run_fault(qemu, firmware, iso, command, vector):
                            "RIP     =0x", "System halted. Power cycle or reset to continue."):
                 if marker not in visible:
                     raise AssertionError(f"framebuffer panic report missing {marker!r}")
-            print(f"Australis kernel panic {command.decode()} QEMU test passed")
+            print(f"Australis kernel {command.decode()} QEMU test passed")
         finally:
             if process.poll() is None:
                 process.terminate()

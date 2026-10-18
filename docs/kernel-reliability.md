@@ -26,9 +26,9 @@ physical allocator range from that point onward.
   a frame only after unmapping every alias it owns. MMIO mappings belong to
   their device owner and must be released before that owner is destroyed.
 - IRQ stubs only capture and acknowledge device state. Foreground code owns
-  managed objects, device lifecycles, and event queue consumption. The xHCI
-  pending count is moved to the queue with interrupts masked and the prior IF
-  state restored. Registration publishes the vector last; unregistration
+  managed objects, device lifecycles, and event processing. The xHCI pending
+  count is decremented with interrupts masked and the prior IF state restored.
+  Registration publishes the vector last; unregistration
   clears it first.
 - The current kernel runs on one CPU and does not schedule native kernel
   threads. Short interrupt-masked sections protect data shared with IRQs.
@@ -37,6 +37,10 @@ physical allocator range from that point onward.
 - Deadlines use calibrated TSC ticks. A zero deadline means invalid or
   unavailable. Both hosted and native clock helpers reject arithmetic that
   would exceed signed 64-bit time before multiplying or adding.
+- Until Hydrogen's freestanding x64 immediate emission handles values above
+  signed 32-bit range consistently, kernel code constructs such values from
+  smaller operands. This matters for address tests, masks, and deadline
+  limits; direct large literals produced incorrect checks during this pass.
 
 ## Exception classification and response
 
@@ -53,7 +57,7 @@ report for a QEMU memory capture. Vector 255 means an unexpected interrupt.
 | 14 | Page fault | CR2 is the fault address. Error bits 0–4 mean present/protection, write, user, reserved-bit violation, and instruction fetch. |
 | 13 | General protection | Error code and RIP identify an invalid protection or noncanonical access. CR2 is unrelated to this fault. |
 | 6 | Invalid opcode | RIP identifies the rejected instruction. |
-| 8 | Double fault | The first exception could not be delivered safely; capture the report and reset. |
+| 8 | Double fault | The first exception could not be delivered safely. A report is possible only if the current stack is still usable. |
 | Other 0–31 | CPU exception | Use the vector and architecture error code (if present) with RIP and register state. |
 
 Ring-3 AUN1 page and protection faults are intercepted by the native user
@@ -80,3 +84,5 @@ interrupts disabled. Serial output still depends on a working COM1 device;
 the framebuffer path still depends on a valid GOP mapping. The current
 checks cover QEMU/OVMF and do not establish behavior on every physical
 machine or under SMP, which remains outside the present ownership model.
+The IDT does not yet use a dedicated IST emergency stack, so a corrupted
+kernel stack can prevent even the double-fault report from completing.

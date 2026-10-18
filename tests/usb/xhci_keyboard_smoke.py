@@ -110,8 +110,10 @@ def main():
                 read_until(connection, b"user> ", 20, process)
                 send_text(monitor_path, "usb input\n")
                 user_output = read_until(connection, b"\n" + PROMPT, 30, process)
+                user_record = capture_record(monitor_path, memory_path)
                 if (b"input: usb input\r\n" not in user_output or hello not in user_output or
-                        b"User program exited cleanly.\r\n" not in user_output):
+                        user_record["user_state"] != 2 or user_record["user_exit"] != 0 or
+                        user_record["user_fault"] != 0):
                     raise AssertionError(f"USB user-terminal syscall failed: {user_output!r}")
                 command(connection, process, b"echo com1 alive", b"com1 alive\r\n")
 
