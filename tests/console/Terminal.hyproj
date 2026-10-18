@@ -1,7 +1,7 @@
 format = 2
 name = "AustralisTerminalTests"
 type = "exe"
-sources = ["../../src/kernel/console/ConsoleEvents.hy", "../../src/kernel/console/LineEditor.hy", "TerminalProgram.hy"]
+sources = ["../../src/kernel/console/ConsoleEvents.hy", "../../src/kernel/console/LineEditor.hy", "../../src/kernel/console/FramebufferMode.hy", "TerminalProgram.hy"]
 
 [package]
 id = "AustralisTerminalTests"

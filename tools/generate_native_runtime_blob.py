@@ -14,12 +14,14 @@ SYMBOLS = {
     "native_general_protection": "GeneralProtectionOffset",
     "native_invalid_opcode": "InvalidOpcodeOffset",
     "native_divide_error": "DivideErrorOffset",
+    "native_timer": "TimerOffset",
     "native_int80": "Int80Offset",
     "native_boot_info": "BootInfoPointerOffset",
     "native_original_page_fault": "OriginalPageFaultOffset",
     "native_original_general_protection": "OriginalGeneralProtectionOffset",
     "native_original_invalid_opcode": "OriginalInvalidOpcodeOffset",
     "native_original_divide_error": "OriginalDivideErrorOffset",
+    "native_original_timer": "OriginalTimerOffset",
     "native_original_int80": "OriginalInt80Offset",
 }
 
@@ -54,7 +56,8 @@ def main() -> None:
         for name in ("native_boot_info", "native_original_page_fault",
                      "native_original_general_protection",
                      "native_original_invalid_opcode",
-                     "native_original_divide_error", "native_original_int80"):
+                     "native_original_divide_error", "native_original_timer",
+                     "native_original_int80"):
             if offsets[name] + 8 > len(data):
                 raise RuntimeError(f"{name} is outside the runtime code page")
 

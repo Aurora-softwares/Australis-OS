@@ -1,9 +1,9 @@
 # AUN1 native user image, version 2
 
 This is the small x86-64 ring-3 contract implemented by the Australis loader
-and Hydrogen's `type = "native"` project target. It is deliberately limited to
-one code page, terminal output, PID lookup, and exit. AUEX remains a separate
-interpreted application format.
+and Hydrogen's `type = "native"` project target. It permits one code page,
+terminal output, PID lookup, exit, and invited IPC channels. AUEX remains a
+separate interpreted application format.
 
 ## Image
 
@@ -52,6 +52,8 @@ clobbered. Other general registers are preserved for returning calls.
 | 1, exit | `RDI` = signed exit status | Does not return; shell records the status |
 | 2, getpid | None | Positive process ID |
 | 3, terminal write | `RDI` = user byte pointer, `RSI` = length | Bytes written, or a negative error |
+| 4, ABI version | None | `1` |
+| 5–10, channel operations | See [system calls and IPC](system-calls-ipc.md) | Handles, counts, or negative errors |
 
 Terminal write accepts 0 through 256 bytes in one call. For nonempty writes,
 the complete range must fit inside one of the mapped code, startup-data, or
@@ -64,6 +66,16 @@ returns `-5`. A zero-length write returns zero. This initial service writes to
 the primary COM1 serial terminal and does not mirror to the framebuffer.
 Unknown call numbers return `-38`. A child that faults is terminated and the
 parent shell and KMon remain available.
+
+Channel send and receive pointers are checked against the task's private
+mapping and copied through its owned physical frame. A failed receive copy
+does not consume a message. Each process is limited to 4096 managed channel
+calls; timer slices retain their separate bound. The AUN1 loader reads the
+full 16-bit code length, including images larger than 255 bytes.
+
+The local APIC timer preempts native children. AUEX parents can spawn several
+AUN1 children, wait for their exit or fault, and terminate a child that does
+not exit. See `process-scheduling.md` for task states and limits.
 
 Hydrogen currently lowers only a flat `static Main(string[] args)` body with
 ASCII literal `System.Australis.Terminal.Write(...)` calls and a literal return

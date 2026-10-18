@@ -346,17 +346,23 @@ make test-usb
 
 The kernel now owns one live xHCI controller and one root-port device. It
 configures MSI or MSI-X vector `0x32`, initializes DCBAA and scratchpads plus
-command, event, EP0, interrupt, and bulk rings, then enumerates either a boot
-keyboard or a USB mass-storage device. Keyboard reports enter the same
-normal-context console path as COM1. USB storage uses BOT and SCSI READ CAPACITY,
+command, event, EP0, interrupt, and bulk rings, then enumerates a boot
+keyboard, a boot mouse, or a USB mass-storage device. Keyboard reports enter
+the same normal-context console path as COM1. Mouse reports enter a bounded
+kernel event queue with signed motion and button state; a graphical consumer
+is planned for Phase 7. USB storage uses BOT and SCSI READ CAPACITY,
 REQUEST SENSE, and READ(10), exposes the common block-device interface, and can
 mount a second read-only HyFS volume at `/usb`. Disconnects, stalls, transfer
 failures, and unit-attention responses have bounded recovery while COM1 and the
 boot root remain available. Multiple simultaneous devices, hubs, non-US
 layouts, and writable removable media remain later work.
 
-The live keyboard matrix is `make test-stage3`; the AHCI and NVMe USB-storage
+The live keyboard matrix is `make test-stage3`; `make test-mouse` covers a live
+boot mouse on both storage paths. The AHCI and NVMe USB-storage
 matrix is `make test-stage4`.
+The complete Phase 5/6 regression set is `make test-phase5-6`; supported
+hardware and failure coverage are listed in
+[`docs/storage-driver-stability.md`](docs/storage-driver-stability.md).
 
 ## AUEX `.exec` user programs
 
@@ -391,8 +397,9 @@ source aggregate, or pass ready artifacts through `APPLICATION_ARTIFACTS`.
 
 This is software enforced isolation for the AUEX instruction set. A native
 x86-64 ring-3 path with bounded memory is also available for read-only system images;
-the broader AUEX terminal, file, IPC, and scheduling APIs have not yet moved
-to native syscalls.
+native IPC and file calls use checked copies and process-owned handles.
+Broader terminal and device APIs remain AUEX-only. Native children use timer-driven scheduling and the shared
+spawn/wait/terminate lifecycle.
 
 ### Native AUN1 programs
 
@@ -407,17 +414,23 @@ The kernel mappings remain supervisor-only. The native child receives an
 `AUSP` v2 startup record in `RDI`; its layout matches the AUEX start record,
 but the argument, environment, and working-directory entries are offsets from
 `RDI` because native addresses are 64-bit. `RAX=1` with `RDI=exit status`
-exits through `int 0x80`; `RAX=2` returns the child PID. Other syscall numbers
-return `-38`. User page, general-protection, invalid-opcode, and divide faults
+exits through `int 0x80`; `RAX=2` returns the child PID, `RAX=3` writes bounded
+serial output, `RAX=4` reports ABI version 1, and calls 5–10 operate on
+invited channels. Calls 11–16 provide bounded VFS file access with
+process-owned descriptors. Unknown syscall numbers return `-38`. User page,
+general-protection, invalid-opcode, and divide faults
 finish only that child, release its pages, and preserve the parent shell and
 KMon recovery path. See `docs/memory-protection.md` for the Phase 2 contract.
 
 Run `make test-native-user-mode` for the AHCI and NVMe ring-3 matrix, including
 native image launch, PID/exit, kernel-memory denial, code and data page
 permissions, stack guards, privileged-instruction denial, and parent/recovery
-continuity. AUN1 execution is currently restricted
-to the read-only system bin directory; native preemption and the remaining
-terminal, file, and IPC syscalls are later work.
+continuity. The periodic timer preempts AUN1 children and the process host can
+spawn, wait on, and terminate multiple native children. See
+`docs/process-scheduling.md` for lifecycle and resource limits. AUN1 execution
+is currently restricted to the read-only system bin directory; see
+`docs/system-calls-ipc.md` for its checked channel and file ABI and remaining native
+service limits.
 
 The planned OS layer keeps the kernel, system userland, and application
 userland separate. The GUI is an optional userland subsystem. See

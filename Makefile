@@ -45,7 +45,7 @@ NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -d
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
-.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
+.PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-mouse test-mouse-ahci test-mouse-nvme test-phase5-6 test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
 .PHONY: test-userland-shell-preview
 .PHONY: test-userland-system-host test-userland-system-boot
 .PHONY: test-userland-essentials
@@ -55,6 +55,8 @@ USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,
 .PHONY: test-userland-stage5-ipc test-userland-stage5-ipc-image
 .PHONY: test-native-user-mode
 .PHONY: test-native-user-mode-image
+.PHONY: test-native-files
+.PHONY: test-xhci-multi
 .PHONY: test-userland-stage2
 	
 #
@@ -316,6 +318,28 @@ test-stage4-ahci: iso | check-run-tools
 test-stage4-nvme: iso | check-run-tools
 	python3 tests/usb/xhci_storage_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
 
+test-mouse: test-mouse-ahci test-mouse-nvme
+test-mouse-ahci: iso | check-run-tools
+	python3 tests/usb/xhci_mouse_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+test-mouse-nvme: iso | check-run-tools
+	python3 tests/usb/xhci_mouse_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+test-xhci-multi: iso | check-run-tools
+	python3 tests/usb/xhci_multi_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+	python3 tests/usb/xhci_multi_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+	python3 tests/usb/xhci_dual_hid_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" ahci
+	python3 tests/usb/xhci_dual_hid_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme
+
+# Keep ISO-producing boot tests serial even when the caller uses make -j.
+test-phase5-6:
+	"$(MAKE)" -j1 test-storage test-ahci-controller test-nvme-controller test-partitions test-usb test-terminal test-hyfs2
+	"$(MAKE)" -j1 test-stage6
+	"$(MAKE)" -j1 test-stage3
+	"$(MAKE)" -j1 test-mouse
+	"$(MAKE)" -j1 test-stage4
+	"$(MAKE)" -j1 test-serial-ahci test-serial-nvme
+	"$(MAKE)" -j1 test-native-files
+
 test-stage5: test-stage5-host test-stage5-ahci test-stage5-nvme
 test-stage5-host: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
@@ -429,12 +453,23 @@ test-native-user-mode-image: $(APP_COMPILER)
 	python3 tools/make_native_test_image.py tests/user/native_kernel_write.S "$(BUILD_DIR)/native-kernel-write.exec"
 	python3 tools/make_native_test_image.py tests/user/native_invalid_opcode.S "$(BUILD_DIR)/native-invalid-opcode.exec"
 	python3 tools/make_native_test_image.py tests/user/native_divide_error.S "$(BUILD_DIR)/native-divide-error.exec"
+	python3 tools/make_native_test_image.py tests/user/native_spin.S "$(BUILD_DIR)/native-spin.exec"
+	python3 tools/make_native_test_image.py tests/user/native_context.S "$(BUILD_DIR)/native-context.exec"
+	python3 tools/make_native_test_image.py tests/user/native_ipc_child.S "$(BUILD_DIR)/native-ipc.exec"
+	python3 tools/make_native_test_image.py tests/user/native_files.S "$(BUILD_DIR)/native-files.exec"
 	"$(APP_COMPILER)" build ../Hylang-Compiler/tests/phase6/Aun1Hello.hyproj -o "$(BUILD_DIR)/native-hydrogen.exec" --hide-progress
-	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec $(BUILD_DIR)/native-write-invalid.exec $(BUILD_DIR)/native-code-write.exec $(BUILD_DIR)/native-data-execute.exec $(BUILD_DIR)/native-stack-guard.exec $(BUILD_DIR)/native-kernel-write.exec $(BUILD_DIR)/native-invalid-opcode.exec $(BUILD_DIR)/native-divide-error.exec $(BUILD_DIR)/native-hydrogen.exec"
+	"$(APP_COMPILER)" build tests/user/NativeScheduleProbe.hyproj -o "$(BUILD_DIR)/native-schedule-probe.exec" --hide-progress
+	"$(APP_COMPILER)" build tests/user/NativeOrphanProbe.hyproj -o "$(BUILD_DIR)/native-orphan-probe.exec" --hide-progress
+	"$(APP_COMPILER)" build tests/user/NativeIpcProbe.hyproj -o "$(BUILD_DIR)/native-ipc-probe.exec" --hide-progress
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec $(BUILD_DIR)/native-write-invalid.exec $(BUILD_DIR)/native-code-write.exec $(BUILD_DIR)/native-data-execute.exec $(BUILD_DIR)/native-stack-guard.exec $(BUILD_DIR)/native-kernel-write.exec $(BUILD_DIR)/native-invalid-opcode.exec $(BUILD_DIR)/native-divide-error.exec $(BUILD_DIR)/native-spin.exec $(BUILD_DIR)/native-context.exec $(BUILD_DIR)/native-ipc.exec $(BUILD_DIR)/native-files.exec $(BUILD_DIR)/native-hydrogen.exec $(BUILD_DIR)/native-schedule-probe.exec $(BUILD_DIR)/native-orphan-probe.exec $(BUILD_DIR)/native-ipc-probe.exec"
 
 test-native-user-mode: test-native-user-mode-image
 	python3 tests/user/native_user_mode_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 	python3 tests/user/native_user_mode_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-native-files: test-native-user-mode-image
+	python3 tests/user/native_files_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/user/native_files_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-userland-stage1-image: $(APP_COMPILER) | check-run-tools
 	"$(APP_COMPILER)" build tests/user/Stage1App.hyproj -o "$(BUILD_DIR)/stage1-app.exec"

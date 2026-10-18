@@ -81,6 +81,9 @@ def main() -> None:
                     ("native-kernel-write", b"shell: program fault: -103"),
                     ("native-invalid-opcode", b"shell: program fault: -102"),
                     ("native-divide-error", b"shell: program fault: -106"),
+                    ("native-spin", b"shell: program fault: -105"),
+                    ("native-schedule-probe", b"native-schedule: passed"),
+                    ("native-ipc-probe", b"native-ipc: passed"),
                 ):
                     connection.sendall(
                         f"run /System/Bin/{image}.exec\r".encode("ascii"))
@@ -96,6 +99,13 @@ def main() -> None:
                         raise AssertionError(f"wrong Hydrogen exit status: {response!r}")
                     if image == "native-write-invalid" and b"shell: exit status 17" not in response:
                         raise AssertionError(f"invalid-pointer checks did not finish: {response!r}")
+                    if image == "native-schedule-probe" and b"shell: exit status 23" not in response:
+                        raise AssertionError(f"native scheduling checks failed: {response!r}")
+                for _ in range(18):
+                    connection.sendall(b"run /System/Bin/native-orphan-probe.exec\r")
+                    response = read_until(connection, b"australis> ", 30, process)
+                    if b"shell: exit status 31" not in response:
+                        raise AssertionError(f"native orphan cleanup failed: {response!r}")
                 connection.sendall(b"help\r")
                 help_text = read_until(connection, b"australis> ", 30, process)
                 if b"Built-ins: help" not in help_text:

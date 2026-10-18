@@ -48,8 +48,9 @@ dynamic slot. Offsets are relative to that base:
 
 The ABI currently limits each native program to one code, one data, and one
 stack page. This is a deliberate bounded AUN1 profile; a general purpose
-native heap, stack growth, preemption, and a wider syscall API belong to the
-later process and syscall phases.
+native heap, stack growth, and a wider syscall API belong to the later
+process and syscall phases. Timer-driven preemption is described in
+`process-scheduling.md`.
 
 ## Verification
 

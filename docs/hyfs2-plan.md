@@ -222,6 +222,13 @@ mock.
 the volume remounts consistently after power-loss simulations and live device
 failures. Only then enable general persistent writes by default.
 
+**Passed for the QEMU `/data` profile, 18 October 2026:** the host writer
+tests cover each publication interruption, space exhaustion, repeated
+mutations, and remount; `make test-stage6` confirms application writes,
+reboot persistence, and removal on AHCI and NVMe. `make test-native-files`
+exercises native AUN1 file handles through the same `/data` VFS path.
+Physical power-cut tests remain outside this profile.
+
 ## Suggested order
 
 1. Close the v1 validation gaps and freeze its compatibility fixture (done).

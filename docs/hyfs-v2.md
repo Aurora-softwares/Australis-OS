@@ -120,7 +120,9 @@ the writer's own handle refreshes after a successful replace, append, or
 truncate. A failed write that unmounts the HyFS 2 writer also invalidates the
 VFS mount and its handles. Namespace rename rejects a move across volumes.
 AUEX applications receive VFS status codes for mutations and checked opens;
-metadata and directory queries expose errors through `Files.Status()`.
+metadata and directory queries expose errors through `Files.Status()`. Native
+AUN1 calls expose bounded open/read/replace/append/close/create/delete through
+separate process-owned descriptor tables and return negative VFS status codes.
 New records have unavailable timestamps; content changes clear any prior
 modification timestamp because the filesystem has no clock source of its own.
 The boot and USB mounts remain read-only. A separately typed raw HyFS 2 data

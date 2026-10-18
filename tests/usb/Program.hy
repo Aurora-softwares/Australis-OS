@@ -82,6 +82,12 @@ public class Program {
             UsbDescriptors.InterfaceNumber(config, 32, interfaceOffset) != 0) { return 20; }
         config[22] = 0; config[23] = 4;
         if (UsbDescriptors.EndpointMaxPacket(config, 32, endpointOffset) != 1024) { return 22; }
+        if (UsbDescriptors.FindInterface(null, 32, 8, 6, 80) != -1 ||
+            UsbDescriptors.FindEndpointOffset(config, 32, 2147483647, 1, 2) != -1 ||
+            UsbDescriptors.InterfaceNumber(config, 32, 2147483647) != -1 ||
+            UsbDescriptors.EndpointMaxPacket(config, 32, 2147483647) != -1 ||
+            UsbDescriptors.EndpointInterval(config, 32, 2147483647) != -1 ||
+            UsbDescriptors.ConfigurationValue(null, 32) != -1) { return 28; }
         config[18] = 0;
         if (UsbDescriptors.FindEndpoint(config, 32, interfaceOffset, 1, 2) != -1) { return 7; }
 
@@ -122,6 +128,23 @@ public class Program {
             UsbHidBoot.UsAscii(45, 2) != 95) { return 18; }
         byte[] mouse = new byte[3]; mouse[0] = 1; mouse[1] = 254; mouse[2] = 3;
         if (UsbHidBoot.MouseButtons(mouse) != 1 || UsbHidBoot.MouseX(mouse) != -2 || UsbHidBoot.MouseY(mouse) != 3) { return 15; }
+        if (UsbHidBoot.MouseButtons(null) != 0 || UsbHidBoot.MouseX(null) != 0 ||
+            UsbHidBoot.MouseY(null) != 0 || UsbHidBoot.NewKey(null, after) != 0) { return 29; }
+        UsbMouseQueue mouseEvents = new UsbMouseQueue();
+        int[] eventData = new int[3];
+        if (mouseEvents.Poll(eventData) || !mouseEvents.Enqueue(1, -2, 3) ||
+            !mouseEvents.Poll(eventData) || eventData[0] != 1 ||
+            eventData[1] != -2 || eventData[2] != 3 || mouseEvents.Poll(eventData)) { return 23; }
+        if (mouseEvents.Enqueue(0, 128, 0) || mouseEvents.Poll(null)) { return 24; }
+        int mouseIndex = 0;
+        while (mouseIndex < 63) {
+            if (!mouseEvents.Enqueue(mouseIndex % 8, 1, -1)) { return 25; }
+            mouseIndex = mouseIndex + 1;
+        }
+        if (mouseEvents.Enqueue(0, 0, 0) || mouseEvents.Dropped() != 1) { return 26; }
+        mouseEvents.Clear();
+        if (mouseEvents.Poll(eventData) || !mouseEvents.Enqueue(0, -128, 127) ||
+            !mouseEvents.Poll(eventData) || eventData[1] != -128 || eventData[2] != 127) { return 27; }
         System.Console.WriteLine("Australis USB protocol tests passed");
         return 0;
     }

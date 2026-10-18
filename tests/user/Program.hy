@@ -74,6 +74,7 @@ public class UserMockChildLauncher : IUserChildLauncher {
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
+    public int RunNativeRound() { return 0; }
     public void ProcessExited(UserProgramResult result) { }
     public void BeforeTerminalInput(int processId) { }
     public void AfterTerminalInput(int processId) { }
@@ -116,6 +117,7 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
+    public int RunNativeRound() { return 0; }
     public void ProcessExited(UserProgramResult result) { }
     public void BeforeTerminalInput(int processId) { }
     public void AfterTerminalInput(int processId) { }
@@ -158,6 +160,7 @@ public class UserMockCommandLauncher : IUserChildLauncher {
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
+    public int RunNativeRound() { return 0; }
     public void ProcessExited(UserProgramResult result) { }
     public void BeforeTerminalInput(int processId) { }
     public void AfterTerminalInput(int processId) { }
@@ -1116,6 +1119,26 @@ public class Program {
         }
         if (table.Find(70) == null || table.Find(70).State() !=
             UserProgramState.Exited() || table.Find(1) != null) { return 57; }
+        UserProcessTable pendingWait = new UserProcessTable();
+        if (!pendingWait.Start(1, 0) || !pendingWait.Start(2, 1) ||
+            !pendingWait.Finish(new UserProgramResult(2,
+                UserProgramState.Exited(), 19, UserFault.None(), 1))) {
+            return 82;
+        }
+        int historyPid = 3;
+        while (historyPid <= 70) {
+            if (!pendingWait.Start(historyPid, 0) ||
+                !pendingWait.Finish(new UserProgramResult(historyPid,
+                    UserProgramState.Exited(), 0, UserFault.None(), 1))) {
+                return 83;
+            }
+            historyPid = historyPid + 1;
+        }
+        if (pendingWait.Find(2) == null ||
+            pendingWait.Find(2).ExitCode() != 19 ||
+            !pendingWait.ReapChild(1, 2) ||
+            pendingWait.ReapChild(1, 2) ||
+            pendingWait.WaitForChild(1, 2)) { return 84; }
         UserSystemCalls checkedCalls = new UserSystemCalls(
             new UserMockTerminal(new byte[0]), new UserMockFiles(), 7);
         UserSyscallResult information = checkedCalls.SystemInformation(3);
