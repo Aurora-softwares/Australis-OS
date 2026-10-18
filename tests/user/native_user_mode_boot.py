@@ -75,6 +75,12 @@ def main() -> None:
                     ("native-write-invalid", b"native-invalid-pointers-ok"),
                     ("native-fault", b"shell: program fault: -103"),
                     ("native-privilege", b"shell: program fault: -102"),
+                    ("native-code-write", b"shell: program fault: -103"),
+                    ("native-data-execute", b"shell: program fault: -103"),
+                    ("native-stack-guard", b"shell: program fault: -103"),
+                    ("native-kernel-write", b"shell: program fault: -103"),
+                    ("native-invalid-opcode", b"shell: program fault: -102"),
+                    ("native-divide-error", b"shell: program fault: -106"),
                 ):
                     connection.sendall(
                         f"run /System/Bin/{image}.exec\r".encode("ascii"))

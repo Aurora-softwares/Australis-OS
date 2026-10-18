@@ -60,8 +60,9 @@ report for a QEMU memory capture. Vector 255 means an unexpected interrupt.
 | 8 | Double fault | The first exception could not be delivered safely. A report is possible only if the current stack is still usable. |
 | Other 0–31 | CPU exception | Use the vector and architecture error code (if present) with RIP and register state. |
 
-Ring-3 AUN1 page and protection faults are intercepted by the native user
-runtime and terminate that child; they do not use the kernel panic path.
+Ring-3 AUN1 page, protection, invalid-opcode, and divide faults are
+intercepted by the native user runtime and terminate that child; they do not
+use the kernel panic path.
 Checked AUEX faults similarly produce process fault records. A genuine
 supervisor fault remains fatal because continuing after corrupted kernel
 state is unsafe. This is the intended meaning of “survives controlled

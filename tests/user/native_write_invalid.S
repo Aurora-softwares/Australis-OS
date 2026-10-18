@@ -10,6 +10,20 @@ _start:
     cmp rax, -14
     jne invalid
 
+    xor edi, edi                // null page
+    mov esi, 1
+    mov eax, 3
+    int 0x80
+    cmp rax, -14
+    jne invalid
+
+    lea rdi, [rbx + 4096]      // unmapped guard below the stack
+    mov esi, 1
+    mov eax, 3
+    int 0x80
+    cmp rax, -14
+    jne invalid
+
     lea rdi, [rbx + 4095]       // range crosses out of the AUSP page
     mov esi, 2
     mov eax, 3

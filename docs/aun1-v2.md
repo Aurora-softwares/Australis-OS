@@ -33,7 +33,8 @@ literals are addressed relative to RIP; there are no relocations or fixed
 virtual addresses. `RDI` points to the `AUSP` version 2 startup record in a
 separate user data page. `RSP` starts at the top of one writable user stack
 page. The intervening page is unmapped as a guard. The data and stack pages
-are non-executable. The kernel mappings in the private page table are
+are non-executable; the page above the stack is also unmapped. The kernel
+mappings in the private page table are
 supervisor only. This version provides no general heap or writable image data.
 
 The startup record's argument, environment, and directory references are
@@ -54,8 +55,11 @@ clobbered. Other general registers are preserved for returning calls.
 
 Terminal write accepts 0 through 256 bytes in one call. For nonempty writes,
 the complete range must fit inside one of the mapped code, startup-data, or
-stack pages. The kernel checks the range before reading any byte. A bad range
-returns `-14`; a length above 256 returns `-22`; a serial transmit timeout
+stack pages. The kernel checks the range before reading any byte. A zeroed
+data page is mapped for native launches without a startup record so the
+validated data range is always backed by a user page. A bad range, including
+one naming a kernel mapping or an unmapped guard, returns `-14`. A length
+above 256 returns `-22`; a serial transmit timeout
 returns `-5`. A zero-length write returns zero. This initial service writes to
 the primary COM1 serial terminal and does not mirror to the framebuffer.
 Unknown call numbers return `-38`. A child that faults is terminated and the
@@ -72,5 +76,7 @@ From the Australis OS repository, run `make test-native-user-mode`. The target
 builds the Hydrogen source fixture as AUN1 v2, packages it in the HyFS 2 ISO,
 and boots the image with AHCI and NVMe separately. On each boot the harness
 checks the source program's terminal marker and exit status, the PID syscall,
-rejected supervisor and page-crossing pointers and oversized writes, contained
-page and privilege faults, continued PID 1 shell commands, and KMon recovery.
+rejected supervisor, null, guard, and page-crossing pointers and oversized
+writes, contained page, privilege, invalid-opcode, and arithmetic faults,
+write protection of code, NX data, stack guards, continued PID 1 shell
+commands, and KMon recovery.

@@ -423,8 +423,14 @@ test-native-user-mode-image: $(APP_COMPILER)
 	python3 tools/make_native_test_image.py tests/user/native_fault.S "$(BUILD_DIR)/native-fault.exec"
 	python3 tools/make_native_test_image.py tests/user/native_privilege.S "$(BUILD_DIR)/native-privilege.exec"
 	python3 tools/make_native_test_image.py tests/user/native_write_invalid.S "$(BUILD_DIR)/native-write-invalid.exec"
+	python3 tools/make_native_test_image.py tests/user/native_code_write.S "$(BUILD_DIR)/native-code-write.exec"
+	python3 tools/make_native_test_image.py tests/user/native_data_execute.S "$(BUILD_DIR)/native-data-execute.exec"
+	python3 tools/make_native_test_image.py tests/user/native_stack_guard.S "$(BUILD_DIR)/native-stack-guard.exec"
+	python3 tools/make_native_test_image.py tests/user/native_kernel_write.S "$(BUILD_DIR)/native-kernel-write.exec"
+	python3 tools/make_native_test_image.py tests/user/native_invalid_opcode.S "$(BUILD_DIR)/native-invalid-opcode.exec"
+	python3 tools/make_native_test_image.py tests/user/native_divide_error.S "$(BUILD_DIR)/native-divide-error.exec"
 	"$(APP_COMPILER)" build ../Hylang-Compiler/tests/phase6/Aun1Hello.hyproj -o "$(BUILD_DIR)/native-hydrogen.exec" --hide-progress
-	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec $(BUILD_DIR)/native-write-invalid.exec $(BUILD_DIR)/native-hydrogen.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/native-pid.exec $(BUILD_DIR)/native-fault.exec $(BUILD_DIR)/native-privilege.exec $(BUILD_DIR)/native-write-invalid.exec $(BUILD_DIR)/native-code-write.exec $(BUILD_DIR)/native-data-execute.exec $(BUILD_DIR)/native-stack-guard.exec $(BUILD_DIR)/native-kernel-write.exec $(BUILD_DIR)/native-invalid-opcode.exec $(BUILD_DIR)/native-divide-error.exec $(BUILD_DIR)/native-hydrogen.exec"
 
 test-native-user-mode: test-native-user-mode-image
 	python3 tests/user/native_user_mode_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci

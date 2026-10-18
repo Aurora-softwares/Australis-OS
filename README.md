@@ -400,18 +400,22 @@ An `AUN1` `.exec` file under `/System/Bin` contains an eight-byte header:
 `AUN1`, a little-endian 16-bit code length, and two zero reserved bytes. One
 code page is permitted. `run /System/Bin/name.exec` starts it in a private
 page table, with read-only executable code, a writable non-executable startup
-page, a writable non-executable stack, and an unmapped guard below the stack.
+page, a writable non-executable stack, and unmapped guards on both sides of
+the stack. The data page is present and zeroed even for native launches
+without a startup record, so syscall pointer validation matches the mapping.
 The kernel mappings remain supervisor-only. The native child receives an
 `AUSP` v2 startup record in `RDI`; its layout matches the AUEX start record,
 but the argument, environment, and working-directory entries are offsets from
 `RDI` because native addresses are 64-bit. `RAX=1` with `RDI=exit status`
 exits through `int 0x80`; `RAX=2` returns the child PID. Other syscall numbers
-return `-38`. Page faults and general-protection faults finish only that child,
-release its pages, and preserve the parent shell and KMon recovery path.
+return `-38`. User page, general-protection, invalid-opcode, and divide faults
+finish only that child, release its pages, and preserve the parent shell and
+KMon recovery path. See `docs/memory-protection.md` for the Phase 2 contract.
 
 Run `make test-native-user-mode` for the AHCI and NVMe ring-3 matrix, including
-native image launch, PID/exit, kernel-memory denial, privileged-instruction
-denial, and parent/recovery continuity. AUN1 execution is currently restricted
+native image launch, PID/exit, kernel-memory denial, code and data page
+permissions, stack guards, privileged-instruction denial, and parent/recovery
+continuity. AUN1 execution is currently restricted
 to the read-only system bin directory; native preemption and the remaining
 terminal, file, and IPC syscalls are later work.
 
