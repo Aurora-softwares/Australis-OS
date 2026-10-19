@@ -98,6 +98,42 @@ queued. Both calls require the display capability and current lease;
 `-13`. Releasing the lease restores USB keyboard input to the shell.
 COM1 input remains available to the shell throughout.
 
+`BeginFrame()` (opcode 111) opens a compositor-owned RGB backbuffer for the
+lease owner. `FillRect` updates that buffer and records clipped damage while a
+frame is open. `PresentFrame()` (opcode 112) copies the accumulated dirty
+rectangles to GOP as one submitted frame. Calling `BeginFrame` again before
+presenting supersedes the open frame while retaining its damage, so pixels
+already changed in the backbuffer are still delivered. An unsupported GOP
+mode returns `-95`; presenting without an open frame returns `-22`. The
+kernel enforces a 16 ms minimum interval between GOP frame completion and
+the next `BeginFrame`; an early call returns `-11` without opening a frame.
+The display service sleeps and retries while keeping its pending damage.
+`Stats(byte[20])` (opcode 113) returns five little-endian unsigned 32-bit
+values: submitted frames, presented frames, superseded frames, last frame
+latency in microseconds, and maximum frame latency in microseconds. The
+latency runs from `BeginFrame` through completed GOP writes. Counters reset
+when a new process claims the display. All three calls require the display
+capability and active lease; unauthorized callers receive `-13`.
+
+`AllocateBuffer(width, height, strideBytes, format)` (opcode 114) returns a
+positive owned handle for a full-screen RGBX8888 buffer (`format = 1`,
+`strideBytes = width × 4`). A maximum of three buffers may be live. The
+geometry must match the current display; invalid layouts return `-22`, an
+exhausted pool returns `-12`, and an unauthorized caller gets `-13`.
+`DestroyBuffer(handle)` (115) releases an available buffer. `BeginBuffer(handle)`
+(116) moves it into the drawing state. `FillBufferRect(handle, x, y, width,
+height, rgb)` (117) draws a checked RGB rectangle and tracks damage.
+`SubmitBuffer(handle)` (118) presents the damage and returns a positive fence;
+failed presentation returns `-5` and leaves the buffer drawable for retry.
+An early submission under frame pacing returns `-11` without changing it.
+`BufferCompletion(handle, fence)` (119) reports `1` when that submission is
+complete. `ReleaseBuffer(handle, fence)` (120) returns it to the available
+state. GOP completion is synchronous, but callers must still use the matching
+fence to release a submitted buffer. A busy buffer cannot be redrawn or
+destroyed. Handles and fences are invalidated on lease release or process
+exit. All buffer calls require both display capability and the current lease;
+no call exposes a kernel or framebuffer address.
+
 The live `/System/Core/Display.exec` process owns the lease and accepts
 version 2 channel submissions from two separate AUEX clients. A create
 request is `[1,R,G,B]` and returns `[1,window ID]`. A cell update is

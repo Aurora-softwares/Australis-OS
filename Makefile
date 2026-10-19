@@ -58,7 +58,8 @@ USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,
 .PHONY: test-native-files
 .PHONY: test-xhci-multi
 .PHONY: test-graphics
-.PHONY: test-display-ahci test-display-nvme test-display-fallback
+.PHONY: benchmark-graphics
+.PHONY: test-display-ahci test-display-nvme test-display-fallback test-virtio-gpu test-frame-pacing
 .PHONY: test-userland-stage2
 	
 #
@@ -562,6 +563,11 @@ test-graphics: check-build-tools
 	"$(HYDROGEN)" build tests/graphics/Graphics.hyproj -o "$(BUILD_DIR)/graphics-tests"
 	"$(BUILD_DIR)/graphics-tests"
 
+benchmark-graphics: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/graphics/GraphicsBenchmark.hyproj -o "$(BUILD_DIR)/graphics-benchmark"
+	python3 tests/graphics/frame_benchmark.py "$(BUILD_DIR)/graphics-benchmark" "$(BUILD_DIR)/graphics-benchmark.json"
+
 test-display-ahci: iso-hyfs2 | check-run-tools
 	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 
@@ -571,6 +577,14 @@ test-display-nvme: iso-hyfs2 | check-run-tools
 test-display-fallback: iso-hyfs2 | check-run-tools
 	python3 tests/graphics/display_fallback_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 	python3 tests/graphics/display_fallback_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-virtio-gpu: iso-hyfs2 | check-run-tools
+	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-frame-pacing: iso-hyfs2 | check-run-tools
+	python3 tests/graphics/frame_pacing_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/graphics/frame_pacing_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-serial-nvme: iso | check-run-tools
 	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme hyfs2

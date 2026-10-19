@@ -87,7 +87,8 @@ def main():
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(str(serial))
                 opening = read_until(connection, b"australis> ", 90, process)
-                if (b"Display: two client windows composed" not in opening or
+                if (b"Display: two owned buffers completed and released" not in opening or
+                        b"Display: two client windows composed" not in opening or
                         b"Display: cross-window denial and close/reopen verified" not in opening or
                         b"System: display ready" not in opening):
                     raise AssertionError(f"display service did not start: {opening[-2500:]!r}")
@@ -222,8 +223,12 @@ def main():
                 cursor_x, cursor_y = 725, 483
                 wait_pixel(monitor, screenshot, 727, 487, (255, 255, 255))
                 monitor_command(str(monitor), "mouse_button 1")
+                # Keep the press visible to the guest before sending motion;
+                # USB reports can otherwise merge while a redraw is active.
+                time.sleep(0.3)
                 move_mouse(monitor, 80, 60)
                 cursor_x, cursor_y = 805, 543
+                time.sleep(0.3)
                 monitor_command(str(monitor), "mouse_button 0")
                 time.sleep(0.2)
                 wait_pixel(monitor, screenshot, 770, 510, (203, 56, 48))
@@ -251,7 +256,24 @@ def main():
                            16 - cursor_y)
                 cursor_x, cursor_y = width - 28, 16
                 click_mouse(monitor)
-                wait_pixel(monitor, screenshot, 500, 150, (240, 211, 62))
+                try:
+                    wait_pixel(monitor, screenshot, 500, 150,
+                               (240, 211, 62))
+                except AssertionError as error:
+                    connection.settimeout(0.2)
+                    try:
+                        serial_tail = connection.recv(8192)
+                    except socket.timeout:
+                        serial_tail = b""
+                    connection.settimeout(None)
+                    connection.sendall(b"exit\r")
+                    try:
+                        serial_tail += read_until(connection, b"kmon> ",
+                                                  15, process)
+                    except (AssertionError, TimeoutError, OSError):
+                        pass
+                    raise AssertionError(
+                        f"{error}; serial={serial_tail[-3000:]!r}") from error
                 move_mouse(monitor, 137 - cursor_x, 105 - cursor_y)
                 cursor_x, cursor_y = 137, 105
                 wait_pixel(monitor, screenshot, 131, 99, (255, 255, 255))

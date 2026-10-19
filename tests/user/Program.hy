@@ -75,6 +75,20 @@ public class UserMockChildLauncher : IUserChildLauncher {
     public int DisplayRelease(int processId) { return -4; }
     public int DisplayFillRect(int processId, int x, int y, int width,
         int height, int rgb) { return -4; }
+    public int DisplayBeginFrame(int processId) { return -4; }
+    public int DisplayPresentFrame(int processId) { return -4; }
+    public int DisplayAllocateBuffer(int processId, int width, int height,
+        int strideBytes, int format) { return -4; }
+    public int DisplayDestroyBuffer(int processId, int handle) { return -4; }
+    public int DisplayBeginBuffer(int processId, int handle) { return -4; }
+    public int DisplayFillBufferRect(int processId, int handle, int x, int y,
+        int width, int height, int rgb) { return -4; }
+    public int DisplaySubmitBuffer(int processId, int handle) { return -4; }
+    public int DisplayBufferCompletion(int processId, int handle,
+        int fence) { return -4; }
+    public int DisplayReleaseBuffer(int processId, int handle,
+        int fence) { return -4; }
+    public int DisplayStats(int processId, byte[] destination) { return -4; }
     public int DisplaySetMode(int processId, int width, int height) { return -4; }
     public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
     public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
@@ -126,6 +140,20 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
     public int DisplayRelease(int processId) { return -4; }
     public int DisplayFillRect(int processId, int x, int y, int width,
         int height, int rgb) { return -4; }
+    public int DisplayBeginFrame(int processId) { return -4; }
+    public int DisplayPresentFrame(int processId) { return -4; }
+    public int DisplayAllocateBuffer(int processId, int width, int height,
+        int strideBytes, int format) { return -4; }
+    public int DisplayDestroyBuffer(int processId, int handle) { return -4; }
+    public int DisplayBeginBuffer(int processId, int handle) { return -4; }
+    public int DisplayFillBufferRect(int processId, int handle, int x, int y,
+        int width, int height, int rgb) { return -4; }
+    public int DisplaySubmitBuffer(int processId, int handle) { return -4; }
+    public int DisplayBufferCompletion(int processId, int handle,
+        int fence) { return -4; }
+    public int DisplayReleaseBuffer(int processId, int handle,
+        int fence) { return -4; }
+    public int DisplayStats(int processId, byte[] destination) { return -4; }
     public int DisplaySetMode(int processId, int width, int height) { return -4; }
     public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
     public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
@@ -177,6 +205,20 @@ public class UserMockCommandLauncher : IUserChildLauncher {
     public int DisplayRelease(int processId) { return -4; }
     public int DisplayFillRect(int processId, int x, int y, int width,
         int height, int rgb) { return -4; }
+    public int DisplayBeginFrame(int processId) { return -4; }
+    public int DisplayPresentFrame(int processId) { return -4; }
+    public int DisplayAllocateBuffer(int processId, int width, int height,
+        int strideBytes, int format) { return -4; }
+    public int DisplayDestroyBuffer(int processId, int handle) { return -4; }
+    public int DisplayBeginBuffer(int processId, int handle) { return -4; }
+    public int DisplayFillBufferRect(int processId, int handle, int x, int y,
+        int width, int height, int rgb) { return -4; }
+    public int DisplaySubmitBuffer(int processId, int handle) { return -4; }
+    public int DisplayBufferCompletion(int processId, int handle,
+        int fence) { return -4; }
+    public int DisplayReleaseBuffer(int processId, int handle,
+        int fence) { return -4; }
+    public int DisplayStats(int processId, byte[] destination) { return -4; }
     public int DisplaySetMode(int processId, int width, int height) { return -4; }
     public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
     public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }

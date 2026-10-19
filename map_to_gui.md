@@ -130,36 +130,50 @@ The window and top-bar behavior for these steps is specified in
 
 ## Phase 8: Software rendering and performance
 
-- 🔴 Benchmark drawing, composition and framebuffer presentation
-- 🔴 Add software backbuffer and full-frame composition
-- 🟡 Implement partial redraws based on dirty rectangles
-- 🔴 Implement VirtIO PCI transport and queue management
-- 🔴 Implement VirtIO-GPU 2D resource management
-- 🔴 Add presentation latency and dropped-frame instrumentation
-- 🔴 Optimise surface copying, alpha blending and framebuffer transfers
-- 🔴 Add automated frame-time and rendering correctness tests
+- 🟢 Benchmark drawing, composition and framebuffer presentation
+- 🟢 Add software backbuffer and full-frame composition
+- 🟢 Implement partial redraws based on dirty rectangles
+- 🟢 Implement VirtIO PCI transport and queue management: native BAR mapping,
+  feature negotiation, DMA split ring and completion polling pass QEMU
+- 🟢 Implement VirtIO-GPU 2D resource management: fenced create, attach,
+  scanout, transfer, flush, detach and unref pass QEMU
+- 🟢 Add presentation latency and dropped-frame instrumentation
+- 🟢 Optimise surface copying, alpha blending and framebuffer transfers
+- 🟢 Add automated frame-time and rendering correctness tests
+
+Phase 8 GOP results and the native VirtIO exercise are recorded in
+`docs/phase8-software-rendering.md`.
 
 ### Completion: Australis can render and present complete frames efficiently through GOP, with predictable frame scheduling, correct partial redraws and measurable performance under representative multi-window workloads.
 
 ## Phase 9: Display infrastructure and abstraction
 
-- 🔴 Add a display backend abstraction (GOP / native)
-- 🔴 Introduce frame submission and completion notifications
-- 🔴 Define display buffer formats, geometry, strides and capabilities
-- 🔴 Implement validated graphics buffer allocation, lifetime and ownership
-- 🔴 Prevent unprivileged processes from accessing or manipulating another process's graphics buffers
-- 🔴 Define explicit buffer synchronization and release semantics
-- 🔴 Support multiple presentation buffers
-- 🔴 Introduce display backend initialization, shutdown and recovery
+- 🟢 Add a display backend abstraction (GOP / native): GOP implements the
+  common contract, and a native backend can implement it without GOP access
+- 🟢 Introduce frame submission and pollable completion fences
+- 🟢 Define display buffer formats, geometry, strides and capabilities
+- 🟢 Implement validated graphics buffer allocation, lifetime and ownership:
+  three bounded kernel-owned slots with stale-handle revocation
+- 🟢 Prevent unprivileged processes from accessing or manipulating another
+  process's graphics buffers through capability, lease, and handle checks
+- 🟢 Define explicit buffer synchronization and release semantics: a
+  successful submission returns a fence that must complete before release
+- 🟢 Support multiple presentation buffers: the display service exercises two
+  independently drawn and submitted buffers during boot
+- 🟢 Introduce display backend initialization, shutdown and recovery: GOP
+  implements the lifecycle; native driver recovery follows in Phase 10
 - 🟢 Preserve reliable GOP fallback
+
+The backend and buffer layout contracts are described in
+`docs/phase9-display-infrastructure.md`.
 
 ### Completion: Australis can use a hardware-independent display interface with validated buffer ownership, safe frame submission, multiple presentation buffers and reliable GOP output.
 
 ## Phase 10: Native VirtIO-GPU 2D driver
 
-- 🔴 Implement VirtIO PCI transport and queue management
-- 🔴 Implement VirtIO-GPU device discovery and feature negotiation
-- 🔴 Implement VirtIO-GPU 2D resource management
+- 🔴 Carry the Phase 8 PCI control queue into a persistent native driver
+- 🔴 Extend GPU discovery and feature negotiation to runtime mode changes
+- 🔴 Bind Phase 8 2D resource management to compositor-owned display buffers
 - 🔴 Add display mode discovery and scanout control
 - 🔴 Implement framebuffer resource transfers and flush operations
 - 🔴 Enforce DMA-safe memory access and resource bounds

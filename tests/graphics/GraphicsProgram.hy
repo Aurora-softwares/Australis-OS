@@ -1,5 +1,58 @@
 using Australis.Kernel.Console;
 using Australis.Kernel.Graphics;
+using Australis.Kernel.Pci;
+
+public class MockVirtioPci : IPciConfigAccess {
+    private long[] words;
+    public MockVirtioPci() { words = new long[64]; }
+    public long Read32(int bdf, int offset) {
+        if (bdf != 7 || offset < 0 || offset >= 256 ||
+            offset % 4 != 0) { return 0; }
+        return words[offset / 4];
+    }
+    public void Write32(int bdf, int offset, long value) {
+        if (bdf == 7 && offset >= 0 && offset < 256 &&
+            offset % 4 == 0) { words[offset / 4] = value; }
+    }
+}
+
+public class MockGpuControl : IVirtioGpuControl {
+    private int[] commands;
+    private int count;
+    private int failAt;
+    private long lastFence;
+    private long lastTransferOffset;
+    public MockGpuControl(int inputFailAt) {
+        commands = new int[16]; count = 0; failAt = inputFailAt;
+        lastFence = 0; lastTransferOffset = -1;
+    }
+    private long Read(byte[] bytes, int offset, int length) {
+        long value = 0; long factor = 1; int i = 0;
+        while (i < length) {
+            value = value + (long)bytes[offset + i] * factor;
+            if (i + 1 < length) { factor = factor * 256; }
+            i = i + 1;
+        }
+        return value;
+    }
+    public bool Execute(byte[] request, int requestLength,
+        int expectedResponseType) {
+        if (request == null || requestLength < 24 ||
+            requestLength > request.Length ||
+            expectedResponseType != 4352 || count >= commands.Length ||
+            Read(request, 4, 4) != 1 ||
+            Read(request, 8, 8) <= lastFence) { return false; }
+        lastFence = Read(request, 8, 8);
+        int type = (int)Read(request, 0, 4);
+        commands[count] = type;
+        count = count + 1;
+        if (type == 261) { lastTransferOffset = Read(request, 40, 8); }
+        return count != failAt;
+    }
+    public int Count() { return count; }
+    public int At(int index) { return commands[index]; }
+    public long TransferOffset() { return lastTransferOffset; }
+}
 
 public class MockPixelWriter : IFramebufferPixelWriter {
     private long baseAddress;
@@ -36,7 +89,63 @@ public class MockConsoleSink : IConsoleByteSink {
     public int Escapes() { return escapes; }
 }
 
+public class MockFrameClock : IFrameClock {
+    private long ticks;
+    public MockFrameClock() { ticks = 0; }
+    public long Now() { return ticks; }
+    public long TicksPerMillisecond() { return 1000; }
+    public void Advance(long delta) { ticks = ticks + delta; }
+}
+
+public class MockNativeDisplayBackend : IDisplayBackend {
+    private bool started;
+    private bool failNext;
+    private int presentations;
+    private int lastPixel;
+    public MockNativeDisplayBackend() {
+        started = false; failNext = false;
+        presentations = 0; lastPixel = -1;
+    }
+    public int Kind() { return 2; }
+    public int Width() { return 8; }
+    public int Height() { return 8; }
+    public int StrideBytes() { return 32; }
+    public int ScanoutFormat() { return 2; }
+    public int Capabilities() { return 7; }
+    public bool Initialize() { started = true; return true; }
+    public bool Ready() { return started; }
+    public void Shutdown() { started = false; }
+    public bool Recover() { return Initialize(); }
+    public bool PresentDamage(PixelSurface surface, DamageTracker damage) {
+        if (!started || surface == null || damage == null) { return false; }
+        if (failNext) { failNext = false; return false; }
+        lastPixel = surface.Pixel(2, 2);
+        presentations = presentations + 1;
+        damage.Clear(); return true;
+    }
+    public bool FillImmediate(int x, int y, int width, int height,
+        int rgb) { return started; }
+    public void FailNext() { failNext = true; }
+    public int Presentations() { return presentations; }
+    public int LastPixel() { return lastPixel; }
+}
+
 public class Program {
+    private static bool SameFrame(PixelSurface first, PixelSurface second) {
+        if (first == null || second == null ||
+            first.Width() != second.Width() ||
+            first.Height() != second.Height()) { return false; }
+        int y = 0;
+        while (y < first.Height()) {
+            int x = 0;
+            while (x < first.Width()) {
+                if (first.Pixel(x, y) != second.Pixel(x, y)) { return false; }
+                x = x + 1;
+            }
+            y = y + 1;
+        }
+        return true;
+    }
     public static int Main() {
         PixelSurface invalid = new PixelSurface(2048, 2048);
         if (invalid.Ready() || invalid.Fill(0)) { return 1; }
@@ -65,6 +174,18 @@ public class Program {
             canvas.Blit(canvas, 0, 0, 255) ||
             !canvas.Blit(overlay, 0, 0, 128) ||
             canvas.Pixel(0, 0) != 0xFF0000) { return 6; }
+        PixelSurface sourceRegion = new PixelSurface(4, 4);
+        PixelSurface targetRegion = new PixelSurface(4, 4);
+        sourceRegion.Fill(0x234567); targetRegion.Fill(0x111111);
+        sourceRegion.SetPixel(1, 1, 0xABCDEF);
+        if (!targetRegion.CopyRegion(sourceRegion, 1, 1, 2, 2, 2, 2) ||
+            targetRegion.Pixel(2, 2) != 0xABCDEF ||
+            targetRegion.Pixel(3, 3) != 0x234567 ||
+            targetRegion.Pixel(1, 2) != 0x111111 ||
+            targetRegion.CopyRegion(sourceRegion, 3, 3, 0, 0, 2, 2) ||
+            targetRegion.CopyRegion(targetRegion, 0, 0, 0, 0, 1, 1)) {
+            return 49;
+        }
 
         PixelSurface frame = new PixelSurface(2, 2);
         frame.Fill(0x0000FF);
@@ -248,7 +369,15 @@ public class Program {
         DisplayDevice display = new DisplayDevice(
             new FramebufferMode(16384, 256, 8, 8, 8, 0),
             displayPixels, console);
-        if (!display.Ready() || display.Claim(0) != -22 ||
+        DisplayBufferLayout gopLayout = display.BufferLayout();
+        if (!display.Ready() || display.BackendKind() != 1 ||
+            display.Width() != 8 || display.Height() != 8 ||
+            display.StrideBytes() != 32 || display.ScanoutFormat() != 1 ||
+            display.Capabilities() != 7 ||
+            gopLayout == null || !gopLayout.Ready() ||
+            gopLayout.Format() != DisplayBufferLayout.Rgbx8888() ||
+            gopLayout.ByteLength() != 256 ||
+            display.Claim(0) != -22 ||
             display.Claim(11) != 0 || display.Owner() != 11 ||
             display.Claim(22) != -16 ||
             display.FillRect(22, 0, 0, 2, 2, 0xFF0000) != -13 ||
@@ -279,6 +408,262 @@ public class Program {
             bgrDisplay.FillRect(31, 0, 0, 1, 1, 0xFF0000) != 0 ||
             bgrDisplayPixels.Pixel(0) != 0xFF0000 ||
             bgrDisplay.Release(31) != 0) { return 40; }
+        WindowLayout partialLayout = new WindowLayout(320, 240, 32);
+        int partialA = partialLayout.Open(41, 20, 48, 140, 100);
+        int partialB = partialLayout.Open(42, 60, 64, 140, 100);
+        WindowRenderer partial = new WindowRenderer(partialLayout);
+        WindowRenderer reference = new WindowRenderer(partialLayout);
+        if (partialA < 1 || partialB < 1 ||
+            !partial.Submit(41, partialA, redContent) ||
+            !partial.Submit(42, partialB, blueContent) ||
+            !reference.Submit(41, partialA, redContent) ||
+            !reference.Submit(42, partialB, blueContent) ||
+            partial.Compose() == null || reference.Compose() == null ||
+            !SameFrame(partial.Compose(), reference.Compose())) { return 41; }
+        DamageTracker partialDamage = new DamageTracker(320, 240);
+        if (!partialLayout.Move(42, partialB, 100, 80) ||
+            !partialDamage.Add(60, 64, 140, 100) ||
+            !partialDamage.Add(100, 80, 140, 100) ||
+            !SameFrame(partial.ComposeDamage(partialDamage),
+                reference.Compose()) ||
+            partial.ComposeRegion(-1, 0, 5, 5) != null) { return 42; }
+        partialDamage.Clear();
+        partial.Hover(118, 96); reference.Hover(118, 96);
+        if (!partialDamage.Add(100, 80, 80, 28) ||
+            !SameFrame(partial.ComposeDamage(partialDamage),
+                reference.Compose())) { return 43; }
+        partialDamage.Clear();
+        if (!partialLayout.Maximize(42, partialB) ||
+            !partialDamage.Add(100, 80, 140, 100) ||
+            !partialDamage.Add(0, 32, 320, 208) ||
+            !partialDamage.Add(0, 0, 320, 32) ||
+            !SameFrame(partial.ComposeDamage(partialDamage),
+                reference.Compose())) { return 44; }
+        MockPixelWriter framePixels = new MockPixelWriter(24576, 64);
+        MockFrameClock frameClock = new MockFrameClock();
+        DisplayDevice framed = new DisplayDevice(
+            new FramebufferMode(24576, 256, 8, 8, 8, 1),
+            framePixels, null);
+        framed.AttachFrameClock(frameClock);
+        byte[] stats = new byte[20];
+        if (framed.Claim(50) != 0 || framed.BeginFrame(51) != -13 ||
+            framed.BeginFrame(50) != 0 ||
+            framed.FillRect(50, 0, 0, 8, 8, 0x123456) != 0 ||
+            framePixels.Writes() != 0 ||
+            framed.PresentFrame(51) != -13) { return 45; }
+        frameClock.Advance(2500);
+        if (framed.PresentFrame(50) != 0 || framePixels.Writes() != 64 ||
+            framePixels.Pixel(0) != 0x123456 ||
+            framed.PresentFrame(50) != -22 ||
+            framed.Stats(51, stats) != -13 ||
+            framed.Stats(50, stats) != 20 ||
+            stats[0] != 1 || stats[4] != 1 || stats[8] != 0 ||
+            stats[12] != 196 || stats[13] != 9) { return 46; }
+        if (framed.BeginFrame(50) != 0 ||
+            framed.FillRect(50, 1, 1, 2, 2, 0xABCDEF) != 0 ||
+            framePixels.Writes() != 64) { return 47; }
+        frameClock.Advance(500);
+        if (framed.PresentFrame(50) != 0 || framePixels.Writes() != 68 ||
+            framePixels.Pixel(9) != 0xABCDEF ||
+            framePixels.Pixel(0) != 0x123456 ||
+            framed.BeginFrame(50) != 0 ||
+            framed.FillRect(50, 3, 3, 1, 1, 0x111111) != 0 ||
+            framed.BeginFrame(50) != 0 ||
+            framed.FillRect(50, 4, 4, 1, 1, 0x222222) != 0 ||
+            framed.PresentFrame(50) != 0 ||
+            framePixels.Writes() != 70 ||
+            framed.DroppedFrames() != 1 ||
+            framed.SubmittedFrames() != 4 ||
+            framed.PresentedFrames() != 3 ||
+            framed.MaxPresentationMicros() != 2500 ||
+            framed.Release(50) != 0) { return 48; }
+        MockFrameClock pacingClock = new MockFrameClock();
+        MockPixelWriter pacingPixels = new MockPixelWriter(28672, 64);
+        DisplayDevice paced = new DisplayDevice(
+            new FramebufferMode(28672, 256, 8, 8, 8, 1),
+            pacingPixels, null);
+        paced.AttachFrameClock(pacingClock);
+        if (!paced.SetFramePacing(16) || paced.SetFramePacing(-1) ||
+            paced.Claim(60) != 0 || paced.BeginFrame(60) != 0 ||
+            paced.FillRect(60, 0, 0, 1, 1, 0x112233) != 0 ||
+            paced.PresentFrame(60) != 0 ||
+            paced.BeginFrame(60) != -11 ||
+            paced.SubmittedFrames() != 1) { return 54; }
+        pacingClock.Advance(15000);
+        if (paced.BeginFrame(60) != -11) { return 55; }
+        pacingClock.Advance(1000);
+        if (paced.BeginFrame(60) != 0 ||
+            paced.FillRect(60, 1, 1, 1, 1, 0x445566) != 0 ||
+            paced.PresentFrame(60) != 0 ||
+            paced.PresentedFrames() != 2 ||
+            paced.DroppedFrames() != 0 ||
+            paced.Release(60) != 0) { return 56; }
+        MockNativeDisplayBackend nativeBackend =
+            new MockNativeDisplayBackend();
+        DisplayDevice nativeDisplay = new DisplayDevice(nativeBackend, null);
+        if (!nativeDisplay.Ready() || nativeDisplay.BackendKind() != 2 ||
+            nativeDisplay.Width() != 8 || nativeDisplay.Height() != 8 ||
+            nativeDisplay.StrideBytes() != 32 ||
+            nativeDisplay.ScanoutFormat() != 2 ||
+            nativeDisplay.Capabilities() != 7 ||
+            nativeDisplay.Claim(70) != 0 ||
+            nativeDisplay.BeginFrame(70) != 0 ||
+            nativeDisplay.FillRect(70, 2, 2, 1, 1, 0x123456) != 0) {
+            return 68;
+        }
+        nativeBackend.FailNext();
+        if (nativeDisplay.PresentFrame(70) != -5 ||
+            nativeDisplay.PresentedFrames() != 0 ||
+            nativeDisplay.PresentFrame(70) != 0 ||
+            nativeBackend.Presentations() != 1 ||
+            nativeBackend.LastPixel() != 0x123456 ||
+            nativeDisplay.PresentedFrames() != 1) { return 69; }
+        nativeDisplay.ShutdownBackend();
+        if (nativeDisplay.Ready() || nativeDisplay.Owner() != 0 ||
+            nativeDisplay.Claim(71) != -19 ||
+            !nativeDisplay.RecoverBackend() ||
+            nativeDisplay.Claim(71) != 0 ||
+            nativeDisplay.Release(71) != 0) { return 70; }
+        if (new DisplayBufferLayout(2048, 2048, 8192, 1).Ready() ||
+            new DisplayBufferLayout(8, 8, 31, 1).Ready() ||
+            new DisplayBufferLayout(8, 8, 32, 2).Ready() ||
+            new DisplayBufferLayout(8, 8, 8388608, 1).Ready() ||
+            !new DisplayBufferLayout(8, 8, 64, 1).Ready()) {
+            return 71;
+        }
+        MockNativeDisplayBackend bufferBackend =
+            new MockNativeDisplayBackend();
+        DisplayDevice buffered = new DisplayDevice(bufferBackend, null);
+        if (buffered.Claim(80) != 0 ||
+            buffered.AllocateBuffer(81, 8, 8, 32, 1) != -13 ||
+            buffered.AllocateBuffer(80, 8, 8, 31, 1) != -22 ||
+            buffered.AllocateBuffer(80, 8, 8, 32, 2) != -22 ||
+            buffered.AllocateBuffer(80, 7, 8, 28, 1) != -22) {
+            return 72;
+        }
+        int firstBuffer = buffered.AllocateBuffer(80, 8, 8, 32, 1);
+        int secondBuffer = buffered.AllocateBuffer(80, 8, 8, 32, 1);
+        int thirdBuffer = buffered.AllocateBuffer(80, 8, 8, 32, 1);
+        if (firstBuffer < 1 || secondBuffer <= firstBuffer ||
+            thirdBuffer <= secondBuffer ||
+            buffered.AllocateBuffer(80, 8, 8, 32, 1) != -12 ||
+            buffered.BeginBuffer(81, firstBuffer) != -13 ||
+            buffered.FillBufferRect(81, firstBuffer, 2, 2, 1, 1,
+                0x123456) != -13 ||
+            buffered.SubmitBuffer(81, firstBuffer) != -13 ||
+            buffered.DestroyBuffer(81, firstBuffer) != -13) { return 73; }
+        if (buffered.BeginBuffer(80, firstBuffer) != 0 ||
+            buffered.BeginBuffer(80, secondBuffer) != 0 ||
+            buffered.FillBufferRect(80, firstBuffer, 2, 2, 1, 1,
+                0x123456) != 0 ||
+            buffered.FillBufferRect(80, secondBuffer, 2, 2, 1, 1,
+                0xABCDEF) != 0) { return 74; }
+        int firstFence = buffered.SubmitBuffer(80, firstBuffer);
+        if (firstFence < 1 || bufferBackend.LastPixel() != 0x123456 ||
+            buffered.BufferCompletion(80, firstBuffer, firstFence) != 1 ||
+            buffered.BufferCompletion(81, firstBuffer, firstFence) != -13 ||
+            buffered.BufferCompletion(80, firstBuffer, firstFence + 1) != -22 ||
+            buffered.FillBufferRect(80, firstBuffer, 0, 0, 1, 1, 0) != -22 ||
+            buffered.BeginBuffer(80, firstBuffer) != -16 ||
+            buffered.DestroyBuffer(80, firstBuffer) != -16 ||
+            buffered.ReleaseBuffer(80, firstBuffer, firstFence + 1) != -22) {
+            return 75;
+        }
+        int secondFence = buffered.SubmitBuffer(80, secondBuffer);
+        if (secondFence <= firstFence ||
+            bufferBackend.LastPixel() != 0xABCDEF ||
+            buffered.ReleaseBuffer(80, firstBuffer, firstFence) != 0 ||
+            buffered.ReleaseBuffer(80, firstBuffer, firstFence) != -22 ||
+            buffered.ReleaseBuffer(80, secondBuffer, secondFence) != 0 ||
+            buffered.DestroyBuffer(80, firstBuffer) != 0) { return 76; }
+        int reusedBuffer = buffered.AllocateBuffer(80, 8, 8, 32, 1);
+        if (reusedBuffer <= thirdBuffer ||
+            buffered.BeginBuffer(80, firstBuffer) != -13 ||
+            buffered.BeginBuffer(80, reusedBuffer) != 0 ||
+            buffered.BeginBuffer(80, thirdBuffer) != 0 ||
+            buffered.FillBufferRect(80, thirdBuffer, 2, 2, 1, 1,
+                0x654321) != 0) { return 77; }
+        bufferBackend.FailNext();
+        if (buffered.SubmitBuffer(80, thirdBuffer) != -5 ||
+            buffered.BufferCompletion(80, thirdBuffer, 1) != -22 ||
+            buffered.SubmitBuffer(80, thirdBuffer) < 1 ||
+            bufferBackend.LastPixel() != 0x654321) { return 78; }
+        buffered.ReleaseOnExit(80);
+        if (buffered.Owner() != 0 || buffered.Claim(81) != 0 ||
+            buffered.BeginBuffer(81, secondBuffer) != -13 ||
+            buffered.AllocateBuffer(81, 8, 8, 32, 1) <= reusedBuffer ||
+            buffered.Release(81) != 0) { return 79; }
+        MockFrameClock bufferClock = new MockFrameClock();
+        DisplayDevice pacedBuffer = new DisplayDevice(
+            new MockNativeDisplayBackend(), null);
+        pacedBuffer.AttachFrameClock(bufferClock);
+        if (!pacedBuffer.SetFramePacing(16) ||
+            pacedBuffer.Claim(90) != 0) { return 80; }
+        int pacedHandle = pacedBuffer.AllocateBuffer(90, 8, 8, 32, 1);
+        if (pacedHandle < 1 || pacedBuffer.BeginBuffer(90, pacedHandle) != 0) {
+            return 81;
+        }
+        int pacedFence = pacedBuffer.SubmitBuffer(90, pacedHandle);
+        if (pacedFence < 1 ||
+            pacedBuffer.ReleaseBuffer(90, pacedHandle, pacedFence) != 0 ||
+            pacedBuffer.BeginBuffer(90, pacedHandle) != 0 ||
+            pacedBuffer.SubmitBuffer(90, pacedHandle) != -11 ||
+            pacedBuffer.BeginFrame(90) != -11) { return 82; }
+        bufferClock.Advance(16000);
+        if (pacedBuffer.SubmitBuffer(90, pacedHandle) <= pacedFence ||
+            pacedBuffer.PresentedFrames() != 2 ||
+            pacedBuffer.Release(90) != 0) { return 83; }
+        MockVirtioPci pci = new MockVirtioPci();
+        pci.Write32(7, 0, 4176 * 65536 + 6900);
+        pci.Write32(7, 52, 64);
+        pci.Write32(7, 64, 9 + 84 * 256 + 16 * 65536 + 16777216);
+        pci.Write32(7, 72, 256); pci.Write32(7, 76, 64);
+        pci.Write32(7, 84, 9 + 104 * 256 + 20 * 65536 + 2 * 16777216);
+        pci.Write32(7, 92, 512); pci.Write32(7, 96, 64);
+        pci.Write32(7, 100, 4);
+        pci.Write32(7, 104, 9 + 120 * 256 + 16 * 65536 + 3 * 16777216);
+        pci.Write32(7, 112, 768); pci.Write32(7, 116, 1);
+        pci.Write32(7, 120, 9 + 16 * 65536 + 4 * 16777216);
+        pci.Write32(7, 128, 1024); pci.Write32(7, 132, 16);
+        VirtioPciLayout pciLayout = new VirtioPciLayout(pci, 7);
+        if (!pciLayout.Ready() || pciLayout.Common().Offset() != 256 ||
+            pciLayout.QueueNotifyOffset(3) != 524 ||
+            pciLayout.QueueNotifyOffset(16) != -1 ||
+            new VirtioPciLayout(pci, 8).Ready()) { return 50; }
+        VirtioSplitQueue queue = new VirtioSplitQueue(8);
+        if (!queue.Ready() || !queue.Submit(4096, 40, 8192, 24) ||
+            queue.Submit(4096, 40, 8192, 24) ||
+            queue.Available()[2] != 1 ||
+            queue.Descriptors()[12] != 1 ||
+            queue.Descriptors()[28] != 2 ||
+            queue.Complete(1, 1, 24) ||
+            !queue.Complete(1, 0, 24) || queue.Busy() ||
+            queue.Completed() != 1 ||
+            new VirtioSplitQueue(1).Ready() ||
+            new VirtioSplitQueue(6).Ready()) { return 51; }
+        MockGpuControl gpuControl = new MockGpuControl(0);
+        VirtioGpu2D gpu = new VirtioGpu2D(gpuControl);
+        bool invalidCreate = gpu.Create(64, 32, 4096, 1024);
+        bool created = gpu.Create(64, 32, 4096, 8192);
+        bool scanout = gpu.Scanout(0);
+        bool invalidScanout = gpu.Scanout(16);
+        bool invalidUpdate = gpu.Update(63, 31, 2, 1);
+        bool updated = gpu.Update(3, 4, 16, 8);
+        long transferOffset = gpuControl.TransferOffset();
+        bool destroyed = gpu.Destroy();
+        if (invalidCreate || !created ||
+            !scanout || invalidScanout || invalidUpdate || !updated ||
+            transferOffset != 1036 || !destroyed || gpu.Current() != null ||
+            gpuControl.Count() != 7 ||
+            gpuControl.At(0) != 257 || gpuControl.At(1) != 262 ||
+            gpuControl.At(2) != 259 || gpuControl.At(3) != 261 ||
+            gpuControl.At(4) != 260 || gpuControl.At(5) != 263 ||
+            gpuControl.At(6) != 258) { return 52; }
+        MockGpuControl failingControl = new MockGpuControl(2);
+        VirtioGpu2D failingGpu = new VirtioGpu2D(failingControl);
+        if (failingGpu.Create(64, 32, 4096, 8192) ||
+            failingGpu.Current() != null || failingControl.Count() != 3 ||
+            failingControl.At(2) != 258) { return 53; }
         System.Console.WriteLine("Australis bounded graphics and window layout tests passed");
         return 0;
     }

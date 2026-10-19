@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisGraphicsBenchmark"
+type = "exe"
+sources = ["../../src/kernel/console/FramebufferMode.hy", "../../src/kernel/graphics/PixelSurface.hy", "../../src/kernel/graphics/DamageTracker.hy", "../../src/kernel/graphics/FramebufferPresenter.hy", "../../src/kernel/graphics/WindowLayout.hy", "../../src/kernel/graphics/WindowRenderer.hy", "GraphicsBenchmarkProgram.hy"]
+
+[package]
+id = "AustralisGraphicsBenchmark"
+description = "Repeatable software drawing, composition and presentation workloads"
+authors = ["Aurora Softwares"]
+license = "MIT"

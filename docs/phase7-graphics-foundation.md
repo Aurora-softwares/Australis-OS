@@ -37,7 +37,7 @@ close, minimize, and toggle maximize.
 - `DamageTracker` clips dirty rectangles to the display and falls back to a
   full-screen update after sixteen pending rectangles. `FramebufferPresenter`
   can present only these regions and clears them after a successful write.
-  Composition itself still repaints the complete software frame.
+  Phase 8 added clipped composition of the same dirty regions.
 - `DisplayDevice` grants one exclusive lease to a process with display
   capability bit `2`. Its AUEX calls claim/release the lease, fill a checked
   rectangle, and request a mode change. A fill must fit wholly inside the
@@ -116,9 +116,9 @@ image and checks that the serial shell still starts on AHCI and NVMe.
 - Extend the 4×4 cell surfaces to arbitrary bounded client pixels through a
   chunk protocol or shared pages. Geometry and stacking still belong to the
   service; the richer host window model is not yet driven by live IPC.
-- Improve software composition and rendering performance in Phase 8,
-  including the planned frosted bar. The live Phase 7 bar is an opaque dark
-  surface when windows float. The finished desktop shell is Phase 14 work.
+- The Phase 8 software compositor now caches its wallpaper and frosted bar;
+  the live display service still uses an opaque dark bar for floating windows.
+  The finished desktop shell is Phase 14 work.
 
 Native AUN1 processes still have one 4 KiB data page and one 4 KiB stack
 page, with a 256-byte transfer limit per syscall. A general client pixel
