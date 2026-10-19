@@ -92,7 +92,13 @@ public class Program {
             gop.PixelAddress(800, 0) != 0 || gop.PixelAddress(-1, 0) != 0) { return 17; }
         if (new FramebufferMode(4096, 100, 800, 600, 800, 1).Supported() ||
             new FramebufferMode(4096, 800 * 600 * 4, 800, 600, 799, 1).Supported() ||
-            new FramebufferMode(4096, 800 * 600 * 4, 800, 600, 800, 2).Supported()) { return 18; }
+            new FramebufferMode(4096, 800 * 600 * 4, 800, 600, 800, 2).Supported() ||
+            new FramebufferMode(4097, 800 * 600 * 4, 800, 600, 800, 1).Supported()) { return 18; }
+        long nearEnd = 2147483647;
+        nearEnd = nearEnd * 4294967296 + 4294967295;
+        if (new FramebufferMode(nearEnd, 800 * 600 * 4, 800, 600, 800, 1).Supported()) {
+            return 19;
+        }
         System.Console.WriteLine("Australis terminal event, line editor, and GOP mode tests passed");
         return 0;
     }

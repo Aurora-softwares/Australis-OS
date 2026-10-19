@@ -42,7 +42,7 @@ OS_SOURCES := $(wildcard src/bootloader/*.hy src/bootloader/*.hyproj src/kernel/
 NATIVE_RUNTIME_BLOB := src/kernel/user/NativeRuntimeBlob.hy
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
-USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0
+USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0 -device usb-mouse,bus=xhci0.0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
 .PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-mouse test-mouse-ahci test-mouse-nvme test-phase5-6 test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
@@ -57,6 +57,8 @@ USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,
 .PHONY: test-native-user-mode-image
 .PHONY: test-native-files
 .PHONY: test-xhci-multi
+.PHONY: test-graphics
+.PHONY: test-display-ahci test-display-nvme test-display-fallback
 .PHONY: test-userland-stage2
 	
 #
@@ -337,7 +339,9 @@ test-phase5-6:
 	"$(MAKE)" -j1 test-stage3
 	"$(MAKE)" -j1 test-mouse
 	"$(MAKE)" -j1 test-stage4
+	"$(MAKE)" -j1 test-xhci-multi
 	"$(MAKE)" -j1 test-serial-ahci test-serial-nvme
+	"$(MAKE)" -j1 test-userland-info
 	"$(MAKE)" -j1 test-native-files
 
 test-stage5: test-stage5-host test-stage5-ahci test-stage5-nvme
@@ -552,6 +556,21 @@ test-terminal: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/console/Terminal.hyproj -o "$(BUILD_DIR)/terminal-tests"
 	"$(BUILD_DIR)/terminal-tests"
+
+test-graphics: check-build-tools
+	@mkdir -p "$(BUILD_DIR)"
+	"$(HYDROGEN)" build tests/graphics/Graphics.hyproj -o "$(BUILD_DIR)/graphics-tests"
+	"$(BUILD_DIR)/graphics-tests"
+
+test-display-ahci: iso-hyfs2 | check-run-tools
+	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+
+test-display-nvme: iso-hyfs2 | check-run-tools
+	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+
+test-display-fallback: iso-hyfs2 | check-run-tools
+	python3 tests/graphics/display_fallback_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
+	python3 tests/graphics/display_fallback_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-serial-nvme: iso | check-run-tools
 	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme hyfs2

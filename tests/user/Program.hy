@@ -71,6 +71,14 @@ public class UserMockChildLauncher : IUserChildLauncher {
     public int ChannelWait(int processId, int handle, int maxRounds) { return -4; }
     public int ChannelPeer(int processId, int handle) { return -4; }
     public int ChannelClose(int processId, int handle) { return -4; }
+    public int DisplayClaim(int processId) { return -4; }
+    public int DisplayRelease(int processId) { return -4; }
+    public int DisplayFillRect(int processId, int x, int y, int width,
+        int height, int rgb) { return -4; }
+    public int DisplaySetMode(int processId, int width, int height) { return -4; }
+    public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
+    public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
+    public int DisplayPollKey(int processId) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
@@ -114,6 +122,14 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
     public int ChannelWait(int processId, int handle, int maxRounds) { return -4; }
     public int ChannelPeer(int processId, int handle) { return -4; }
     public int ChannelClose(int processId, int handle) { return -4; }
+    public int DisplayClaim(int processId) { return -4; }
+    public int DisplayRelease(int processId) { return -4; }
+    public int DisplayFillRect(int processId, int x, int y, int width,
+        int height, int rgb) { return -4; }
+    public int DisplaySetMode(int processId, int width, int height) { return -4; }
+    public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
+    public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
+    public int DisplayPollKey(int processId) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
@@ -157,6 +173,14 @@ public class UserMockCommandLauncher : IUserChildLauncher {
     public int ChannelWait(int processId, int handle, int maxRounds) { return -4; }
     public int ChannelPeer(int processId, int handle) { return -4; }
     public int ChannelClose(int processId, int handle) { return -4; }
+    public int DisplayClaim(int processId) { return -4; }
+    public int DisplayRelease(int processId) { return -4; }
+    public int DisplayFillRect(int processId, int x, int y, int width,
+        int height, int rgb) { return -4; }
+    public int DisplaySetMode(int processId, int width, int height) { return -4; }
+    public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
+    public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
+    public int DisplayPollKey(int processId) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }

@@ -1,0 +1,10 @@
+format = 2
+name = "AustralisGraphicsTests"
+type = "exe"
+sources = ["../../src/kernel/console/Terminal.hy", "../../src/kernel/console/FramebufferMode.hy", "../../src/kernel/console/ConsoleEvents.hy", "../../src/kernel/graphics/PixelSurface.hy", "../../src/kernel/graphics/DamageTracker.hy", "../../src/kernel/graphics/FramebufferPresenter.hy", "../../src/kernel/graphics/DisplayDevice.hy", "../../src/kernel/graphics/WindowLayout.hy", "../../src/kernel/graphics/WindowRenderer.hy", "../../src/kernel/graphics/WindowInputRouter.hy", "GraphicsProgram.hy"]
+
+[package]
+id = "AustralisGraphicsTests"
+description = "Bounded 2D surfaces and framebuffer presentation checks"
+authors = ["Aurora Softwares"]
+license = "MIT"

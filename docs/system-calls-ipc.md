@@ -68,6 +68,55 @@ the only persistent write target. VFS mount and mutation generations reject
 stale handles after unmount or a conflicting mutation. Native calls have no
 direct driver access.
 
+## AUEX display API
+
+`System.Australis.Display.Acquire()` claims the sole display lease for the
+calling process (opcode 104). The kernel uses the caller's process record and
+requires capability bit `2` from the read-only `AUSC1` manifest. A second
+claim returns `-16`; a caller without the grant receives `-13`.
+`Release()` (opcode 105) gives up the lease. Exit, fault, and termination also
+release it, restore the framebuffer text mirror, and leave the serial
+terminal contents intact. The framebuffer shows a recovery notice.
+
+`FillRect(x, y, width, height, rgb)` (opcode 106) writes a 24-bit RGB color
+inside the captured GOP mode. The entire rectangle must fit the mode, have
+positive dimensions, and contain at most 65,536 pixels. Only the lease owner
+can draw. Display geometry and format are available through SystemInfo
+selectors `23`–`29`; no user call returns a framebuffer address.
+`SetMode(width, height)` (opcode 107) returns `-95` for the fixed GOP
+framebuffer after firmware handoff. A future native display driver may
+implement mode switching behind this call.
+`PollMouse(byte[3])` (opcode 108) returns `3` when a boot-mouse report is
+available and `-1` when none is queued. The bytes hold buttons, X delta plus
+128, and Y delta plus 128. Only the current display lease owner may poll;
+other processes receive `-13`.
+`CaptureKeyboard(enabled)` (opcode 109, with `enabled` equal to `0` or `1`)
+selects whether USB keyboard bytes reach the display owner or the shell.
+`PollKey()` (opcode 110) returns the next USB key byte or `-1` when none is
+queued. Both calls require the display capability and current lease;
+`PollKey()` also requires keyboard capture. Unauthorized callers receive
+`-13`. Releasing the lease restores USB keyboard input to the shell.
+COM1 input remains available to the shell throughout.
+
+The live `/System/Core/Display.exec` process owns the lease and accepts
+version 2 channel submissions from two separate AUEX clients. A create
+request is `[1,R,G,B]` and returns `[1,window ID]`. A cell update is
+`[2,ID,column,row,R,G,B]` with column and row in `0..3`; it returns
+`[2,1]` on success or `[2,0]` on denial. A close request is `[3,ID]`.
+The service retains each client's 4×4 RGB cells and binds its ID to the
+authenticated channel peer. Closing the channel removes that window.
+The service sends pointer events `[4,ID,kind,xlo,xhi,ylo,yhi]`, where kind is
+`1` for motion during capture, `2` for button down, and `3` for button up.
+Coordinates are clipped to the receiving window's content. It sends key
+events `[5,ID,key]` only to the focused client. Clicking wallpaper clears
+focus and releases USB keyboard capture. The service owns window geometry
+and stacking: title drags move windows, right and bottom edge drags resize,
+and red, yellow, and green controls close, minimize, and toggle maximize.
+The top bar restores minimized windows. Arbitrary client pixel surfaces
+remain future work. Replies and input events share each client
+channel, so a client must receive into a buffer large enough for the
+seven-byte pointer frame even while waiting for a two-byte reply.
+
 ## Verification
 
 `make test-stage5-host` covers process and channel records. `make

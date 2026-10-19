@@ -66,6 +66,8 @@ def kernel_record(path):
                     "storage_state": struct.unpack_from("<I", memory, position + 1240)[0],
                     "framebuffer_width": struct.unpack_from("<I", memory, position + 128)[0],
                     "framebuffer_height": struct.unpack_from("<I", memory, position + 132)[0],
+                    "framebuffer_stride": struct.unpack_from("<I", memory, position + 136)[0],
+                    "framebuffer_format": struct.unpack_from("<I", memory, position + 140)[0],
                     "cursor_y": struct.unpack_from("<I", memory, position + 148)[0],
                     "ring_head": struct.unpack_from("<I", memory, position + 1168)[0],
                     "ring_tail": struct.unpack_from("<I", memory, position + 1172)[0],

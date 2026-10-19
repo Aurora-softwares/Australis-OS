@@ -67,8 +67,17 @@ def main():
 
                 system = run(connection, process, b"run sys-info")
                 require(system, b"Australis System Information\r\n", "sys-info")
-                require(system, b"System information API:\r\n4\r\n", "sys-info")
+                require(system, b"System information API:\r\n5\r\n", "sys-info")
                 require(system, b"Boot information ABI:\r\n7\r\n", "sys-info")
+                for label, value in (
+                    (b"Framebuffer width", before["framebuffer_width"]),
+                    (b"Framebuffer height", before["framebuffer_height"]),
+                    (b"Framebuffer stride in pixels", before["framebuffer_stride"]),
+                    (b"Framebuffer pixel format (0 RGB, 1 BGR)", before["framebuffer_format"]),
+                    (b"Framebuffer bits per pixel", 32),
+                    (b"Framebuffer mode flags (1 valid, 2 fixed)", 3),
+                ):
+                    require(system, label + b":\r\n" + str(value).encode() + b"\r\n", "sys-info")
                 controller = b"1" if transport == "ahci" else b"2"
                 require(system,
                         b"Block controller (1 AHCI, 2 NVMe):\r\n" + controller + b"\r\n",

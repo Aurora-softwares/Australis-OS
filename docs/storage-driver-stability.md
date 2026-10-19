@@ -34,18 +34,25 @@ then scans the data volume after reboot.
 
 The kernel scans PCI for supported storage and xHCI functions, validates BARs,
 maps bounded MMIO, and allocates DMA from a reserved pool. The xHCI owner has
-one controller and one root device at a time. Keyboard and mouse transfer
-completions are decoded in normal kernel context after IRQ acknowledgement.
+one controller and supports two simultaneous root-port devices when the
+controller exposes two slots and the reserved DMA pool can accommodate both.
+Each device has separate contexts, rings, queues, and transfer state. Events
+are routed by slot or port; removal and reconnect trigger bounded controller
+recovery and re-enumeration. Keyboard and mouse transfer completions are
+decoded in normal kernel context after IRQ acknowledgement.
 The mouse queue holds 63 complete events, rejects invalid values, reports
 overflow, and clears stale events on disconnect. A consumer can poll button
 state and signed X/Y deltas through `NativeXhci.PollMouseEvent`.
 
 The framebuffer interface describes the single GOP mode captured before
 `ExitBootServices`: base, byte length, width, height, stride, and 32-bit RGB or
-BGR pixel format. `FramebufferMode` rejects malformed geometry and bounds
-pixel addresses. The text terminal uses that validated mode. Switching GOP
-modes after handoff is unavailable; the compositor and user display API belong
-to Phase 7.
+BGR pixel format. `FramebufferMode` rejects malformed geometry, unaligned or
+wrapping ranges, and out-of-bounds pixel coordinates. The text terminal uses
+that validated mode. System-information API 5 exposes read-only width, height,
+stride, format, 32-bit depth, and valid/fixed flags to AUEX user programs;
+it never exposes the physical framebuffer address. The mode remains fixed
+after handoff. Dynamic mode changes, drawing ownership, and the compositor
+belong to Phase 7.
 
 ## Regression matrix
 
@@ -56,7 +63,8 @@ to Phase 7.
 | USB boot keyboard | Typed shell and AUEX input on both boot disks | Key release, repeat, ring wrap, disconnect and recovery | `make test-stage3` |
 | USB boot mouse | Enumerate and deliver motion on both boot disks | Queue bounds, rejected values, no shell action from IRQ, removal and reconnect | `make test-usb test-mouse` |
 | USB mass storage | Read-only `/usb` mount on both boot disks | BOT failure, sense and removal | `make test-stage4` |
-| GOP framebuffer + COM1 | Mirrored terminal on both boot disks | Invalid mode geometry and serial fallback | `make test-terminal test-serial-ahci test-serial-nvme` |
+| Two xHCI root devices | Keyboard + storage and keyboard + mouse on both boot disks | Independent reports, removal/reconnect in both directions, stable DMA ownership | `make test-xhci-multi` |
+| GOP framebuffer + COM1 | Mirrored terminal and read-only user mode query on both boot disks | Invalid geometry/ranges, serial fallback, query matches captured GOP mode | `make test-terminal test-userland-info test-serial-ahci test-serial-nvme` |
 | HyFS 2 transactions | Atomic create/replace, rename, deletion, remount | Every simulated interruption point, exhaustion, scanner | `make test-hyfs2` |
 | Native AUN1 files | Per-process handles and persistent `/data` writes on AHCI/NVMe | Read-only boot policy, invalid pointer, closed handle, reboot and scanner | `make test-native-files` |
 

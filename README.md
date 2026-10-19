@@ -124,22 +124,34 @@ programs; use the hybrid ISO for the live HyFS root.
 make run
 ```
 
-This boots `build/australis-hylang.iso` in QEMU with OVMF as optical media and
+This boots `build/australis-hyfs2.iso` in QEMU with OVMF as optical media and
 attaches the same image as an AHCI disk for the kernel's live HyFS root. The
-QEMU window sends keyboard input through the emulated xHCI USB keyboard. To
+QEMU window sends keyboard and mouse input through emulated xHCI devices. To
 boot directly from the image's GPT EFI partition on AHCI, run:
 
 ```bash
 make run-disk
 ```
 
-`make run-disk` also attaches the xHCI USB keyboard. For the NVMe storage path,
-run `make run-nvme`; it provides the same graphical terminal and keyboard. The
+`make run-disk` also attaches the xHCI USB keyboard and mouse. For the NVMe
+storage path, run `make run-nvme`; it provides the same display and input. The
 ISO remains optical boot media while the same image is attached as an NVMe
 namespace.
 
-Click the QEMU display once so it captures keyboard input. QEMU's default key
-combination for releasing the pointer and keyboard is Ctrl+Alt+G.
+The windows and cursor are framebuffer graphics. The current command shell
+uses COM1; run `make run-gop` to see its output in the launching terminal
+while the QEMU window shows the graphics demo. Click a window's content to
+focus it and send USB keyboard input to that client. Click the wallpaper to
+return USB keyboard input to the command shell. COM1 remains available to
+the shell while a window is focused. If the display service stops, the
+framebuffer shows a recovery notice and the COM1 shell stays available.
+Drag a title to move its window, drag the right or bottom edge to resize,
+and use the red, yellow, and green circles to close, minimize, and toggle
+maximize. The coloured chips at the right of the top bar restore minimized
+windows.
+
+Click the QEMU display once so it captures keyboard and mouse input. QEMU's
+default key combination for releasing the pointer and keyboard is Ctrl+Alt+G.
 
 For the normal userland command shell in the terminal, run:
 
@@ -256,6 +268,9 @@ heap is monotonic: it does not free or reuse allocations. The framebuffer
 console locates GOP before firmware services end, records its framebuffer data,
 then clears and writes pixels directly from the post-handoff kernel. It supports
 the standard RGB and BGR 32-bit GOP pixel formats and printable ASCII literals.
+The mode stays fixed after handoff. User programs can query validated width,
+height, stride, format, depth, and mode flags through system-information API 5;
+the physical framebuffer address is not exposed.
 
 After entry, `PhysicalPages.AllocateZeroed` and `PhysicalPages.Free` provide a
 checked reusable 4 KiB page pool for explicit kernel owners. `KernelAddressSpace`
@@ -344,22 +359,28 @@ Run its simulated PCI, register, descriptor, storage, and HID checks with:
 make test-usb
 ```
 
-The kernel now owns one live xHCI controller and one root-port device. It
+The kernel owns one live xHCI controller with up to two root-port devices. It
 configures MSI or MSI-X vector `0x32`, initializes DCBAA and scratchpads plus
-command, event, EP0, interrupt, and bulk rings, then enumerates a boot
-keyboard, a boot mouse, or a USB mass-storage device. Keyboard reports enter
+command, event, EP0, interrupt, and bulk rings, then enumerates up to two of a
+boot keyboard, boot mouse, and read-only USB mass-storage device. Keyboard reports enter
 the same normal-context console path as COM1. Mouse reports enter a bounded
-kernel event queue with signed motion and button state; a graphical consumer
-is planned for Phase 7. USB storage uses BOT and SCSI READ CAPACITY,
+kernel event queue with signed motion and button state. The user display
+service draws a software cursor, routes button and key events to its
+focused client, and owns live window movement, resizing, stacking, and
+controls. USB storage uses
+BOT and SCSI READ CAPACITY,
 REQUEST SENSE, and READ(10), exposes the common block-device interface, and can
 mount a second read-only HyFS volume at `/usb`. Disconnects, stalls, transfer
 failures, and unit-attention responses have bounded recovery while COM1 and the
-boot root remain available. Multiple simultaneous devices, hubs, non-US
-layouts, and writable removable media remain later work.
+boot root remain available. Two-device operation requires two controller slots
+and enough reserved DMA; hubs, more than two devices, non-US layouts, and
+writable removable media remain later work.
 
 The live keyboard matrix is `make test-stage3`; `make test-mouse` covers a live
 boot mouse on both storage paths. The AHCI and NVMe USB-storage
-matrix is `make test-stage4`.
+matrix is `make test-stage4`. `make test-xhci-multi` covers simultaneous
+keyboard/storage and keyboard/mouse devices on both storage paths, including
+removal and reconnect.
 The complete Phase 5/6 regression set is `make test-phase5-6`; supported
 hardware and failure coverage are listed in
 [`docs/storage-driver-stability.md`](docs/storage-driver-stability.md).
@@ -484,6 +505,10 @@ make test-vfs
 make test-hyfs
 make test-hyfs1
 make test-terminal
+make test-graphics
+make test-display-ahci
+make test-display-nvme
+make test-display-fallback
 make test-serial-ahci
 make test-serial-nvme
 ```

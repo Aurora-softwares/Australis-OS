@@ -132,11 +132,11 @@ level tests; normal programs should use terminal and file operations.
 `StatTimeFlags`, bit 0 marks a known creation time and bit 1 marks a known
 modification time; a missing timestamp must be treated as unavailable.
 
-`SystemInfo.Query(0)` returns system-information API version `4`. Selectors
+`SystemInfo.Query(0)` returns system-information API version `5`. Selectors
 `1`-`3` report the process-start ABI version, maximum argument count, and
-current process ID. Version 2 added read-only system selectors `16`-`39`;
+current process ID. Version 2 introduced read-only system selectors;
 version 3 added process selectors `40`-`45`; version 4 adds driver-state
-selectors `48`-`54`:
+selectors `48`-`54`; version 5 adds validated display-mode selectors `26`-`29`:
 
 | Selector | Value |
 | --- | --- |
@@ -147,8 +147,12 @@ selectors `48`-`54`:
 | `20` | APIC mode (`0` xAPIC, `1` x2APIC) |
 | `21` | Block controller (`1` AHCI, `2` NVMe) |
 | `22` | Root filesystem flags |
-| `23`, `24` | Framebuffer width and height |
+| `23`, `24` | Validated framebuffer width and height, or zero when unavailable |
 | `25` | Clock calibration state (`1` ready, `2` failed) |
+| `26` | Framebuffer stride in pixels, or zero when unavailable |
+| `27` | GOP pixel format (`0` RGB, `1` BGR); meaningful when selector `29` has bit 0 set |
+| `28` | Framebuffer bits per pixel (`32`), or zero when unavailable |
+| `29` | Framebuffer mode flags: bit 0 validated, bit 1 fixed after handoff |
 | `32` | Physical page size in bytes |
 | `33`, `34`, `35` | Fresh, recycled, and total available physical pages |
 | `36` | Committed kernel heap pages |
