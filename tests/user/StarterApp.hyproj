@@ -1,0 +1,12 @@
+format = 2
+name = "AustralisStage1StarterFixture"
+type = "exec"
+output = "stage1-starter.exec"
+sources = ["StarterApp.hy"]
+project_references = []
+
+[package]
+id = "os.australis.tests.stage1-starter"
+description = "Argument printer fixture for the Stage 1 process ABI"
+authors = ["Aurora Softwares"]
+license = "MIT"

@@ -1,0 +1,5 @@
+format = 2
+name = "AustralisIpcDenied"
+type = "exec"
+output = "ipc-denied.exec"
+sources = ["./IpcDenied.hy"]

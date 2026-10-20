@@ -99,8 +99,10 @@ def main():
                 listing = shell(connection, process, b"ls /usb")
                 if (b"usb0: mass-storage ready\r\n" not in devices or
                     b"/usb: hyfs usb0\r\n" not in mounts or
-                    b"/usb/usb-multi.txt\r\n" not in listing):
-                    raise AssertionError("removable volume was not exposed by the shell")
+                    b"usb-multi.txt\r\n" not in listing):
+                    raise AssertionError(
+                        f"removable volume was not exposed by the shell: "
+                        f"devices={devices!r}, mounts={mounts!r}, listing={listing!r}")
                 first_read = shell(connection, process, b"cat /usb/usb-multi.txt", 45)
                 if multi not in first_read:
                     raise AssertionError("multi-sector USB file was not returned intact")
@@ -123,7 +125,8 @@ def main():
                     unavailable = shell(connection, process, b"devices")
                     failed = shell(connection, process, b"cat /usb/usb-multi.txt", 20)
                     if (b"removed or unavailable" not in unavailable or
-                        b"File read failed.\r\n" not in failed or
+                        (b"File read failed.\r\n" not in failed and
+                         b"cat: read failed (status):\r\n" not in failed) or
                         b"USB stage 4 sector stream" in failed):
                         raise AssertionError(f"removal exposed partial data in cycle {cycle}: {failed!r}")
                     command(connection, process, f"echo serial {cycle}".encode(),

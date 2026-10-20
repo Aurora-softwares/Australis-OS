@@ -1,0 +1,13 @@
+format = 2
+name = "AustralisArgumentTest"
+version = "0.1.0"
+type = "exec"
+output = "argv-check.exec"
+sources = ["ArgumentApp.hy"]
+project_references = []
+
+[package]
+id = "os.australis.argv-check"
+description = "AUEX shell argument integration test"
+authors = ["Aurora Softwares"]
+license = "MIT"

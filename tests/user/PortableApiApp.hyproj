@@ -1,0 +1,11 @@
+format = 2
+name = "AustralisPortableApiApp"
+type = "exec"
+output = "portable-api-test.exec"
+sources = ["PortableApiApp.hy"]
+
+[package]
+id = "AustralisPortableApiApp"
+description = "Portable System API AUEX integration test"
+authors = ["Aurora Softwares"]
+license = "MIT"

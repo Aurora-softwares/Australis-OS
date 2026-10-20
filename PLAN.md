@@ -1,274 +1,277 @@
-# Australis OS Active Plan
+# Australis OS active plan
 
-This plan records the current, Hydrogen-first path. It is a companion to the
-Australis documentation and the Hylang compiler's OS roadmap.
+Reviewed 2026-10-13. This file is the implementation order and set of exit
+gates for the current OS. The earlier bootstrap checklist in this file is
+retained in Git history; completed bootstrap work is summarized here rather
+than treated as the next milestone.
 
-## Current capability: freestanding kernel and serial shell
+## Intended boot path and ownership
 
-Australis currently proves one narrow but important path end to end:
+```text
+BOOTX64.EFI -> KERNEL.BIN -> /System/Core/System.exec (PID 1)
+                                      -> CommandShell.exec (text session)
+                                      -> optional graphical session
+```
 
-- `src/bootloader/program.hy` is compiled by the retained self-hosted
-  `hydrogen-stage1` compiler.
-- `--target uefi-x64` emits a PE32+ x86-64 EFI application with an EFI entry
-  point, UTF-16 output, and a direct UEFI text-console call.
-- `mtools` and `xorriso` package that application into either a FAT disk image
-  or an El Torito UEFI ISO. They do not compile Hydrogen.
-- QEMU with OVMF boots the ISO. The bootloader loads and validates
-  `EFI/AUSTRALIS/KERNEL.BIN`, ends boot services, switches stack, and enters
-  the raw kernel code.
+The bootloader validates and starts the kernel. The kernel owns hardware,
+memory, scheduling, process isolation, system calls, and VFS. System userland
+owns startup, services, mounts, sessions, and launch policy. The userland shell
+owns command parsing, environment, `PATH`, and foreground jobs. Applications
+use public APIs. A kernel monitor (KMon) must remain reachable when the root
+volume or PID 1 cannot start. A future `rescue.exec` may add tools when a
+valid volume is available; it cannot be the only recovery route.
 
-The EFI target supports firmware console calls before `ExitBootServices`, then
-transfers to a compiled `KernelMain.Run(long bootInfo)` method graph. That graph
-uses kernel-owned physical pages for arrays, objects, and literal strings. It
-reinitializes AHCI or NVMe through Hylang MMIO/DMA adapters, reads sectors
-through the common block interface, validates GPT with the Hylang reader, and
-mounts the HyFS partition by its full GPT type GUID. It reads files through the
-VFS on both AHCI and NVMe, including a file spanning multiple sectors. Its
-COM1 shell uses PIC IRQ4 to fill a bounded receive ring and runs the user shell
-registry against the mounted namespace. Each shell command and AUEX process
-reclaims its temporary allocations after completing.
-Only the bootloader remains a UEFI PE image in this path. The kernel is a
-position-independent `AUKR` binary and calls no firmware service. Individual
-managed allocations can be released. Persistent file descriptors, AUEX process
-loading, bounded scheduling, and checked user code/data address spaces are live.
+Follow [the architecture](src/README.md) for these boundaries and package
+names, [the userland stages](src/userland/README.md) for feature order, and the
+[bootloader](src/bootloader/README.md) and [kernel](src/kernel/README.md)
+READMEs for their completion criteria. The architecture uses `System.exec`
+and `CommandShell.exec`; the system contract is at
+[src/userland/system/README.md](src/userland/system/README.md). The
+[rescue README](src/rescue/README.md) distinguishes the kernel monitor from
+the optional `rescue.exec`. Normal boot enters the userland `australis>` shell
+through `System.exec`. The explicit `R` boot selection enters `rescue>`
+without mounting a root; `D` enters KMon after hardware startup. A missing
+or failed PID 1 falls back to `kmon>`.
 
-## Full subsystem completion gate
+## Current baseline
 
-The checked items below describe working bootstrap milestones. They do not
-mean the subsystem is complete. A completed subsystem must run in the
-freestanding kernel, expose a reusable interface, handle bounded failures and
-recovery, and have host tests plus a QEMU/OVMF integration test. Physical PC
-coverage needs separate hardware validation.
+| Area | What exists | What is still missing |
+| --- | --- | --- |
+| Bootloader | Stage 1 handoff and AHCI/NVMe QEMU boot pass; explicit `R` Rescue works from an EFI-only disk. | Negative image/handoff tests, automated `D`/`N`/`S` mode checks, physical firmware coverage. |
+| Kernel | Freestanding kernel, COM1/framebuffer console, KMon recovery controls, drivers, VFS, checked AUEX execution, bounded process records, live AUEX instruction-round scheduling, and AUN1 ring-3 children with bounded memory. | Native syscall parity, interrupt preemption, and process-wide resource accounting. |
+| Storage | HyFS 2 directories, read-only boot root, transactional writes on separate `/data`, packaged `/System/Core` executables, and KMon fallback for damaged root or PID 1. | Removable-media flush and physical-device coverage. |
+| Userland | Stage 1 inputs, Essentials commands, child context, launch errors, editable `PATH`, terminal parity, and read-only command cleanup pass hosted and AHCI/NVMe checks. | Precise release after filesystem mutation and broader process APIs. |
+| System | PID 1 reads the versioned startup manifest, starts Device and Storage checks before the shell, waits for readiness, and bounds retries per record. | Persistent service control, dependency graphs beyond manifest order, and session supervision. |
+| Rescue | `R` enters a kernel monitor without HyFS; missing or failed PID 1 falls back to KMon. | Optional `rescue.exec` and broader fault recovery coverage. |
+| Shell | The userland shell parses quoted input, owns `cd`/`pwd`/history, editable `PATH`, `set`/`export`/`unset`, and launches foreground executables with context. | Background jobs require Stage 4 process support. |
 
-| Subsystem | Current gap before completion |
-| --- | --- |
-| Compiler and runtime | Objects, arrays, and strings now carry ownership metadata and support explicit individual release; shell temporaries still use a command marker. Add reusable boot-information types and automatic lifetime management. |
-| Physical and virtual memory | The active PML4 is audited; page tables are reclaimed after unmap, released pages are reused, and live stress checks repeat mapping and managed release. Add memory-descriptor ownership and broader cache policy. |
-| Exceptions, interrupts, and timer | Exception vectors record state, COM1 uses PIC IRQ4, storage uses APIC vector `0x31`, and xHCI uses deferred vector `0x32` events with calibrated deadlines. Add vector allocation beyond the current fixed assignments. |
-| PCI, MMIO, and DMA | BARs are sized and fully mapped, xHCI DMA ownership is explicit, and unsupported IOMMU translation is rejected. Add translated DMA support and broader cache-policy validation. |
-| AHCI and NVMe | Controllers use MSI/MSI-X completion waits with one reset/retry and failure diagnostics; QEMU exercises delayed and failed reads. Add enumeration beyond the selected device, real flush/write behavior, and broader hardware validation. |
-| Partition discovery | The Hylang GPT reader now runs on live AHCI and NVMe, checks CRCs with backup-header recovery, and selects HyFS by full type GUID. Add partition selection by unique identity and a live damaged-primary integration test. |
-| VFS and HyFS | Persistent generation-checked handles and canonical namespace traversal cover `/` and `/usb`; HyFS v1 itself remains flat. Add an on-disk directory format and live corruption tests. |
-| Interactive console | COM1 and USB HID share line editing; AUEX fd 0/1/2 uses the same canonical read and mirrored write semantics. Add layout selection, pipelines, and background jobs. |
-| USB | One live xHCI root device supports either a US keyboard or MSC bulk storage with bounded hotplug recovery. Add hubs and multiple simultaneous devices. |
+The baseline checks below distinguish the Stage 1 fixture image from the
+normal image. Unrelated local edits in application README files are outside
+this source baseline.
 
-The next engineering sequence is preemptive native processes, a richer on-disk
-filesystem, and multi-device USB topology. Each row stays open until its stated
-integration path exists.
+## Execution rules
 
-## Completed
+1. Work on one numbered stage at a time. A working API or directory layout is
+   a dependency, not completion of the stage that uses it.
+2. Each stage ends with a source-built artifact, hosted failure tests, and
+   AHCI/NVMe QEMU checks. Keep COM1 recovery usable after faults.
+3. Put OS commands and policy in userland. Keep kernel built-ins only for KMon
+   and recovery while replacements are proved.
+4. Keep the boot root read-only and use disposable `/data` images for write
+   tests. Do not require a writable root for startup or recovery.
+5. Update the relevant README and this plan when a gate passes. Do not infer
+   completion from a checklist mark alone; record the command and observed
+   result.
 
-- [x] Self-hosted compiler emits a PE32+ x86-64 UEFI image.
-- [x] UEFI entry-point ABI and firmware console function-pointer call.
-- [x] UTF-16 encoding for the firmware console string.
-- [x] Load and validate a separate raw kernel binary, capture the final memory
-  map, leave boot services, allocate a kernel stack, and jump to its entry.
-- [x] `src/bootloader/program.hy` is the current boot source; the old C# source
-  was removed.
-- [x] `make build`, `make image`, `make iso`, and `make run` use the
-  self-hosted compiler plus packaging tools.
-- [x] Boot the generated ISO in QEMU/OVMF and verify the text output.
-- [x] Capture a final UEFI memory map, call `ExitBootServices`, then enter the
-  raw kernel on its own stack; the kernel enables interrupts and idles.
-- [x] Bring up a post-handoff COM1 console and run a kernel shell with bounded
-  editing and `help`, `echo`, `ls`, `cat`, and `version` on AHCI and NVMe roots.
+## Gate 0 — reconcile and freeze the baseline
 
-## Roadmap: interactive terminal and USB
+- 🟢 Review and integrate the pending Stage 1 edits in the OS, kernel,
+  userland, and Hylang compiler repositories; record the matching submodule
+  revisions. Build a normal ISO separately from the Stage 1 fixture ISO.
+- 🟢 Re-run `make test-userland-stage1`, the existing HyFS 2 host/write and
+  AHCI/NVMe persistence checks, and a normal serial boot on both controllers.
+  Record failures before adding features.
+- 🟢 Maintain the system contract at `src/userland/system/README.md`;
+  document the rescue contract and use `System.exec`, `CommandShell.exec`,
+  `kmon>`, and `rescue>` consistently.
+- 🟢 Define the exact KMon entry, PID 1 failure fallback, and normal versus
+  debugging boot behavior. Recovery must not depend on HyFS or AUEX.
 
-Work through these milestones in order. Each has a runnable exit check, so the
-serial shell remains usable while new input and storage paths are brought up.
+**Exit:** clean, reproducible build; one documented name and owner for each
+boot component; baseline tests pass; a failure can still reach KMon.
 
-### 1. Shared terminal and input (complete)
+### Gate 0 verification, 2026-10-13
 
-- [x] Separate the shell from COM1 through input and output interfaces. Keep
-  COM1's bounded IRQ-fed ring, count dropped bytes, and execute commands in
-  normal kernel context. QEMU covers command editing and repeated root reads.
-- [x] Mirror shell output to a scrolling GOP framebuffer terminal. QEMU checks
-  that a bottom-row newline moves earlier pixels up one glyph row.
-- [x] Add a bounded shared key-event queue for non-serial devices, ANSI cursor
-  controls, clear-screen support, and a visible framebuffer cursor.
-- [x] Move line editing into a reusable line discipline: arrow-key movement,
-  delete, bounded history, and clean redraw after asynchronous output. Keep
-  the existing shell commands working on either console.
-- **Exit check passed:** In QEMU, edit commands over serial and read a root file on
-  both COM1 and the framebuffer without dropped characters, mixed output, or
-  execution inside an IRQ. Keyboard input joins the same path in milestone 3.
+All commands below passed in the OS checkout:
 
-### 2. Kernel services needed by live USB (complete)
+- `make build` and `make BUILD_DIR=/tmp/australis-gate0-clean-20261013 iso`:
+  source-built EFI loader, raw kernel, applications, and HyFS 2 ISO from an
+  empty output directory.
+- `make test-userland-stage1`: hosted runtime plus AHCI and NVMe QEMU boots.
+- `make test-hyfs2`: HyFS 2 host image and writer checks, including the HyFS 1
+  compatibility fixture.
+- `make test-stage6-ahci test-stage6-nvme`: persistent writes, reboot, and
+  removal on both controllers using disposable data images.
+- `make iso`, then `make test-hyfs2-serial-ahci test-hyfs2-serial-nvme`:
+  normal image without Stage 1 or persistence fixtures; both interactive
+  serial boots passed.
+- `make test-rescue-boot`: `R` reached `rescue>` and ran `help` from a FAT-only
+  EFI disk with no HyFS partition.
 
-- [x] Calibrate a monotonic timer and use deadline-based waits for controller
-  commands, transfers, and key-repeat timing.
-- [x] Add per-device IRQ registration and vector ownership, acknowledge device
-  status in the handler, and queue completion work for normal kernel context.
-  Reserve a vector distinct from storage vector `0x31` for xHCI.
-- [x] Size PCI BARs, map their full MMIO ranges with the right cache attributes,
-  and define DMA buffer ownership and synchronization. Reject unsupported IOMMU
-  configurations explicitly until translation support exists.
-- [x] Add a small event loop or scheduler so a blocked device operation does
-  not stall serial input. Release command, transfer, and event allocations on
-  both success and error paths.
-- **Exit check passed:** Repeated IRQ registration, DMA allocation/release, MMIO
-  map/unmap, and timeout cycles leave page counts stable. AHCI and NVMe QEMU
-  runs retain COM1 input during intentionally delayed and failed requests while
-  a complete xHCI BAR mapping remains owned for Stage 3.
+Matching source revisions: bootloader `188ec49`, kernel `40bcb55`, userland
+`b8eea3e`, shell `5aed63a`, rescue `fb99930`, and Hylang compiler `41f5179`.
+The OS repository records these submodule revisions. The application README
+checkouts contain unrelated local edits; they did not affect these builds.
+The later `cat.exec` slice advanced userland to `652bd84` without changing the
+Stage 1 runtime.
 
-### 3. Live xHCI and USB keyboard
+### KMon recovery commands, 2026-10-13
 
-- [x] Claim the PCI xHCI function, map its BAR, stop/reset it, and initialize
-  DCBAA, scratchpads, command ring, event ring, and interrupter. Start with one
-  controller and one device; report unsupported topology clearly.
-- [x] Handle port changes, reset and enable a port, address a device, and make
-  endpoint-zero control transfers. Read descriptors and select a configuration.
-  Extend to interrupt endpoints, hotplug/unplug, and bounded controller reset
-  and retry paths.
-- [x] Connect the host-tested boot HID report parser to scheduled keyboard
-  reports. Translate key down/up, modifiers, and repeat into the common input
-  queue; make layout selection explicit (initially US).
-- **Exit check passed:** QEMU `qemu-xhci` plus `usb-kbd` accepts shell input on the
-  framebuffer while COM1 also works. Repeated plug/unplug and failed or delayed
-  transfers recover without lost interrupts, leaked pages, or a stuck shell.
-  The AHCI and NVMe matrix also queues USB input during a throttled root read,
-  verifies deferred command execution, key repeat, framebuffer mirroring, three
-  controller rebuilds, interrupt progress, and stable owned-page counts.
+The [kernel command audit](src/kernel/README.md) retains 22 required commands
+and records 14 excess standalone commands for removal. `continue`, `reboot`,
+`halt`, `trace`, `panic`, and `registers` now run in KMon. Early `R` Rescue
+`continue` resets into a fresh normal boot because that route skips controller
+and storage bootstrap; `panic` requires `D` Debug boot. The old `panic-test`
+alias was removed. The compiler gained freestanding interrupt-disable and
+live-register intrinsics used by these commands.
 
-### 4. USB mass storage and mounted volumes
+`make build`, `make test-kmon-recovery`, `make test-kernel-panic`,
+`make test-rescue-boot`, and the AHCI/NVMe HyFS 2 serial console tests passed
+with the source-built image. The compiler rebuilt itself to an identical
+binary. Matching revisions are kernel `7f2d00e`, rescue `6ff01c7`, and Hylang
+compiler `bc4914e`. Hardware reset behavior still needs physical-machine
+validation.
 
-- [x] Implement live bulk endpoints and connect the existing MSC BOT protocol
-  code to them. Discover capacity, read blocks through the common block-device
-  interface, and handle SCSI sense, stalls, reset recovery, and removal.
-- [x] Extend VFS with persistent file handles, mount identities, and streaming
-  reads. Keep active reads safe when a USB device disappears. Add a read-only
-  filesystem path for removable media; HyFS v1 has a flat directory, so nested
-  paths require a filesystem extension or another filesystem driver.
-- [x] Add shell commands for device listing, mounts, current directory, and
-  incremental file display. Keep writes and safe eject as separate later work.
-- **Exit check passed:** QEMU `usb-storage` mounts a second read-only volume and
-  reads a 2 KiB file through MSC BOT on both AHCI and NVMe boots. Delayed reads
-  retain queued COM1 input, and three attach/detach cycles fail atomically,
-  rebuild the controller, reuse its DMA pages, and leave the boot root mounted.
+## Stage 2 — external commands and a userland shell
 
-### 5. User-facing terminal and programs (complete)
+- 🟢 Checked terminal, file, metadata, directory, and foreground process
+  operations support the Essentials commands, child environment and
+  working-directory inheritance, terminal end-of-input, and distinct
+  process-launch results.
+- 🟢 Build `cat.exec` from a separate userland project, install it under
+  `/System/Bin`, and launch it through the existing `PATH` bootstrap with
+  `run cat /path`. `make test-userland-cat` passed on AHCI and NVMe.
+- 🟢 Build and install `ls.exec`, `version.exec`, and `echo.exec` under
+  `/System/Bin`. `pwd` is a shell built-in because it reads shell-owned directory
+  state.
+- 🟢 Implement foreground command launch, argument passing, quoted input,
+  `cd`, `pwd`, `history`, `help`, `exit`, and explicit `run` in
+  `CommandShell.exec`; KMon remains the recovery fallback.
+- 🟢 Add session-local `PATH` lookup with the `path` built-in.
+- 🟢 Add environment built-ins (`set`, `export`, `unset`) and child
+  environment propagation.
+- 🟢 Unknown commands, faults, and nonzero exits return to the prompt.
+  Missing-image, invalid-image, permission, and terminal EOF results have
+  distinct user-facing handling.
+- 🟢 COM1, USB, serial, and framebuffer behavior pass the Stage 2 boot test.
+  Repeated read-only and missing-image launches keep allocator, descriptor,
+  mapping, and input-queue counters stable.
 
-- [x] Finish nested path traversal, file descriptors, and consistent terminal
-  read/write semantics. Add a basic command registry and useful inspection
-  commands before introducing pipelines or background jobs.
-- [x] Define the AUEX user program format, loader, syscall boundary, checked
-  code/data address spaces, and bounded cooperative scheduler. Move command
-  recognition into the user shell layer while the console supervisor retains
-  device ownership and privileged services.
-- **Exit check passed:** On AHCI and NVMe, an AUEX program reads edited terminal
-  input and `/hello.txt`, exits cleanly, and returns every command allocation.
-  A protected write faults without touching kernel memory. COM1 remains usable
-  after that fault and after live USB removal.
+**Exit:** `cat /hello.txt`, `ls /`, and `version` resolve via `PATH`
+as external programs over COM1 and USB keyboard; serial and framebuffer
+output agree; repeated read-only and failed launches leave descriptor, page,
+mapping, and queue counts stable. The shell survives a bad executable.
 
-Use [QEMU's USB device guide](https://www.qemu.org/docs/master/system/devices/usb.html)
-for the emulated `qemu-xhci`, `usb-kbd`, and `usb-storage` integration matrix.
-Keep host protocol tests for malformed descriptors, HID reports, BOT status,
-timeouts, and transfer errors alongside the QEMU tests.
+`make test-userland-essentials` boots both AHCI and NVMe, runs shell
+built-ins and external file commands, copies a multi-chunk file, mutates a
+disposable `/data` volume, and returns to KMon after `exit`.
+`make test-userland-shell-preview` verifies the compiled shell's argument
+handoff in the hosted runtime. `make test-userland-stage2` covers child
+context, launch errors, EOF, and COM1/USB plus serial/framebuffer parity.
+The Stage 2 exit checks pass on AHCI and NVMe. The shell's command boundary
+reclaims managed pages for read-only and failed launches; filesystem mutation
+commands keep pages that may be referenced by persistent HyFS 2 metadata.
+Precise ownership and release for those retained pages remains later kernel
+memory work.
 
-After these milestones, extend the same input path to a USB mouse and pointer
-events, add hub and multi-device support to xHCI, then consider writable USB
-media with flush and safe removal. Networking and a graphical window system
-depend on the same scheduling, memory ownership, and device recovery work.
+## Stage 3 — complete the system image and recovery path
 
-## Kernel transition
+- 🟢 Make the HyFS 2 image builder package OS-owned commands, libraries, and
+  system components at the paths in `src/README.md`. Do not use a dummy
+  `System.exec` to claim PID 1 works.
+- 🟢 Verify the required `/System`, `/System/Bin`, `/Applications`, `/Users`,
+  `/Volumes`, and `/Temporary` hierarchy on AHCI and NVMe. Keep HyFS 1
+  compatibility separate from this boot contract.
+- 🟢 Add boot tests for missing, malformed, and corrupt system executables
+  and root metadata. Define how KMon enters before or after a failed normal
+  boot. If `rescue.exec` is supplied, make its relationship to KMon explicit.
 
-Goal: make the boundaries explicit before calling `ExitBootServices`.
+**Exit:** the kernel mounts and traverses the packaged root on both
+controllers, rejects corrupt metadata or an invalid system image, and offers
+KMon with no dependency on PID 1 or writable storage.
 
-- [x] Preserve the UEFI memory map in `KernelBootInfo` and pass its pointer in
-  `RDI` to post-handoff Hydrogen code.
-- [x] Call `ExitBootServices` successfully and continue execution in an
-  interrupt-disabled halt loop.
-- [x] Retry the final `GetMemoryMap`/`ExitBootServices` pair with a fixed
-  descriptor reserve when the firmware updates its map key.
-- [x] Emit position-independent UEFI PE32+ images with a zero image base.
-- [x] Initialize a bootstrap physical-page range from the largest
-  `EfiConventionalMemory` descriptor.
-- [x] Clone every present PML4, PDPT, PD, and PT page into allocator-owned pages
-  and activate the resulting hierarchy through `CR3` while retaining current
-  leaf mappings.
-- [x] Keep virtual page zero unmapped, splitting only the required large leaf.
-- [x] Expose zero-filled 4 KiB page allocation through `KernelBootInfo`.
-- [x] Build a page-backed, 16-byte aligned bump heap over that allocator.
-- [x] Capture GOP framebuffer metadata before `ExitBootServices`, then clear and
-  render literal text through direct pixel writes without firmware services.
-- [x] Install a ring-0 GDT and IDT, capture fatal exception vectors, remap and
-  mask the legacy PIC, enable the local APIC, and dispatch periodic timer IRQs
-  into an uncalibrated monotonic tick counter.
-- [x] Capture fatal CPU error codes, return state, `CR2`, and all general
-  registers in an allocation-free panic path; mirror the report directly to
-  COM1 and the framebuffer and verify a real QEMU page fault.
-- [x] Enumerate PCI functions through configuration-space port I/O, retain the
-  first xHCI, AHCI, and NVMe function addresses, and map fixed uncached high
-  MMIO register apertures for valid controller BARs.
-- [x] Allocate contiguous, zero-filled DMA pages below 4 GiB and reserve their
-  requested slice from the primary physical allocator when both overlap.
-- [x] Define a synchronous, all-or-nothing block-device contract with checked
-  geometry, overflow-safe range validation, and explicit error status.
-- [x] Add host-tested AHCI SATA port discovery, bounded engine sequencing,
-  IDENTIFY parsing, and IDENTIFY/READ DMA EXT command layouts.
-- [x] Add a reusable host-tested Hydrogen AHCI polling controller with
-  page-bounded multi-sector reads, transfer-byte verification, and timeout
-  failure handling behind the common block transport.
-- [x] Add host-tested NVMe queue command layouts, namespace geometry parsing,
-  and one-page PRP read bounds.
-- [x] Add host-tested protective-MBR and CRC-checked GPT header and entry-array
-  parsing.
-- [x] Add a host-tested block-level GPT reader with streamed entry-array CRCs,
-  disk-bound checks, and backup-header recovery.
-- [x] Emit and execute bounded polling AHCI reads in the bootloader for the MBR,
-  GPT header, and primary GPT entry array; validate both GPT CRCs and publish
-  the first present partition.
-- [x] Define and host-test a VFS root-mount interface over a bounded partition.
-- [x] Implement and host-test a read-only HyFS v1 driver with superblock,
-  directory, and complete-file CRC validation.
-- [x] Emit and boot NVMe admin/I/O queues, Identify, bounded polling reads,
-  and the shared CRC-checked GPT discovery path under QEMU Q35/OVMF.
-- [x] Compile a reachable Hylang method graph for post-handoff execution with
-  kernel-owned object, array, and literal-string allocation.
-- [x] Connect the reusable Hylang AHCI and NVMe controllers to live MMIO/DMA
-  adapters, read through `BlockDevice`, and verify GPT with `GptDisk` under
-  QEMU/OVMF for both controller types.
-- [x] Connect live AHCI and NVMe block reads to VFS, select the HyFS GPT type,
-  mount the root, and verify single- and multi-sector file reads in QEMU/OVMF.
-- [x] Run an interactive serial shell with root listing and file display in
-  both AHCI and NVMe QEMU boots.
-- [x] Audit the live page tables, retain a protected persistent allocation
-  floor for the shell, and deliver COM1 input through a register-preserving
-  PIC IRQ4 handler on both QEMU storage paths.
-- [x] Add a reusable zeroed physical-page pool with duplicate-free protection,
-  and map, translate, unmap, and reuse a page through a kernel-owned 4 KiB
-  PML4 slot on the live AHCI/NVMe paths.
-- [x] Add managed allocation ownership headers and explicit object, array,
-  and string release, with page reuse and multi-page release stress checks.
-- [x] Route AHCI MSI and NVMe MSI-X to storage vector `0x31`, acknowledge
-  controller completions, and verify live QEMU read interrupt counters.
-- [x] Track timeout, device error, reset, and retry exhaustion states; inject
-  failed QEMU reads on both controllers and keep the serial shell responsive.
-- [x] Stress repeated mapping, allocation/release, serial input, and root
-  reads, including QEMU-throttled completion waits.
-- [x] Add VFS file handles and namespace traversal, then test live I/O failure
-  and removable-media invalidation paths. HyFS v1 remains a flat on-disk format.
-- [ ] Establish keyboard and storage drivers.
-- [x] Add host-tested Hylang USB protocol code for PCI xHCI discovery,
-  controller stop/reset, descriptor selection, MSC BOT reads via a mock
-  transport, and boot HID reports with a basic US keymap.
-- [ ] Add driver-facing BAR sizing, dynamic MMIO mapping, IOMMU setup where
-  present, timer calibration, and cache/DMA synchronization rules.
-- [ ] Complete xHCI rings, port enumeration, control/bulk/interrupt transfers,
-  then connect MSC and HID to the kernel's block and input queues.
-- [x] Define the checked AUEX kernel/runtime boundary, loader, syscalls, and
-  cooperative scheduler.
-- [ ] Add native ring-3 processes, hardware privilege transitions, preemptive
-  threads, and a native user-space runtime.
+`make test-userland-stage3` booted disposable images on AHCI and NVMe and
+reached a working `kmon>` after removal of `System.exec`, replacement with a
+malformed payload, and corruption of both HyFS 2 superblocks. The normal
+image packer verifies the required system paths and AUEX headers before
+publishing the ISO.
 
-The running kernel is already independent of firmware boot services after the
-handoff. These remaining stages turn its bootstrap into a fuller OS. Grow the
-shared kernel services and their integration tests before adding more live
-device drivers.
+## Stage 4 — PID 1 and supervised text startup
 
-## Bootstrap note
+- 🟢 Keep bounded kernel process records with PID, parent PID, running,
+  waiting, exit/fault status, and instruction counts. Live AUEX children can
+  spawn independently, wait, report readiness, terminate, and sleep under
+  bounded instruction-round scheduling with separate descriptor owners.
+- 🟡 Timer-backed sleep and instruction quanta provide cooperative scheduling
+  for AUEX programs. Interrupt preemption and native context switching remain.
+- 🟢 Build and install `/System/Core/System.exec`; start it as PID 1 after
+  mounting the root. It launches `CommandShell.exec` for a text session.
+- 🟡 Package an `AUSM1` startup manifest. PID 1 starts one-shot Device and
+  Storage readiness checks, then CommandShell, in declared order. Each record
+  has a bounded readiness wait and retry limit; failures are logged and PID 1
+  returns to KMon when exhausted. Persistent services, dependency graphs,
+  graceful shutdown, and Launch policy remain.
+- 🟢 Bound `CommandShell.exec` restarts in PID 1 to three failed launches,
+  emit attempt and status records, and stop on a normal shell exit.
+- 🟢 Provide an explicit boot bypass into KMon and a fallback when PID 1
+  cannot be loaded. Bounded repeated-failure handling remains open.
 
-Once a verified `hydrogen-stage1` binary exists, supported compiler and OS
-builds do not require C++ or a host C compiler. A clean source-only compiler
-checkout still needs a trusted Hydrogen seed or the initial SDK bootstrap route.
+**Exit:** PID 1 starts the shell, restarts one deliberately failing service
+only up to its limit, records why it stopped, and leaves KMon usable. No
+service executes in an interrupt handler or retains resources after exit.
+
+`make test-userland-stage4-supervision` replaces the shell with a valid
+faulting AUEX image on disposable AHCI and NVMe boot volumes. It verifies
+three attempts, the limit record, and an interactive KMon fallback.
+
+## Stage 5 — IPC and capabilities
+
+- 🟢 Add a kernel-owned, bounded versioned channel primitive with PID-owned
+  endpoints, copied messages, stale-handle rejection, and close-on-process-exit
+  cleanup.
+- 🟡 Expose checked AUEX channel open, accept, send, receive, wait, peer, and
+  close calls. Shared buffers and general event waits remain.
+- 🟡 Authenticate channel peers by process identity and grant channel creation
+  only to paths listed in the read-only `AUSC1` capability manifest. Device,
+  mount, process inspection, display, input, and service grants remain.
+
+**Exit:** an unprivileged program can use its terminal and allowed files but
+cannot control mounts, inspect protected processes, or map the framebuffer;
+closing either endpoint releases queued messages and pages.
+
+The hosted channel tests cover peer PID checks, protocol version, queue bounds,
+payload copying, close cleanup, and stale handles. The AHCI/NVMe IPC image
+test checks an allowed exchange, denied open, and exit cleanup.
+
+## Stage 6 — sessions and optional graphical userland
+
+- 🔴 Add login and per-session environment, directory, terminal, and process
+  ownership. Keep a supported text-only boot. At this stage `Login.exec` may
+  start a session; it must not claim to enforce authentication until Stage 7
+  supplies protected credentials, access control, and process isolation.
+- 🔴 Build Display service, compositor, window/input protocol, DesktopShell,
+  Terminal, and Explorer on the public service contracts.
+
+**Exit:** a graphical session launches an external command and recovers from
+a faulty client while COM1 remains an independent recovery console.
+
+## Stage 7 — native user mode and release hardening
+
+- 🟢 Run AUN1 children with bounded memory from the read-only system volume in ring 3,
+  with supervisor-only copied kernel mappings, owned code/data/stack pages,
+  an unmapped stack guard, TSS entry, `int 0x80` PID/exit/terminal-write,
+  and contained page and general-protection faults. Record native exit/fault
+  state in the shared process table. AHCI and NVMe checks preserve PID 1 and KMon.
+- 🟡 Move the remaining terminal, file, IPC, and scheduling contracts into
+  native syscalls; add native interrupt preemption and resource accounting.
+  Keep AUEX as a compatibility format during migration.
+- 🔴 Complete remaining bootloader firmware-failure tests, ACPI/configuration and selectable
+  diagnostics as required for release; test cold boot, restart, and failure
+  paths on physical supported machines.
+- 🔴 Add users, groups, permissions, protected credential verification,
+  package trust, update/recovery policy, resource limits, and audit records.
+
+**Exit:** a native process cannot access kernel pages or privileges, and its
+fault returns resources without taking down PID 1 or recovery. Supported
+physical machines pass the boot and storage failure matrix.
+
+## Immediate next work
+
+The [checklist ownership audit](docs/checklist-audit.md) maps the remaining
+bootloader, kernel, storage, userland, and Hydrogen work to its owner.
+
+Gate 0, Stage 2, and the Stage 3 image and recovery path pass their stated
+exit checks. Stage 4 now has live AUEX children and ordered manifest startup.
+The native ring-3 entry and fault-containment path now passes QEMU boot checks.
+Next, extend the native syscall surface, persistent service control, and
+precise lifetime handling for pages retained by filesystem writes.

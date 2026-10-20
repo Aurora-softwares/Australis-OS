@@ -1,0 +1,4 @@
+format = 2
+name = "AustralisNativeScheduleProbe"
+type = "exec"
+sources = ["./NativeScheduleProbe.hy"]

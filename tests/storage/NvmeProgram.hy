@@ -21,6 +21,10 @@ public class Program {
             command[4] != 3 || command[24] != 0 || command[25] != 48 || command[40] != 52 || command[41] != 18 ||
             command[48] != 3) { return 5; }
         if (Nvme.BuildRead(command, 1, 1, 12288, 0, 9, 512) || Nvme.BuildRead(command, 1, 0, 12288, 0, 1, 512)) { return 6; }
+        if (!Nvme.BuildWrite(command, 7, 1, 12288, 5, 2, 512) ||
+            command[0] != 1 || command[40] != 5 || command[48] != 1 ||
+            !Nvme.BuildFlush(command, 8, 1) || command[0] != 0 ||
+            command[2] != 8 || command[4] != 1 || command[24] != 0) { return 61; }
 
         byte[] identify = new byte[4096];
         identify[0] = 0; identify[1] = 0; identify[2] = 16; // 1,048,576 blocks

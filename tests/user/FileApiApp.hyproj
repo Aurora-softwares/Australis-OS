@@ -1,0 +1,11 @@
+format = 2
+name = "AustralisFileApiApp"
+type = "exec"
+output = "file-api-test.exec"
+sources = ["FileApiApp.hy"]
+
+[package]
+id = "AustralisFileApiApp"
+description = "Compiled AUEX filesystem API integration test"
+authors = ["Aurora Softwares"]
+license = "MIT"

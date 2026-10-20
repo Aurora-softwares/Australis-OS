@@ -13,8 +13,8 @@ import tempfile
 import time
 
 
-PROMPT = b"australis> "
-BANNER = b"Australis serial console ready. Type help.\r\n"
+PROMPT = b"kmon> "
+BANNER = b"kmon serial console ready. Type help.\r\n"
 VERSION = b"version: 0.0.1\r\n"
 
 
@@ -46,6 +46,8 @@ def kernel_record(path):
                 return {
                     "state": struct.unpack_from("<I", memory, position + 36)[0],
                     "allocator_next": struct.unpack_from("<Q", memory, position + 40)[0],
+                    "heap_next": struct.unpack_from("<Q", memory, position + 88)[0],
+                    "heap_end": struct.unpack_from("<Q", memory, position + 96)[0],
                     "exception": struct.unpack_from("<I", memory, position + 188)[0],
                     "last_vector": struct.unpack_from("<I", memory, position + 184)[0],
                     "serial_flags": struct.unpack_from("<I", memory, position + 1140)[0],
@@ -64,6 +66,8 @@ def kernel_record(path):
                     "storage_state": struct.unpack_from("<I", memory, position + 1240)[0],
                     "framebuffer_width": struct.unpack_from("<I", memory, position + 128)[0],
                     "framebuffer_height": struct.unpack_from("<I", memory, position + 132)[0],
+                    "framebuffer_stride": struct.unpack_from("<I", memory, position + 136)[0],
+                    "framebuffer_format": struct.unpack_from("<I", memory, position + 140)[0],
                     "cursor_y": struct.unpack_from("<I", memory, position + 148)[0],
                     "ring_head": struct.unpack_from("<I", memory, position + 1168)[0],
                     "ring_tail": struct.unpack_from("<I", memory, position + 1172)[0],
@@ -103,6 +107,8 @@ def kernel_record(path):
                     "user_fault": struct.unpack_from("<I", memory, position + 2584)[0],
                     "user_runs": struct.unpack_from("<I", memory, position + 2588)[0],
                     "user_instructions": struct.unpack_from("<Q", memory, position + 2592)[0],
+                    "user_descriptors": struct.unpack_from("<I", memory, position + 3460)[0],
+                    "user_pid": struct.unpack_from("<I", memory, position + 3464)[0],
                     "panic_vector": struct.unpack_from("<I", memory, position + 2600)[0],
                     "panic_error_valid": struct.unpack_from("<I", memory, position + 2604)[0],
                     "panic_error": struct.unpack_from("<Q", memory, position + 2608)[0],
@@ -111,7 +117,11 @@ def kernel_record(path):
                     "panic_rflags": struct.unpack_from("<Q", memory, position + 2632)[0],
                     "panic_rsp": struct.unpack_from("<Q", memory, position + 2640)[0],
                     "panic_cr2": struct.unpack_from("<Q", memory, position + 2648)[0],
-                    "panic_state": struct.unpack_from("<I", memory, position + 2672)[0],
+					"panic_state": struct.unpack_from("<I", memory, position + 2672)[0],
+					"panic_qr_entry": struct.unpack_from("<Q", memory, position + 3616)[0],
+					"panic_qr_scratch": struct.unpack_from("<Q", memory, position + 3664)[0],
+					"panic_stack_base": struct.unpack_from("<Q", memory, position + 3672)[0],
+                    "panic_stack_top": struct.unpack_from("<Q", memory, position + 3680)[0],
                     "dma_reservation_pages": struct.unpack_from("<I", memory, position + 296)[0],
                 }
             position += 4
@@ -125,8 +135,9 @@ def capture_record(monitor_path, memory_path):
     return record
 
 
-def capture_screen(monitor_path, path):
-    monitor_command(monitor_path, f'screendump "{path}"')
+def capture_screen(monitor_path, path, device=None):
+    target = f' {device}' if device else ''
+    monitor_command(monitor_path, f'screendump "{path}"{target}')
     data = Path(path).read_bytes()
     header = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", data)
     if header is None or int(header.group(3)) != 255:
@@ -169,6 +180,7 @@ def screen_lines(screen):
 def read_until(connection, marker, timeout, process):
     deadline = time.monotonic() + timeout
     received = bytearray()
+    left_userland = False
     while marker not in received:
         if process.poll() is not None:
             raise RuntimeError(f"QEMU exited with status {process.returncode}")
@@ -183,7 +195,26 @@ def read_until(connection, marker, timeout, process):
         if not part:
             raise RuntimeError(f"serial connection closed: {bytes(received[-300:])!r}")
         received.extend(part)
+        # Legacy KMon integration checks deliberately leave the first normal
+        # userland session before exercising recovery-console commands.
+        if marker == PROMPT and not left_userland and b"australis> " in received:
+            connection.sendall(b"exit\r")
+            left_userland = True
     return bytes(received)
+
+
+def drain_until_quiet(connection, process, quiet_seconds=0.25, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"QEMU exited with status {process.returncode}")
+        connection.settimeout(quiet_seconds)
+        try:
+            if not connection.recv(4096):
+                raise RuntimeError("serial connection closed during overflow recovery")
+        except socket.timeout:
+            return
+    raise TimeoutError("serial input did not become quiet after overflow")
 
 
 def command(connection, process, input_bytes, expected_output):
@@ -198,6 +229,7 @@ def command(connection, process, input_bytes, expected_output):
 
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
+    hyfs2 = len(sys.argv) > 5 and sys.argv[5] == "hyfs2"
     if transport not in ("ahci", "nvme"):
         raise ValueError("transport must be ahci or nvme")
     rootfs = Path(__file__).resolve().parents[2] / "rootfs"
@@ -269,7 +301,21 @@ def main():
                 if delayed_elapsed < 0.2 or delayed["storage_irqs"] <= before["storage_irqs"]:
                     raise AssertionError(f"QEMU read did not wait for delayed completion: {delayed_elapsed:.3f}s")
                 command(connection, process, b"help",
-                        b"Commands: help, echo, ls [mount], cat <path>, devices, mounts, pwd, run <path>, ps, version, panic-test\r\n")
+                        b"Commands: help, echo, ls [path], stat <path>, cat <path>, devices, mounts, pwd, path [dirs], run <program>, ps, version, status, bootinfo, memmap, pages, continue, reboot, halt, trace, registers, panic [gp] (D boot)\r\n")
+                command(connection, process, b"status", b"KMon system status:\r\n")
+                command(connection, process, b"bootinfo", b"KernelBootInfo:\r\nABI version: 7\r\n")
+                command(connection, process, b"continue", b"Normal boot is already active.\r\n")
+                trace = command(connection, process, b"trace", b"KMon diagnostic trace:\r\n")
+                if b"recent commands (oldest first):\r\n" not in trace or b"  continue\r\n" not in trace:
+                    raise AssertionError(f"KMon trace missing recent commands: {trace!r}")
+                registers = command(connection, process, b"registers", b"Live CPU registers (decimal):\r\n")
+                for name in (b"RIP: ", b"RSP: ", b"RBP: ", b"RFLAGS: ", b"CR3: "):
+                    if re.search(re.escape(name) + rb"[1-9][0-9]*\r\n", registers) is None:
+                        raise AssertionError(f"KMon register snapshot missing {name!r}: {registers!r}")
+                command(connection, process, b"panic", b"panic requires D debug boot.\r\n")
+                for name in (b"continue", b"reboot", b"halt", b"trace", b"status", b"bootinfo", b"registers"):
+                    command(connection, process, name + b" extra", b"Usage: " + name + b"\r\n")
+                command(connection, process, b"panic extra", b"Usage: panic [gp]\r\n")
                 command(connection, process, b"echo hello serial", b"hello serial\r\n")
                 command(connection, process, b"echo ab\x08c", b"\r\nac\r\n")
                 command(connection, process, b"echo discard\x15echo kept", b"\r\nkept\r\n")
@@ -280,15 +326,48 @@ def main():
                 command(connection, process, b"\x1b[A", b"\r\nend\r\n")
                 command(connection, process, b"\x0cecho clear", b"\r\nclear\r\n")
                 command(connection, process, b"x" * 257, b"Input line is too long.\r\n")
-                listing = command(connection, process, b"ls", b"/fault.txt\r\n")
-                for entry in (b"/hello.txt\r\n", b"/readme.txt\r\n",
-                              b"/user-demo.exec\r\n", b"/user-fault.exec\r\n"):
+                listing = command(connection, process, b"ls", b"fault.txt\r\n")
+                for entry in (b"hello.txt\r\n", b"readme.txt\r\n",
+                              b"user-demo.exec\r\n", b"user-fault.exec\r\n"):
                     if entry not in listing:
                         raise AssertionError(f"root listing missing {entry!r}: {listing!r}")
+                if hyfs2:
+                    system_listing = command(connection, process, b"ls /System",
+                                             b"Core\r\n")
+                    if b"hexviewer.exec\r\n" not in system_listing:
+                        raise AssertionError(f"Hex Viewer missing from /System: {system_listing!r}")
+                    command(connection, process, b"stat /System/hexviewer.exec",
+                            b"type: file\r\n")
+                    command(connection, process, b"path", b"PATH=/System/Bin:/System:/\r\n")
+                    command(connection, process, b"hexviewer", b"Hello, World!\r\n")
+                    command(connection, process, b"path /System/Bin:/System", b"PATH=/System/Bin:/System\r\n")
+                    command(connection, process, b"run hexviewer", b"Hello, World!\r\n")
+                    command(connection, process, b"PATH=/System", b"PATH=/System\r\n")
+                    command(connection, process, b"hexviewer", b"Hello, World!\r\n")
+                    command(connection, process, b"run /System/hexviewer.exec",
+                            b"Hello, World!\r\n")
+                    command(connection, process, b"run /System/hexviewer",
+                            b"Hello, World!\r\n")
+                    command(connection, process, b"path /missing", b"PATH directory not found.\r\n")
+                    command(connection, process, b"path", b"PATH=/System\r\n")
+                    command(connection, process, b"path /System/Bin:/System:/", b"PATH=/System/Bin:/System:/\r\n")
+                    command(connection, process, b"ls /System/Bin", b"user-demo.exec\r\n")
+                    connection.sendall(b"cat /System/Bin/user-demo.exec\r")
+                    binary = read_until(connection, PROMPT, 30, process)
+                    if b"AUEX" not in binary:
+                        raise AssertionError(f"cat lost executable bytes: {binary[-200:]!r}")
+                    metadata = command(connection, process, b"stat /System", b"type: directory\r\n")
+                    if b"created: unavailable\r\n" not in metadata or b"id: 0\r\n" in metadata:
+                        raise AssertionError(f"HyFS v2 metadata missing: {metadata!r}")
+                    command(connection, process, b"stat /System/Bin/user-demo.exec/",
+                            b"File not found.\r\n")
+                else:
+                    command(connection, process, b"stat /hello.txt", b"id: unavailable\r\n")
+                    command(connection, process, b"hello-world", b"Hello, World!\r\n")
                 command(connection, process, b"cat /hello.txt", hello)
                 command(connection, process, b"cat /readme.txt", readme)
-                command(connection, process, b"cat /missing.txt", b"File not found.\r\n")
-                command(connection, process, b"cat", b"Usage: cat /filename\r\n")
+                command(connection, process, b"cat /missing.txt", b"cat: open failed (status):\r\n4\r\n")
+                command(connection, process, b"cat", b"Usage: cat <path>\r\n")
                 command(connection, process, b"unknown", b"Unknown command. Type help.\r\n")
                 command(connection, process, b"version", VERSION)
                 repeat = 0
@@ -312,7 +391,7 @@ def main():
                         after["memory_error"] != 0 or after["mapping_error"] != 0 or after["transient_floor"] == 0 or
                         (after["free_page_count"] == 0) != (after["free_page_head"] == 0) or
                         after["mapping_self_test"] != 0 or
-                        after["dynamic_mapping_base"] != 0 or
+                        after["dynamic_mapping_base"] != before["dynamic_mapping_base"] or
                         after["storage_irqs"] <= before["storage_irqs"] or
                         after["storage_interrupt_kind"] != (1 if transport == "ahci" else 2) or
                         after["storage_cause"] != 0 or after["storage_state"] != 0 or
@@ -325,7 +404,7 @@ def main():
                 visible_lines = screen_lines(root_screen)
                 if not any("Hello from Australis HyFS." in row for row in visible_lines):
                     raise AssertionError(f"root file text is missing from the framebuffer: {visible_lines[-8:]!r}")
-                if not visible_lines[-1].startswith("australis> _"):
+                if not visible_lines[-1].startswith("kmon> _"):
                     raise AssertionError(f"framebuffer prompt or cursor is missing: {visible_lines[-1][:25]!r}")
 
                 # A blank command advances exactly one text row. Once the
@@ -353,6 +432,9 @@ def main():
                 connection.sendall(b"x" * 4096)
                 read_until(connection, PROMPT, 30, process)
                 monitor_command(monitor_path, f"block_set_io_throttle {drive_id} 0 0 0 0 0 0")
+                # The pending event queue may still be echoing the accepted
+                # bytes. Let it drain before testing that Ctrl-C recovers input.
+                drain_until_quiet(connection, process)
                 connection.sendall(b"\x03")
                 read_until(connection, PROMPT, 30, process)
                 overflowed = capture_record(monitor_path, memory_path)

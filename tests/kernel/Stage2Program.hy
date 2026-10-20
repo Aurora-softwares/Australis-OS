@@ -55,6 +55,12 @@ public class Program {
         if (clock.Expired(deadline)) { return 13; }
         counter.Advance(99); if (clock.Expired(deadline)) { return 2; }
         counter.Advance(1); if (!clock.Expired(deadline)) { return 3; }
+        long unit = 65536;
+        long square = unit * unit;
+        long maxTick = square * 2147483647 + square - 1;
+        FakeCounter nearWrap = new FakeCounter(maxTick - 10);
+        DeadlineClock bounded = new DeadlineClock(nearWrap, 25);
+        if (bounded.DeadlineAfter(1) != 0 || bounded.DeadlineAfter(1000) != 0) { return 14; }
 
         DeviceInterruptRegistration registration = new DeviceInterruptRegistration(50);
         int cycle = 0;

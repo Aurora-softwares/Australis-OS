@@ -1,0 +1,11 @@
+format = 2
+name = "Australis Command Test Boot Image"
+type = "os"
+sources = []
+project_references = ["../../src/bootloader/australlis.bootloader.hyproj", "../../src/kernel/australlis.kernel.hyproj"]
+
+[package]
+id = "os.australis.command-test-boot"
+description = "Bootloader and kernel aggregate for command integration tests"
+authors = ["Aurora Softwares"]
+license = "MIT"

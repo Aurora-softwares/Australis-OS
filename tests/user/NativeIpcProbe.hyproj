@@ -1,0 +1,4 @@
+format = 2
+name = "AustralisNativeIpcProbe"
+type = "exec"
+sources = ["./NativeIpcProbe.hy"]
