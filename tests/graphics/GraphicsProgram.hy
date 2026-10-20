@@ -742,6 +742,15 @@ public class Program {
             queue.Completed() != 1 ||
             new VirtioSplitQueue(1).Ready() ||
             new VirtioSplitQueue(6).Ready()) { return 51; }
+        VirtioSplitQueue cursorQueue = new VirtioSplitQueue(2);
+        if (!cursorQueue.Submit(4096, 48, 8192, 24) ||
+            cursorQueue.Complete(1, 0, 0) ||
+            cursorQueue.CompleteCursor(1, 1, 0) ||
+            cursorQueue.CompleteCursor(1, 0, 1) ||
+            !cursorQueue.CompleteCursor(1, 0, 0) ||
+            cursorQueue.Busy() || cursorQueue.Completed() != 1 ||
+            !cursorQueue.Submit(4096, 48, 8192, 24) ||
+            !cursorQueue.CompleteCursor(2, 0, 24)) { return 51; }
         MockGpuControl gpuControl = new MockGpuControl(0);
         VirtioGpu2D gpu = new VirtioGpu2D(gpuControl);
         bool invalidCreate = gpu.Create(64, 32, 4096, 1024);

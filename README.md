@@ -63,6 +63,12 @@ make build
 make iso
 ```
 
+For one command that also rebuilds applications, use `make all`. `make iso`
+is an alias for `make iso-hyfs2`; both create the same HyFS2 ISO.
+Use `make all` or two shell commands (`make build && make iso`) after changing
+kernel sources. In `make build iso`, Make reads the packaging input signature
+before the build runs, so that single invocation can reuse an older ISO.
+
 `src/australlis.hyproj` is a Hydrogen `os` project referencing the bootloader
 and kernel projects. The bootloader uses `type = "efi"`; the kernel uses
 `type = "kernel"`. Hydrogen builds the bootloader as a UEFI application and
@@ -80,7 +86,7 @@ hy build src/australlis.hyproj -o build/efi
 build/efi/EFI/BOOT/BOOTX64.EFI
 build/efi/EFI/AUSTRALIS/KERNEL.BIN
 build/boot/root.hyfs2.img
-build/australis-hylang.iso
+build/australis-hyfs2.iso
 ```
 
 The bootloader reads `KERNEL.BIN` from the same FAT volume, validates its

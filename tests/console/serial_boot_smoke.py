@@ -117,7 +117,11 @@ def kernel_record(path):
                     "panic_rflags": struct.unpack_from("<Q", memory, position + 2632)[0],
                     "panic_rsp": struct.unpack_from("<Q", memory, position + 2640)[0],
                     "panic_cr2": struct.unpack_from("<Q", memory, position + 2648)[0],
-                    "panic_state": struct.unpack_from("<I", memory, position + 2672)[0],
+					"panic_state": struct.unpack_from("<I", memory, position + 2672)[0],
+					"panic_qr_entry": struct.unpack_from("<Q", memory, position + 3616)[0],
+					"panic_qr_scratch": struct.unpack_from("<Q", memory, position + 3664)[0],
+					"panic_stack_base": struct.unpack_from("<Q", memory, position + 3672)[0],
+                    "panic_stack_top": struct.unpack_from("<Q", memory, position + 3680)[0],
                     "dma_reservation_pages": struct.unpack_from("<I", memory, position + 296)[0],
                 }
             position += 4

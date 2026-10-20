@@ -20,7 +20,7 @@ def pixel(screen, x, y):
 
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
-    force_fallback = len(sys.argv) > 5 and sys.argv[5] == "fallback"
+    oversized_mode = len(sys.argv) > 5 and sys.argv[5] == "oversized"
     use_gl = len(sys.argv) > 6 and sys.argv[5] == "gl"
     primary_vga = len(sys.argv) > 5 and sys.argv[5] == "vga"
     if transport not in ("ahci", "nvme"):
@@ -33,7 +33,7 @@ def main():
         display = (f"egl-headless,rendernode={sys.argv[6]}"
                    if use_gl else "none")
         gpu = ("virtio-gpu-pci,id=gpu0,xres=1600,yres=900"
-               if force_fallback else
+               if oversized_mode else
                "virtio-gpu-gl-pci,id=gpu0" if use_gl else
                "virtio-vga,id=gpu0" if primary_vga else
                "virtio-gpu-pci,id=gpu0")
@@ -69,9 +69,7 @@ def main():
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(str(serial))
                 opening = read_until(connection, b"australis> ", 90, process)
-                expected_backend = (b"GOP display fallback active"
-                                    if force_fallback else
-                                    b"VirtIO-GPU native display active")
+                expected_backend = b"VirtIO-GPU native display active"
                 if (b"VirtIO-GPU 2D probe passed" not in opening or
                         expected_backend not in opening or
                         b"System: display ready" not in opening):
@@ -95,10 +93,13 @@ def main():
                     return
                 hardware_cursor = (
                     b"VirtIO-GPU hardware cursor active" in opening)
-                screen = capture_screen(str(monitor), screenshot,
-                                        None if force_fallback else "gpu0")
+                if primary_vga and not hardware_cursor:
+                    raise AssertionError(
+                        "default virtio-vga boot did not activate cursor queue")
+                screen = capture_screen(str(monitor), screenshot, "gpu0")
                 width, height, _ = screen
-                if (width < 320 or height < 240 or
+                if ((oversized_mode and (width, height) != (1280, 800)) or
+                        width < 320 or height < 240 or
                         pixel(screen, 30, 100) != (203, 56, 48) or
                         pixel(screen, width // 3 + 20, 130) != (42, 104, 217) or
                         pixel(screen, 100, 10) != (17, 24, 32) or
@@ -110,7 +111,7 @@ def main():
                         f"A={pixel(screen, 30, 100)}, "
                         f"B={pixel(screen, width // 3 + 20, 130)}, "
                         f"bar={pixel(screen, 100, 10)}")
-                if not force_fallback:
+                if not oversized_mode:
                     monitor_command(str(monitor), "mouse_move 30 -20")
                     if hardware_cursor:
                         read_until(connection,
@@ -185,7 +186,7 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-    backend = ("GOP fallback" if force_fallback else
+    backend = ("clamped native VirtIO-GPU" if oversized_mode else
                "VirGL-capable VirtIO-GPU" if use_gl else "native VirtIO-GPU")
     print(f"Australis {transport.upper()} {backend} desktop passed")
 
