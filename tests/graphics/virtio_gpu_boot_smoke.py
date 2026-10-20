@@ -79,7 +79,11 @@ def main():
                                b"VirtIO-GPU VirGL submission probe passed" not in opening or
                                b"VirtIO-GPU VirGL surface upload/readback passed" not in opening or
                                b"VirtIO-GPU VirGL clear/readback passed" not in opening or
-                               b"VirtIO-GPU VirGL context active" not in opening):
+                               b"VirtIO-GPU VirGL context active" not in opening or
+                               b"VirtIO-GPU 2D/3D device reset recovery passed" not in opening or
+                               b"Display: isolated GPU resource operations passed" not in opening or
+                               b"Display: GPU tile composed to scanout" not in opening or
+                               b"DisplayDemoA: GPU isolation passed" not in opening):
                     raise AssertionError(
                         f"VirGL context probe failed: {opening[-3000:]!r}")
                 if use_gl:
@@ -91,11 +95,11 @@ def main():
                             f"shell failed after VirGL probe: {reply[-2000:]!r}")
                     print(f"Australis {transport.upper()} VirGL context probe passed")
                     return
-                hardware_cursor = (
-                    b"VirtIO-GPU hardware cursor active" in opening)
-                if primary_vga and not hardware_cursor:
+                scanout_cursor = (
+                    b"VirtIO-GPU scanout cursor active" in opening)
+                if not scanout_cursor:
                     raise AssertionError(
-                        "default virtio-vga boot did not activate cursor queue")
+                        "native VirtIO-GPU boot did not activate scanout cursor")
                 screen = capture_screen(str(monitor), screenshot, "gpu0")
                 width, height, _ = screen
                 if ((oversized_mode and (width, height) != (1280, 800)) or
@@ -103,9 +107,8 @@ def main():
                         pixel(screen, 30, 100) != (203, 56, 48) or
                         pixel(screen, width // 3 + 20, 130) != (42, 104, 217) or
                         pixel(screen, 100, 10) != (17, 24, 32) or
-                        (not hardware_cursor and
-                         pixel(screen, width // 2 + 2, height // 2 + 4) !=
-                         (255, 255, 255))):
+                        pixel(screen, width // 2 + 2, height // 2 + 4) !=
+                        (255, 255, 255)):
                     raise AssertionError(
                         f"scanout missed desktop: {width}x{height}, "
                         f"A={pixel(screen, 30, 100)}, "
@@ -113,28 +116,16 @@ def main():
                         f"bar={pixel(screen, 100, 10)}")
                 if not oversized_mode:
                     monitor_command(str(monitor), "mouse_move 30 -20")
-                    if hardware_cursor:
-                        read_until(connection,
-                                   b"VirtIO-GPU hardware cursor moved", 15,
-                                   process)
-                        moved = capture_screen(str(monitor), screenshot,
-                                               "gpu0")
-                        if pixel(moved, width // 2 + 2,
-                                 height // 2 + 4) == (255, 255, 255):
-                            raise AssertionError(
-                                "software cursor remained on native scanout")
-                    else:
-                        deadline = time.monotonic() + 15
-                        while time.monotonic() < deadline:
-                            time.sleep(0.1)
-                            moved = capture_screen(str(monitor), screenshot,
-                                                   "gpu0")
-                            if pixel(moved, width // 2 + 32,
-                                     height // 2 - 16) == (255, 255, 255):
-                                break
-                        else:
-                            raise AssertionError(
-                                "native scanout missed cursor damage")
+                    read_until(connection,
+                               b"VirtIO-GPU scanout cursor moved", 15,
+                               process)
+                    moved = capture_screen(str(monitor), screenshot, "gpu0")
+                    if (pixel(moved, width // 2 + 32,
+                              height // 2 - 16) != (255, 255, 255) or
+                            pixel(moved, width // 2 + 2,
+                                  height // 2 + 4) == (255, 255, 255)):
+                        raise AssertionError(
+                            "native scanout missed or did not restore cursor")
                     monitor_command(str(monitor), "mouse_button 1")
                     time.sleep(0.08)
                     monitor_command(str(monitor), "mouse_button 0")

@@ -93,6 +93,13 @@ public class UserMockChildLauncher : IUserChildLauncher {
     public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
     public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
     public int DisplayPollKey(int processId) { return -4; }
+    public int GpuCreate(int processId, int width, int height) { return -4; }
+    public int GpuDestroy(int processId, int handle) { return -4; }
+    public int GpuClear(int processId, int handle, int rgb) { return -4; }
+    public int GpuFillRect(int processId, int handle, int x, int y,
+        int width, int height, int rgb) { return -4; }
+    public int GpuReadPixel(int processId, int handle, int x, int y) { return -4; }
+    public int GpuBlit(int processId, int handle, int x, int y) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
@@ -158,6 +165,13 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
     public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
     public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
     public int DisplayPollKey(int processId) { return -4; }
+    public int GpuCreate(int processId, int width, int height) { return -4; }
+    public int GpuDestroy(int processId, int handle) { return -4; }
+    public int GpuClear(int processId, int handle, int rgb) { return -4; }
+    public int GpuFillRect(int processId, int handle, int x, int y,
+        int width, int height, int rgb) { return -4; }
+    public int GpuReadPixel(int processId, int handle, int x, int y) { return -4; }
+    public int GpuBlit(int processId, int handle, int x, int y) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
@@ -223,6 +237,13 @@ public class UserMockCommandLauncher : IUserChildLauncher {
     public int DisplayPollMouse(int processId, byte[] destination) { return -4; }
     public int DisplayCaptureKeyboard(int processId, int enabled) { return -4; }
     public int DisplayPollKey(int processId) { return -4; }
+    public int GpuCreate(int processId, int width, int height) { return -4; }
+    public int GpuDestroy(int processId, int handle) { return -4; }
+    public int GpuClear(int processId, int handle, int rgb) { return -4; }
+    public int GpuFillRect(int processId, int handle, int x, int y,
+        int width, int height, int rgb) { return -4; }
+    public int GpuReadPixel(int processId, int handle, int x, int y) { return -4; }
+    public int GpuBlit(int processId, int handle, int x, int y) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }

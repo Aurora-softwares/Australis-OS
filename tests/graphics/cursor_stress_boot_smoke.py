@@ -44,7 +44,7 @@ def main():
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(str(serial))
                 opening = read_until(connection, b"australis> ", 90, process)
-                if b"VirtIO-GPU hardware cursor active" not in opening:
+                if b"VirtIO-GPU scanout cursor active" not in opening:
                     raise AssertionError("native cursor was not activated")
                 time.sleep(4)
                 before = capture_record(str(monitor), directory / "before.bin")

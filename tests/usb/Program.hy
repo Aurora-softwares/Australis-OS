@@ -145,6 +145,28 @@ public class Program {
         mouseEvents.Clear();
         if (mouseEvents.Poll(eventData) || !mouseEvents.Enqueue(0, -128, 127) ||
             !mouseEvents.Poll(eventData) || eventData[1] != -128 || eventData[2] != 127) { return 27; }
+        mouseEvents.Clear();
+        if (!mouseEvents.Enqueue(0, 3, 1) ||
+            !mouseEvents.Enqueue(0, 4, -2) ||
+            !mouseEvents.Enqueue(1, 1, 0) ||
+            !mouseEvents.Enqueue(1, 7, 0) ||
+            !mouseEvents.Enqueue(1, 8, 0) ||
+            !mouseEvents.Enqueue(0, 0, 0) ||
+            !mouseEvents.PollCoalesced(eventData) || eventData[0] != 0 ||
+            eventData[1] != 7 || eventData[2] != -1 ||
+            !mouseEvents.PollCoalesced(eventData) || eventData[0] != 1 ||
+            eventData[1] != 1 ||
+            !mouseEvents.PollCoalesced(eventData) || eventData[0] != 1 ||
+            eventData[1] != 15 ||
+            !mouseEvents.PollCoalesced(eventData) || eventData[0] != 0 ||
+            mouseEvents.PollCoalesced(eventData)) { return 30; }
+        mouseEvents.Clear();
+        if (!mouseEvents.Enqueue(0, 120, 0) ||
+            !mouseEvents.Enqueue(0, 20, 0) ||
+            !mouseEvents.PollCoalesced(eventData) || eventData[1] != 120 ||
+            !mouseEvents.PollCoalesced(eventData) || eventData[1] != 20) {
+            return 31;
+        }
         System.Console.WriteLine("Australis USB protocol tests passed");
         return 0;
     }

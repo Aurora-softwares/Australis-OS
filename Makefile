@@ -238,7 +238,7 @@ $(ROOTFS_STAMP): $(APP_CONTENT_STAMP) $(ROOTFS_INPUTS) $(APPLICATION_ARTIFACTS) 
 
 # Standalone EFI and boot images
 
-$(IMAGE): $(EFI_INPUT_STAMP) | check-efi-image-tools check-efi-binaries
+$(IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-tools check-efi-binaries
 	@mkdir -p "$(BUILD_DIR)"
 	@rm -f "$@"
 	truncate -s 64M "$@"
@@ -247,7 +247,7 @@ $(IMAGE): $(EFI_INPUT_STAMP) | check-efi-image-tools check-efi-binaries
 	mcopy -i "$@" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$@" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 
-$(EFI_BOOT_IMAGE): $(EFI_INPUT_STAMP) | check-efi-image-tools check-efi-binaries
+$(EFI_BOOT_IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-tools check-efi-binaries
 	@mkdir -p "$(dir $(EFI_BOOT_IMAGE))"
 	@rm -f "$@"
 	truncate -s 8M "$@"
@@ -269,7 +269,7 @@ $(HYFS2_TOOL): $(HYFS2_PROJECT) $(HYFS2_SOURCES)
 	@mkdir -p "$(dir $@)"
 	"$(HYDROGEN)" build "$(HYFS2_PROJECT)" -o "$@"
 
-$(HYFS2_IMAGE): tools/hyfs2.py tools/make_hyfs2_image.py src/userland/system/startup.manifest src/userland/system/capabilities.manifest $(ROOTFS_STAMP)
+$(HYFS2_IMAGE): tools/hyfs2.py tools/make_hyfs2_image.py src/userland/system/startup.manifest src/userland/system/capabilities.manifest $(ROOTFS_STAMP) $(APPLICATIONS_STAMP)
 	python3 tools/make_hyfs2_image.py "$(GENERATED_ROOTFS)" "$@" --system-apps "$(APPLICATIONS_DIR)/system"
 
 $(HYFS2_DATA_DISK): $(wildcard $(HYFS2_ISO)) | check-hyfs2-iso
@@ -457,6 +457,7 @@ test-kmon-recovery: iso | check-run-tools ## Test kernel monitor recovery comman
 
 test-kernel-panic: iso | check-run-tools ## Test kernel panic behaviour
 	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)"
+	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" gpu
 
 test-stage2: check-build-tools ## Run kernel Stage 2 host tests
 	@mkdir -p "$(BUILD_DIR)"

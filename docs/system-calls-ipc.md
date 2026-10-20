@@ -70,6 +70,18 @@ direct driver access.
 
 ## AUEX display API
 
+The optional VirGL GPU API uses capability bit `4` from `AUSC1`.
+`Gpu.Create(width, height)` (opcode 121) returns an opaque, process-scoped
+handle for a texture up to 64×64, with one texture per process and four
+globally. `Gpu.Destroy(handle)` (122), `Gpu.Clear(handle, rgb)` (123),
+`Gpu.FillRect(handle, x, y, width, height, rgb)` (124), and
+`Gpu.ReadPixel(handle, x, y)` (125) accept semantic values only. Stale or
+foreign handles return `-13`; VirGL unavailability returns `-19` on create.
+`Gpu.Blit(handle, x, y)` (126) also requires display capability bit `2` and
+the display lease, and places that texture into an open compositor frame.
+Exit and device reset revoke handles and release or safely quarantine DMA
+backing. No API accepts raw VirGL bytes, physical addresses, or resource IDs.
+
 `System.Australis.Display.Acquire()` claims the sole display lease for the
 calling process (opcode 104). The kernel uses the caller's process record and
 requires capability bit `2` from the read-only `AUSC1` manifest. A second

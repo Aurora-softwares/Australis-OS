@@ -29,7 +29,7 @@ application or compositor exit cannot leave an application-owned GPU resource.
 The native display owner may call `Display.SetMode(width, height)` to request
 a bounded 2D mode. `Display.SetMode(0, 0)` polls the device display-change
 event and returns the current width in bits 0–15, height in bits 16–27, and
-hardware-cursor availability in bit 28. The driver acknowledges the device
+backend-managed cursor availability in bit 28. The driver acknowledges the device
 event and asks for fresh display information. A successful geometry change
 recreates the scanout resource, revokes old presentation handles, reshapes
 the kernel-owned drawing surfaces, and resets frame pacing and damage. The
@@ -38,30 +38,30 @@ entire desktop. Pressing `m` in the focused desktop toggles between 1280×800
 and 1024×768 for the live mode test. Automatic recovery still requires GOP
 and native modes to match before switching to GOP.
 
-When the second VirtIO-GPU queue is available, the driver creates a separate
-64×64 B8G8R8A8 cursor resource backed by DMA pages. It transfers the image
-through the control queue and submits fenced update and move commands through
-the cursor queue. Cursor motion does not require a full desktop redraw. The
-display service keeps its software cursor path for GOP or a native device
-without a usable cursor queue. Cursor resources and queue pages are released
-on shutdown or reset. QEMU's cursor queue completes with zero response bytes;
-the driver accepts that completion while validating normal response headers
-when a device supplies one. The default `virtio-vga` boot test requires the
-hardware cursor to be active.
+The native backend draws a 14×20 pointer directly into the VirtIO-GPU scanout.
+It saves the pixels beneath the pointer, restores them on movement, and
+transfers and flushes only the changed pointer region. Nearby positions use
+one combined GPU update. Queued motion reports are combined when the desktop
+falls behind; button transitions are delivered individually. This keeps
+pointer motion independent of a full desktop redraw and makes the pointer
+visible in the guest image even when QEMU grabs the host mouse. Desktop
+damage is copied beneath the pointer before it is repainted. The display
+service keeps its software cursor path for GOP or if the native cursor stops
+working. The VirtIO-GPU cursor queue API remains available for other clients,
+but the normal desktop uses the scanout cursor.
 
-`make run` now presents a single `virtio-vga` display, so the normal QEMU
-desktop selects the native 2D backend and cursor queue. The SDL display
-preserves the VirtIO-GPU cursor shape when QEMU grabs relative mouse input;
-GTK replaces it with a blank cursor, or the host pointer when
-`show-cursor=on` is set. Override `QEMU_DISPLAY` to use another display
-frontend. Oversized display modes are
+`make run` presents a single `virtio-vga` display with an xHCI USB mouse, so
+the normal QEMU desktop selects the native 2D backend and receives guest mouse
+reports. The pointer is part of the guest scanout; QEMU's host cursor grab
+does not control its visibility. Override `QEMU_DISPLAY` to use another
+display frontend. Oversized display modes are
 limited to the kernel's supported 1280×800 scanout instead of triggering GOP
 fallback. Use `make run-gop` to exercise the software cursor and GOP fallback.
 The run targets boot the existing ISO; after editing sources, use `make all`
 before `make run`. `make iso` and `make iso-hyfs2` name the same HyFS2 target.
 `make build && make iso` also works when packaging without rebuilding apps.
 `make build iso` in one Make invocation can use a stale packaging signature.
-The cursor queue decouples ordinary pointer motion from desktop damage, but
+The scanout cursor decouples ordinary pointer motion from desktop damage, but
 window dragging and other scene changes still wait for the software
 compositor's synchronous redraw. The 16 ms pacing setting is a minimum
 interval, not a measured 60 fps refresh rate.
@@ -76,14 +76,13 @@ The command and response layouts follow the
   recovery followed by GOP fallback in the backend model.
 - 🟢 `make test-virtio-gpu` boots AHCI and NVMe in QEMU with xHCI attached,
   including the default `virtio-vga` configuration; it verifies the
-  persistent native backend, hardware cursor movement, live
+  persistent native backend, visible scanout cursor movement, live
   1280×800 → 1024×768 → 1280×800 mode changes, and desktop pixels after
   each change. It also boots an oversized GPU mode and checks that the
-  native scanout is limited to 1280×800. QEMU's `screendump` omits the hardware
-  cursor overlay, so the
-  smoke test checks cursor commands by their successful serial marker;
-  software cursor pixels are sampled when hardware cursor setup is absent.
-- 🟢 `make test-cursor-stress` keeps the default hardware cursor active under
+  native scanout is limited to 1280×800. QEMU's `screendump` includes the
+  scanout pointer, so the smoke test samples its pixels before and after
+  movement and checks that the old position was restored.
+- 🟢 `make test-cursor-stress` keeps the default scanout cursor active under
   sustained xHCI mouse reports, checks that the shell remains responsive,
   and bounds managed allocator growth during idle and motion. The kernel
   reuses its mouse report and the user process reuses its IPC receive buffer,

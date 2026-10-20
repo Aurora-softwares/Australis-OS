@@ -182,14 +182,14 @@ The backend and buffer layout contracts are described in
   failed submissions
 - 🟢 Recover resources safely when a compositor or application crashes:
   display handles are revoked and the GPU resource remains kernel-owned
-- 🟢 Use the optional hardware cursor queue on native scanout, with the
-  software cursor as a fallback when cursor setup is unavailable
+- 🟢 Draw a backend-managed cursor into native scanout, with the display
+  service's software cursor as a fallback when native cursor updates fail
 - 🟢 Validate GOP fallback when VirtIO-GPU is absent or initialization fails
 
 The native driver, mode-change contract, and cursor fallback are described in
 `docs/phase10-native-virtio-gpu.md`.
 
-### Completion: Australis can present its existing software-rendered desktop using VirtIO-GPU 2D, independently of GOP, with live bounded mode changes, an optional hardware cursor, safe resource handling, reliable device recovery and automated QEMU regression coverage.
+### Completion: Australis can present its existing software-rendered desktop using VirtIO-GPU 2D, independently of GOP, with live bounded mode changes, a visible scanout cursor, safe resource handling, reliable device recovery and automated QEMU regression coverage.
 
 ## Phase 11: GPU infrastructure and resource management
 
@@ -212,21 +212,21 @@ The native driver, mode-change contract, and cursor fallback are described in
   software-rendered 2D display available for recovery
 - 🟢 Destroy the kernel context and release its texture on shutdown/reset
 - 🟢 Preserve the software compositor and GOP fallback when VirGL is absent
-
-Further Phase 11 work:
-
-- 🟡 Add per-process GPU resource quotas and opaque handles before exposing
+- 🟢 Recover the kernel-owned 3D context and texture after a transient
+  command failure when the control queue remains healthy; bound automatic
+  attempts and keep 2D presentation available if recovery fail
+- 🟢 Add per-process GPU resource quotas and opaque handles before exposing
   textures to applications
-- 🟡 Validate semantic commands and handles for any future client submission
-- 🟡 Add automatic 3D recovery after device loss during rendering; synchronous
-  submissions currently leave no queued work after a successful response
-- 🟡 Add per-client context teardown when clients can own GPU resources
-- 🟡 Connect accelerated render surfaces to window composition and scanout
+- 🟢 Validate semantic commands and handles for any future client submission
+- 🟢 Recover 3D after complete device loss alongside the 2D scanout and
+  redraw the preserved compositor frame after reset
+- 🟢 Add per-client context teardown when clients can own GPU resources
+- 🟢 Connect accelerated render surfaces to window composition and scanout
 
 The implemented foundation and remaining work are described in
 `docs/phase11-gpu-infrastructure.md`.
 
-### 🟡 Completion target: Australis can safely create, manage and release GPU-backed resources and submit supported accelerated rendering commands through VirtIO-GPU 3D/VirGL, without allowing applications to bypass resource isolation.
+### 🟢 Completion: Australis can safely create, manage and release GPU-backed resources and submit supported accelerated rendering commands through VirtIO-GPU 3D/VirGL, without allowing applications to bypass resource isolation.
 
 ## Phase 12: Hardware-accelerated window composition
 

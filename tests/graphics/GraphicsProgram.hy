@@ -22,9 +22,12 @@ public class MockGpuControl : IVirtioGpuControl {
     private int failAt;
     private long lastFence;
     private long lastTransferOffset;
+    private int lastContextId;
+    private int lastResourceId;
     public MockGpuControl(int inputFailAt) {
-        commands = new int[16]; count = 0; failAt = inputFailAt;
+        commands = new int[32]; count = 0; failAt = inputFailAt;
         lastFence = 0; lastTransferOffset = -1;
+        lastContextId = 0; lastResourceId = 0;
     }
     private long Read(byte[] bytes, int offset, int length) {
         long value = 0; long factor = 1; int i = 0;
@@ -46,6 +49,8 @@ public class MockGpuControl : IVirtioGpuControl {
             Read(request, 8, 8) <= lastFence) { return false; }
         lastFence = Read(request, 8, 8);
         int type = (int)Read(request, 0, 4);
+        if (type == 512) { lastContextId = (int)Read(request, 16, 4); }
+        if (type == 516) { lastResourceId = (int)Read(request, 24, 4); }
         commands[count] = type;
         count = count + 1;
         if (type == 261) { lastTransferOffset = Read(request, 40, 8); }
@@ -68,6 +73,8 @@ public class MockGpuControl : IVirtioGpuControl {
         if (offset == 40) { return 1; }
         return 0;
     }
+    public int LastContextId() { return lastContextId; }
+    public int LastResourceId() { return lastResourceId; }
     public int Count() { return count; }
     public int At(int index) { return commands[index]; }
     public long TransferOffset() { return lastTransferOffset; }
@@ -175,6 +182,32 @@ public class MockNativeDisplayBackend : IDisplayBackend {
     public void FailRecovery() { failRecovery = true; }
     public int Presentations() { return presentations; }
     public int LastPixel() { return lastPixel; }
+}
+
+public class MockGpuBlitter : IGpuClientBlitter {
+    private int owner;
+    private int handle;
+    private int calls;
+    public MockGpuBlitter(int inputOwner, int inputHandle) {
+        owner = inputOwner; handle = inputHandle; calls = 0;
+    }
+    public int ClientWidth(int processId, int inputHandle) {
+        if (processId != owner || inputHandle != handle) { return -13; }
+        return 2;
+    }
+    public int ClientHeight(int processId, int inputHandle) {
+        return ClientWidth(processId, inputHandle);
+    }
+    public bool ClientBlit(int processId, int inputHandle,
+        PixelSurface destination, int x, int y) {
+        if (ClientWidth(processId, inputHandle) < 1 ||
+            destination == null ||
+            !destination.FillRect(x, y, 2, 2, 0x123456)) {
+            return false;
+        }
+        calls = calls + 1; return true;
+    }
+    public int Calls() { return calls; }
 }
 
 public class Program {
@@ -601,12 +634,21 @@ public class Program {
             new AdaptiveDisplayBackend(transientNative, fallbackGop);
         DisplayDevice adaptiveDisplay = new DisplayDevice(adaptiveBackend,
             null);
+        MockGpuBlitter blitter = new MockGpuBlitter(72, 7);
         if (adaptiveDisplay.BackendKind() != 2 ||
             adaptiveBackend.FillImmediate(-1, 0, 1, 1, 0) ||
             adaptiveDisplay.BackendKind() != 2 ||
             adaptiveDisplay.Claim(72) != 0 ||
             adaptiveDisplay.BeginFrame(72) != 0 ||
-            adaptiveDisplay.FillRect(72, 2, 2, 1, 1, 0x123456) != 0) {
+            adaptiveDisplay.FillRect(72, 2, 2, 1, 1, 0x123456) != 0 ||
+            adaptiveDisplay.ComposeGpuSurface(71, 7, 2, 2,
+                blitter) != -13 ||
+            adaptiveDisplay.ComposeGpuSurface(72, 8, 2, 2,
+                blitter) != -13 ||
+            adaptiveDisplay.ComposeGpuSurface(72, 7, 7, 7,
+                blitter) != -22 ||
+            adaptiveDisplay.ComposeGpuSurface(72, 7, 2, 2,
+                blitter) != 0 || blitter.Calls() != 1) {
             return 81;
         }
         transientNative.LoseDevice();
@@ -826,6 +868,18 @@ public class Program {
             virglControl.At(10) != 263 || virglControl.At(11) != 258 ||
             virglControl.At(12) != 513 ||
             new VirtioGpu3D(virglControl, false, 1).Probe()) { return 88; }
+        MockGpuControl isolatedControl = new MockGpuControl(0);
+        VirtioGpu3D isolated = new VirtioGpu3D(isolatedControl,
+            true, 1, 2, 65537);
+        if (!isolated.Probe() || !isolated.CreateContext() ||
+            !isolated.CreateTexture(8, 8, 4096, 16384) ||
+            isolatedControl.LastContextId() != 2 ||
+            isolatedControl.LastResourceId() != 65537 ||
+            !isolated.ClearTexture(0x223344) ||
+            !isolated.DestroyContext() ||
+            new VirtioGpu3D(isolatedControl, true, 1, 33, 65568).Probe()) {
+            return 95;
+        }
         MockGpuControl failedTextureControl = new MockGpuControl(4);
         VirtioGpu3D failedTexture = new VirtioGpu3D(
             failedTextureControl, true, 1);
@@ -847,6 +901,24 @@ public class Program {
             failedCommand.DownloadTexture() ||
             !failedCommand.DestroyContext() || failedCommand.Faulted() ||
             failedCommandControl.Count() != 11) { return 93; }
+        MockGpuControl recoveredControl = new MockGpuControl(7);
+        VirtioGpu3D recoveredGpu = new VirtioGpu3D(
+            recoveredControl, true, 1);
+        if (!recoveredGpu.Probe() || !recoveredGpu.CreateContext() ||
+            !recoveredGpu.CreateTexture(64, 64, 4096, 16384) ||
+            recoveredGpu.ClearTexture(0x334455) ||
+            !recoveredGpu.Faulted() ||
+            !recoveredGpu.RecoverTexture(4096, 16384) ||
+            !recoveredGpu.TextureReady() || recoveredGpu.Faulted() ||
+            recoveredGpu.RecoverTexture(4096, 16384) ||
+            recoveredControl.Count() != 16 ||
+            recoveredControl.At(7) != 515 ||
+            recoveredControl.At(10) != 513 ||
+            recoveredControl.At(11) != 512 ||
+            recoveredControl.At(12) != 516 ||
+            recoveredControl.At(15) != 517 ||
+            !recoveredGpu.DestroyContext() ||
+            recoveredControl.Count() != 20) { return 94; }
         IRenderSurface softwareSurface = new SoftwareRenderSurface(4, 3);
         PixelSurface copiedSurface = new PixelSurface(4, 3);
         PixelSurface uploadedSurface = new PixelSurface(4, 3);
@@ -864,7 +936,9 @@ public class Program {
             copiedSurface.Pixel(3, 2) != 0x224466 ||
             softwareSurface.Upload(new PixelSurface(3, 3)) ||
             softwareSurface.Readback(new PixelSurface(3, 3)) ||
+            !softwareSurface.Recover() ||
             !softwareSurface.Destroy() || softwareSurface.Ready() ||
+            softwareSurface.Recover() ||
             softwareSurface.Clear(0x112233)) { return 90; }
         System.Console.WriteLine("Australis bounded graphics and window layout tests passed");
         return 0;
