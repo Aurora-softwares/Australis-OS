@@ -39,7 +39,9 @@ public class MockGpuControl : IVirtioGpuControl {
         int expectedResponseType) {
         if (request == null || requestLength < 24 ||
             requestLength > request.Length ||
-            expectedResponseType != 4352 || count >= commands.Length ||
+            (expectedResponseType != 4352 &&
+             expectedResponseType != 4353 &&
+             expectedResponseType != 4354) || count >= commands.Length ||
             Read(request, 4, 4) != 1 ||
             Read(request, 8, 8) <= lastFence) { return false; }
         lastFence = Read(request, 8, 8);
@@ -48,6 +50,23 @@ public class MockGpuControl : IVirtioGpuControl {
         count = count + 1;
         if (type == 261) { lastTransferOffset = Read(request, 40, 8); }
         return count != failAt;
+    }
+    public bool ExecuteCursor(byte[] request, int requestLength,
+        int expectedResponseType) {
+        return Execute(request, requestLength, expectedResponseType);
+    }
+    public long Response32(int offset) {
+        if (count > 0 && commands[count - 1] == 264) {
+            if (offset == 24) { return 2; }
+            if (offset == 28) { return 1; }
+            if (offset == 32) { return 256; }
+            return 0;
+        }
+        if (count == 0 || commands[count - 1] != 256) { return -1; }
+        if (offset == 32) { return 1024; }
+        if (offset == 36) { return 768; }
+        if (offset == 40) { return 1; }
+        return 0;
     }
     public int Count() { return count; }
     public int At(int index) { return commands[index]; }
@@ -100,22 +119,48 @@ public class MockFrameClock : IFrameClock {
 public class MockNativeDisplayBackend : IDisplayBackend {
     private bool started;
     private bool failNext;
+    private bool failRecovery;
     private int presentations;
     private int lastPixel;
+    private int modeWidth;
+    private int modeHeight;
+    private int pendingWidth;
+    private int pendingHeight;
     public MockNativeDisplayBackend() {
-        started = false; failNext = false;
+        started = false; failNext = false; failRecovery = false;
         presentations = 0; lastPixel = -1;
+        modeWidth = 8; modeHeight = 8;
+        pendingWidth = 0; pendingHeight = 0;
     }
     public int Kind() { return 2; }
-    public int Width() { return 8; }
-    public int Height() { return 8; }
-    public int StrideBytes() { return 32; }
+    public int Width() { return modeWidth; }
+    public int Height() { return modeHeight; }
+    public int StrideBytes() { return modeWidth * 4; }
     public int ScanoutFormat() { return 2; }
     public int Capabilities() { return 7; }
     public bool Initialize() { started = true; return true; }
     public bool Ready() { return started; }
     public void Shutdown() { started = false; }
-    public bool Recover() { return Initialize(); }
+    public bool Recover() {
+        if (failRecovery) { return false; }
+        return Initialize();
+    }
+    public bool HardwareCursor() { return false; }
+    public bool MoveCursor(int x, int y) { return false; }
+    public void HideCursor() { }
+    public bool Reconfigure(int width, int height) {
+        if (!started || width < 8 || height < 8 ||
+            width > 16 || height > 16) { return false; }
+        modeWidth = width; modeHeight = height; return true;
+    }
+    public bool PollModeChange() {
+        if (pendingWidth == 0 ||
+            !Reconfigure(pendingWidth, pendingHeight)) { return false; }
+        pendingWidth = 0; pendingHeight = 0; return true;
+    }
+    public void QueueMode(int width, int height) {
+        pendingWidth = width; pendingHeight = height;
+    }
     public bool PresentDamage(PixelSurface surface, DamageTracker damage) {
         if (!started || surface == null || damage == null) { return false; }
         if (failNext) { failNext = false; return false; }
@@ -126,6 +171,8 @@ public class MockNativeDisplayBackend : IDisplayBackend {
     public bool FillImmediate(int x, int y, int width, int height,
         int rgb) { return started; }
     public void FailNext() { failNext = true; }
+    public void LoseDevice() { started = false; }
+    public void FailRecovery() { failRecovery = true; }
     public int Presentations() { return presentations; }
     public int LastPixel() { return lastPixel; }
 }
@@ -524,6 +571,60 @@ public class Program {
             !nativeDisplay.RecoverBackend() ||
             nativeDisplay.Claim(71) != 0 ||
             nativeDisplay.Release(71) != 0) { return 70; }
+        MockNativeDisplayBackend modeBackend =
+            new MockNativeDisplayBackend();
+        DisplayDevice modeDisplay = new DisplayDevice(modeBackend, null);
+        int oldModeBuffer = 0;
+        if (modeDisplay.Claim(73) != 0 ||
+            (oldModeBuffer = modeDisplay.AllocateBuffer(73, 8, 8,
+                32, 1)) < 1 ||
+            modeDisplay.SetMode(73, 10, 10) != 0 ||
+            modeDisplay.Width() != 10 || modeDisplay.Height() != 10 ||
+            modeDisplay.BeginBuffer(73, oldModeBuffer) != -13 ||
+            modeDisplay.BufferLayout().Width() != 10 ||
+            modeDisplay.AllocateBuffer(73, 10, 10, 40, 1) < 1) {
+            return 85;
+        }
+        modeBackend.QueueMode(12, 12);
+        if (modeDisplay.SetMode(73, 0, 0) != 12 + 12 * 65536 ||
+            modeDisplay.Width() != 12 ||
+            modeDisplay.BufferLayout().Height() != 12 ||
+            modeDisplay.SetMode(73, 20, 20) != -5 ||
+            modeDisplay.Release(73) != 0) { return 86; }
+        MockNativeDisplayBackend transientNative =
+            new MockNativeDisplayBackend();
+        MockPixelWriter fallbackPixels = new MockPixelWriter(4096, 64);
+        GopDisplayBackend fallbackGop = new GopDisplayBackend(
+            new FramebufferMode(4096, 256, 8, 8, 8, 0),
+            fallbackPixels);
+        AdaptiveDisplayBackend adaptiveBackend =
+            new AdaptiveDisplayBackend(transientNative, fallbackGop);
+        DisplayDevice adaptiveDisplay = new DisplayDevice(adaptiveBackend,
+            null);
+        if (adaptiveDisplay.BackendKind() != 2 ||
+            adaptiveBackend.FillImmediate(-1, 0, 1, 1, 0) ||
+            adaptiveDisplay.BackendKind() != 2 ||
+            adaptiveDisplay.Claim(72) != 0 ||
+            adaptiveDisplay.BeginFrame(72) != 0 ||
+            adaptiveDisplay.FillRect(72, 2, 2, 1, 1, 0x123456) != 0) {
+            return 81;
+        }
+        transientNative.LoseDevice();
+        if (!adaptiveDisplay.Ready() ||
+            adaptiveDisplay.PresentFrame(72) != 0 ||
+            transientNative.Presentations() != 1 ||
+            transientNative.LastPixel() != 0x123456 ||
+            adaptiveDisplay.BackendKind() != 2) { return 82; }
+        if (adaptiveDisplay.BeginFrame(72) != 0 ||
+            adaptiveDisplay.FillRect(72, 2, 2, 1, 1, 0xABCDEF) != 0) {
+            return 83;
+        }
+        transientNative.LoseDevice();
+        transientNative.FailRecovery();
+        if (adaptiveDisplay.PresentFrame(72) != 0 ||
+            adaptiveDisplay.BackendKind() != 1 ||
+            fallbackPixels.Pixel(18) != 0xEFCDAB ||
+            adaptiveDisplay.Release(72) != 0) { return 84; }
         if (new DisplayBufferLayout(2048, 2048, 8192, 1).Ready() ||
             new DisplayBufferLayout(8, 8, 31, 1).Ready() ||
             new DisplayBufferLayout(8, 8, 32, 2).Ready() ||
@@ -664,6 +765,98 @@ public class Program {
         if (failingGpu.Create(64, 32, 4096, 8192) ||
             failingGpu.Current() != null || failingControl.Count() != 3 ||
             failingControl.At(2) != 258) { return 53; }
+        MockGpuControl cursorControl = new MockGpuControl(0);
+        VirtioGpu2D cursorGpu = new VirtioGpu2D(cursorControl);
+        if (cursorGpu.CreateCursor(4097, 16384) ||
+            cursorGpu.CreateCursor(4096, 4096) ||
+            !cursorGpu.CreateCursor(4096, 16384) ||
+            cursorGpu.CursorResource() == null ||
+            !cursorGpu.UpdateCursor(0, 10, 20) ||
+            !cursorGpu.MoveCursor(0, 12, 22) ||
+            !cursorGpu.HideCursor(0) ||
+            !cursorGpu.DestroyCursor() ||
+            cursorGpu.CursorResource() != null ||
+            cursorControl.Count() != 8 ||
+            cursorControl.At(0) != 257 ||
+            cursorControl.At(1) != 262 ||
+            cursorControl.At(2) != 261 ||
+            cursorControl.At(3) != 768 ||
+            cursorControl.At(4) != 769 ||
+            cursorControl.At(5) != 768 ||
+            cursorControl.At(6) != 263 ||
+            cursorControl.At(7) != 258) { return 87; }
+        MockGpuControl modeControl = new MockGpuControl(0);
+        VirtioGpuDisplayMode gpuMode =
+            new VirtioGpu2D(modeControl).DiscoverMode();
+        if (gpuMode == null || gpuMode.Scanout() != 0 ||
+            gpuMode.Width() != 1024 || gpuMode.Height() != 768 ||
+            modeControl.At(0) != 256) { return 84; }
+        MockGpuControl virglControl = new MockGpuControl(0);
+        VirtioGpu3D virgl = new VirtioGpu3D(virglControl, true, 1);
+        byte[] stream = new byte[8];
+        if (!virgl.Probe() || virgl.CapsetId() != 2 ||
+            virgl.CapsetVersion() != 1 || virgl.CapsetBytes() != 256 ||
+            !virgl.CreateContext() || !virgl.Ready() ||
+            virgl.CreateTexture(257, 64, 4096, 262144) ||
+            !virgl.CreateTexture(64, 64, 4096, 16384) ||
+            !virgl.TextureReady() ||
+            virgl.SubmitKernelCommands(stream, 3) ||
+            virgl.SubmitKernelCommands(stream, 12) ||
+            !virgl.SubmitKernelCommands(stream, 8) ||
+            virgl.ClearTexture(-1) ||
+            !virgl.ClearTexture(0x228844) ||
+            !virgl.DownloadTexture() ||
+            !virgl.DestroyContext() || virgl.Ready() ||
+            virgl.TextureReady() ||
+            virgl.LastFence() != 13 || virglControl.Count() != 13 ||
+            virglControl.At(0) != 264 || virglControl.At(1) != 512 ||
+            virglControl.At(2) != 516 || virglControl.At(3) != 262 ||
+            virglControl.At(4) != 514 || virglControl.At(5) != 517 ||
+            virglControl.At(6) != 519 || virglControl.At(7) != 519 ||
+            virglControl.At(8) != 518 || virglControl.At(9) != 515 ||
+            virglControl.At(10) != 263 || virglControl.At(11) != 258 ||
+            virglControl.At(12) != 513 ||
+            new VirtioGpu3D(virglControl, false, 1).Probe()) { return 88; }
+        MockGpuControl failedTextureControl = new MockGpuControl(4);
+        VirtioGpu3D failedTexture = new VirtioGpu3D(
+            failedTextureControl, true, 1);
+        if (!failedTexture.Probe() || !failedTexture.CreateContext() ||
+            failedTexture.CreateTexture(64, 64, 4096, 16384) ||
+            failedTexture.TextureReady() || !failedTexture.Faulted() ||
+            !failedTexture.DestroyContext() || failedTexture.Ready() ||
+            failedTextureControl.Count() != 6 ||
+            failedTextureControl.At(4) != 258 ||
+            failedTextureControl.At(5) != 513) { return 89; }
+        MockGpuControl failedCommandControl = new MockGpuControl(7);
+        VirtioGpu3D failedCommand = new VirtioGpu3D(
+            failedCommandControl, true, 1);
+        if (!failedCommand.Probe() || !failedCommand.CreateContext() ||
+            !failedCommand.CreateTexture(64, 64, 4096, 16384) ||
+            failedCommand.ClearTexture(0x228844) ||
+            !failedCommand.Faulted() || failedCommand.Ready() ||
+            failedCommand.TextureReady() ||
+            failedCommand.DownloadTexture() ||
+            !failedCommand.DestroyContext() || failedCommand.Faulted() ||
+            failedCommandControl.Count() != 11) { return 93; }
+        IRenderSurface softwareSurface = new SoftwareRenderSurface(4, 3);
+        PixelSurface copiedSurface = new PixelSurface(4, 3);
+        PixelSurface uploadedSurface = new PixelSurface(4, 3);
+        if (!softwareSurface.Ready() || softwareSurface.Kind() != 1 ||
+            softwareSurface.Width() != 4 ||
+            softwareSurface.Height() != 3 ||
+            !softwareSurface.Clear(0x3366CC) ||
+            softwareSurface.Clear(-1) ||
+            !softwareSurface.Readback(copiedSurface) ||
+            copiedSurface.Pixel(0, 0) != 0x3366CC ||
+            copiedSurface.Pixel(3, 2) != 0x3366CC ||
+            !uploadedSurface.Fill(0x224466) ||
+            !softwareSurface.Upload(uploadedSurface) ||
+            !softwareSurface.Readback(copiedSurface) ||
+            copiedSurface.Pixel(3, 2) != 0x224466 ||
+            softwareSurface.Upload(new PixelSurface(3, 3)) ||
+            softwareSurface.Readback(new PixelSurface(3, 3)) ||
+            !softwareSurface.Destroy() || softwareSurface.Ready() ||
+            softwareSurface.Clear(0x112233)) { return 90; }
         System.Console.WriteLine("Australis bounded graphics and window layout tests passed");
         return 0;
     }

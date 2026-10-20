@@ -69,10 +69,10 @@ destroys the resource, resets the device, and releases its mappings and pages.
 The same sequence passes on AHCI and NVMe QEMU boots with a VirtIO-GPU PCI
 device attached. A missing GPU leaves normal GOP boot untouched.
 
-GOP remains the desktop's active renderer. Phase 9 will define a display
-backend and buffer ownership contract, and Phase 10 will turn this working
-native control path into a persistent GPU display driver with recovery and
-desktop presentation.
+This was the Phase 8 probe. Phase 9 established the backend and buffer
+ownership contract; Phase 10 extends this control path into a persistent
+native display driver. See `phase10-native-virtio-gpu.md` for the live scanout
+and recovery path.
 
 ## Validation
 
@@ -98,5 +98,4 @@ hardware refresh synchronization. On 2026-10-19, the live QEMU test measured
 It permits up to 10 seconds as a gross-regression limit. The interpreted
 userland service and emulated framebuffer have much higher latency than the
 native host benchmark; its 16 ms interval is an admission limit, not a claim
-of 60 frames per second. Native VirtIO desktop presentation remains for
-Phase 10.
+of 60 frames per second.

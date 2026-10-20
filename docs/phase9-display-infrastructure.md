@@ -5,7 +5,8 @@ owns the firmware framebuffer mapping and pixel conversion; `DisplayDevice`
 holds only the backend interface. A native backend can implement the same
 contract without giving the compositor or a client GOP addresses. The
 interface reports kind, geometry, scanout stride and format, and capability
-bits for partial damage, immediate writes, and synchronous completion.
+bits for partial damage, immediate writes, synchronous completion, and an
+optional hardware cursor.
 
 `DisplayBufferLayout` validates a logical RGBX8888 buffer separately from
 the scanout format. Width and height are bounded by 2048, the pixel count by
@@ -15,9 +16,10 @@ tightly packed; presentation translates to the backend's scanout format.
 
 `DisplayDevice` initializes its backend at creation, releases the display
 lease on shutdown, and can recover an unowned backend. It keeps an open
-frame on a failed presentation so the caller may retry. Recovery rejects a
-mode change while an existing backbuffer or pooled presentation buffer still
-has the old dimensions.
+frame on a failed presentation so the caller may retry. Automatic recovery
+rejects a changed geometry while an existing backbuffer or pooled presentation
+buffer still has the old dimensions. Phase 10 adds an explicit native mode
+change path that revokes buffer handles and reshapes the retained storage.
 The host graphics test exercises the same device with GOP and a simulated
 native backend, including failed presentation and shutdown/recovery.
 
@@ -53,7 +55,8 @@ and revocation after owner exit.
 
 - 🟢 Backend interface and GOP implementation.
 - 🟢 Buffer layout and output capability contracts.
-- 🟢 GOP lifecycle and recovery contract; native driver recovery is Phase 10.
+- 🟢 GOP lifecycle and recovery contract; the Phase 10 native backend now
+  implements reset and resource recreation through this interface.
 - 🟢 Pollable submission fences, owned allocation, isolation, explicit release,
   and three bounded presentation buffer slots.
 

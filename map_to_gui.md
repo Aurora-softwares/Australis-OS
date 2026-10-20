@@ -161,7 +161,7 @@ Phase 8 GOP results and the native VirtIO exercise are recorded in
 - 🟢 Support multiple presentation buffers: the display service exercises two
   independently drawn and submitted buffers during boot
 - 🟢 Introduce display backend initialization, shutdown and recovery: GOP
-  implements the lifecycle; native driver recovery follows in Phase 10
+  implements the lifecycle, and Phase 10 adds native driver recovery
 - 🟢 Preserve reliable GOP fallback
 
 The backend and buffer layout contracts are described in
@@ -171,34 +171,62 @@ The backend and buffer layout contracts are described in
 
 ## Phase 10: Native VirtIO-GPU 2D driver
 
-- 🔴 Carry the Phase 8 PCI control queue into a persistent native driver
-- 🔴 Extend GPU discovery and feature negotiation to runtime mode changes
-- 🔴 Bind Phase 8 2D resource management to compositor-owned display buffers
-- 🔴 Add display mode discovery and scanout control
-- 🔴 Implement framebuffer resource transfers and flush operations
-- 🔴 Enforce DMA-safe memory access and resource bounds
-- 🔴 Add VirtIO-GPU reset, recovery and regression
-- 🔴 Recover resources safely when a compositor or application crashes
-- 🔴 Implement optional hardware cursor support with software fallback
-- 🔴 Validate GOP fallback when VirtIO-GPU is absent or initialization fails
+- 🟢 Carry the Phase 8 PCI control queue into a persistent native driver
+- 🟢 Discover and negotiate the GPU at boot, then handle explicit runtime
+  mode changes and device display-change events with buffer revocation
+- 🟢 Bind Phase 8 2D resource management to compositor-owned display buffers
+- 🟢 Add display mode discovery and scanout control
+- 🟢 Implement framebuffer resource transfers and flush operations
+- 🟢 Enforce DMA-safe memory access and resource bounds
+- 🟢 Add VirtIO-GPU reset, recovery and regression checks for lost devices and
+  failed submissions
+- 🟢 Recover resources safely when a compositor or application crashes:
+  display handles are revoked and the GPU resource remains kernel-owned
+- 🟢 Use the optional hardware cursor queue on native scanout, with the
+  software cursor as a fallback when cursor setup is unavailable
+- 🟢 Validate GOP fallback when VirtIO-GPU is absent or initialization fails
 
-### Completion: Australis can present its existing software-rendered desktop using VirtIO-GPU 2D, independently of GOP, with safe resource handling, reliable device recovery and automated QEMU regression coverage.
+The native driver, mode-change contract, and cursor fallback are described in
+`docs/phase10-native-virtio-gpu.md`.
 
-## Phahse 11: GPU infrastructure and resource management
+### Completion: Australis can present its existing software-rendered desktop using VirtIO-GPU 2D, independently of GOP, with live bounded mode changes, an optional hardware cursor, safe resource handling, reliable device recovery and automated QEMU regression coverage.
 
-- 🔴 Define a rendering backend abstraction (software / GPU)
-- 🔴 Introduce GPU command submission and synchronization
-- 🔴 Implement VirtIO-GPU 3D feature negotiation and context management
-- 🔴 Implement VirtIO-GPU 3D/VirGL command transport
-- 🔴 Implement GPU-backed textures and rendering surfaces
-- 🔴 Implement GPU resource allocation, lifetime and cleanup
-- 🔴 Implement GPU memory management and resource isolation
-- 🔴 Validate command buffers, resource handles and submission permissions
-- 🔴 Implement GPU fences, completion tracking and timeout recovery
-- 🔴 Handle GPU context termination and device reset safely
-- 🔴 Preserve software rendering when hardware acceleration is unavailable
+## Phase 11: GPU infrastructure and resource management
 
-### Completion: Australis can safely create, manage and release GPU-backed resources and submit supported accelerated rendering commands through VirtIO-GPU 3D/VirGL, without allowing applications to bypass resource isolation.
+- 🟢 Define a render-surface abstraction with software and VirGL
+  implementations for clear, pixel upload, readback, and cleanup
+- 🟢 Introduce bounded kernel-owned GPU command submission; each request is
+  fenced and completed synchronously
+- 🟢 Negotiate the VirGL feature, discover capsets, and keep one kernel-owned
+  3D context across the native display backend lifetime
+- 🟢 Send VirGL context, texture, upload, download, clear, and no-op commands
+  through the control queue, with QEMU pixel readback checks
+- 🟢 Create and upload a bounded GPU-backed render surface alongside the
+  software surface; keep one texture live with the native backend
+- 🟢 Create, attach, detach, and release the 3D resource with context cleanup
+- 🟢 Bound the 3D texture DMA backing in the kernel
+- 🟢 Reject malformed submission lengths and keep raw commands out of user
+  syscalls
+- 🟢 Use fenced completions and the control-queue timeout
+- 🟢 Demote acceleration after a failed 3D command, while leaving the
+  software-rendered 2D display available for recovery
+- 🟢 Destroy the kernel context and release its texture on shutdown/reset
+- 🟢 Preserve the software compositor and GOP fallback when VirGL is absent
+
+Further Phase 11 work:
+
+- 🟡 Add per-process GPU resource quotas and opaque handles before exposing
+  textures to applications
+- 🟡 Validate semantic commands and handles for any future client submission
+- 🟡 Add automatic 3D recovery after device loss during rendering; synchronous
+  submissions currently leave no queued work after a successful response
+- 🟡 Add per-client context teardown when clients can own GPU resources
+- 🟡 Connect accelerated render surfaces to window composition and scanout
+
+The implemented foundation and remaining work are described in
+`docs/phase11-gpu-infrastructure.md`.
+
+### 🟡 Completion target: Australis can safely create, manage and release GPU-backed resources and submit supported accelerated rendering commands through VirtIO-GPU 3D/VirGL, without allowing applications to bypass resource isolation.
 
 ## Phase 12: Hardware-accelerated window composition
 

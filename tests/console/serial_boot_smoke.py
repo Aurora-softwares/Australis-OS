@@ -131,8 +131,9 @@ def capture_record(monitor_path, memory_path):
     return record
 
 
-def capture_screen(monitor_path, path):
-    monitor_command(monitor_path, f'screendump "{path}"')
+def capture_screen(monitor_path, path, device=None):
+    target = f' {device}' if device else ''
+    monitor_command(monitor_path, f'screendump "{path}"{target}')
     data = Path(path).read_bytes()
     header = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", data)
     if header is None or int(header.group(3)) != 255:

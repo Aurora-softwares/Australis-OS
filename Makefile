@@ -2,6 +2,7 @@ HYDROGEN ?= ../Hylang-Compiler/build/self_hosting/hydrogen-stage1
 QEMU ?= qemu-system-x86_64
 XORRISO ?= xorriso
 OVMF_CODE ?= /usr/share/OVMF/OVMF_CODE_4M.fd
+GPU_RENDER_NODE ?= $(firstword $(wildcard /dev/dri/renderD*))
 
 BUILD_DIR := build
 EFI_DIR := $(BUILD_DIR)/efi
@@ -43,6 +44,7 @@ NATIVE_RUNTIME_BLOB := src/kernel/user/NativeRuntimeBlob.hy
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
 USB_INPUT_ARGS = -device qemu-xhci,id=xhci0 -device usb-kbd,bus=xhci0.0 -device usb-mouse,bus=xhci0.0
+VIRTIO_DISPLAY_ARGS = -vga none -device virtio-vga,id=gpu0
 USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,readonly=on,file="$(ISO)" -device usb-storage,drive=usb0,bus=xhci0.0
 
 .PHONY: all build applications force-applications test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci test-stage2-boot-nvme test-stage3 test-stage3-ahci test-stage3-nvme test-stage4 test-stage4-ahci test-stage4-nvme test-mouse test-mouse-ahci test-mouse-nvme test-phase5-6 test-stage5 test-stage5-host test-auex-file-api test-auex-portable-api test-auex-arguments test-auex-arguments-image test-userland-stage1 test-userland-stage1-host test-userland-stage1-image test-userland-stage1-ahci test-userland-stage1-nvme test-stage5-ahci test-stage5-nvme test-stage6 test-stage6-image test-stage6-ahci test-stage6-nvme test-usb test-storage test-ahci test-ahci-controller test-ahci-boot test-nvme test-nvme-controller test-nvme-boot test-partitions test-vfs test-hyfs test-hyfs1 test-hyfs1-boot-ahci test-hyfs1-boot-nvme test-hyfs1-serial-ahci test-hyfs1-serial-nvme test-hyfs1-storage-failure-ahci test-hyfs1-storage-failure-nvme test-hyfs2 test-hyfs2-writes test-hyfs2-boot-ahci test-hyfs2-boot-nvme test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme test-terminal test-serial-ahci test-serial-nvme test-storage-failure-ahci test-storage-failure-nvme image iso iso-hyfs1 iso-hyfs2 hyfs2-data-disk run run-emu run-gop run-disk run-disk-serial run-nvme run-nvme-serial run-disk-hyfs1 run-disk-hyfs2 run-hyfs1 run-hyfs1-serial run-hyfs1-nvme run-hyfs1-nvme-serial run-usb-storage run-usb-storage-nvme clean check-build-tools check-image-tools check-run-tools
@@ -59,7 +61,7 @@ USB_STORAGE_ARGS = -device qemu-xhci,id=xhci0 -drive if=none,id=usb0,format=raw,
 .PHONY: test-xhci-multi
 .PHONY: test-graphics
 .PHONY: benchmark-graphics
-.PHONY: test-display-ahci test-display-nvme test-display-fallback test-virtio-gpu test-frame-pacing
+.PHONY: test-display-ahci test-display-nvme test-display-fallback test-virtio-gpu test-virtio-gpu-3d test-frame-pacing
 .PHONY: test-userland-stage2
 	
 #
@@ -213,6 +215,7 @@ run-nvme-serial-hyfs1: check-run-tools
 
 run-usb-storage-hyfs1: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS1_ISO)" $(HYFS1_AHCI_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
+
 run-usb-storage-nvme-hyfs1: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS1_ISO)" $(HYFS1_NVME_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
 
@@ -221,7 +224,7 @@ run-usb-storage-nvme-hyfs1: check-run-tools
 #
 iso-hyfs2: $(HYFS2_ISO)
 run-hyfs2: check-run-tools
-	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_AHCI_DISK_ARGS) $(USB_INPUT_ARGS) $(VIRTIO_DISPLAY_ARGS) -net none
 
 run-gop-hyfs2: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none -monitor none -serial stdio
@@ -230,21 +233,23 @@ run-serial-hyfs2: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
 
 run-disk-hyfs2: check-run-tools
-	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(HYFS2_AHCI_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(HYFS2_AHCI_DISK_ARGS) $(USB_INPUT_ARGS) $(VIRTIO_DISPLAY_ARGS) -net none
 
 run-disk-serial-hyfs2: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" $(HYFS2_AHCI_DISK_ARGS) -net none -display none -monitor none -serial stdio
 
 run-nvme-hyfs2: check-run-tools
-	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_NVME_DISK_ARGS) $(USB_INPUT_ARGS) -net none
+	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_NVME_DISK_ARGS) $(USB_INPUT_ARGS) $(VIRTIO_DISPLAY_ARGS) -net none
 
 run-nvme-serial-hyfs2: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_NVME_DISK_ARGS) -net none -display none -monitor none -serial stdio
 
 run-usb-storage-hyfs2: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_AHCI_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
+
 run-usb-storage-nvme-hyfs2: check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" $(HYFS2_NVME_DISK_ARGS) $(USB_STORAGE_ARGS) -net none -display none -monitor none -serial stdio
+
 run-data-ahci-hyfs2: data-disk-hyfs2 | check-run-tools
 	"$(QEMU)" -machine q35 -m 256M -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" -cdrom "$(HYFS2_ISO)" -device ich9-ahci,id=ahci0 -drive if=none,id=data0,format=raw,file="$(HYFS2_DATA_DISK)" -device ide-hd,drive=data0,bus=ahci0.0 -net none -display none -monitor none -serial stdio
 
@@ -579,8 +584,14 @@ test-display-fallback: iso-hyfs2 | check-run-tools
 	python3 tests/graphics/display_fallback_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
 
 test-virtio-gpu: iso-hyfs2 | check-run-tools
+	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci vga
 	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
 	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" nvme
+	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci fallback
+
+test-virtio-gpu-3d: iso-hyfs2 | check-run-tools
+	@test -n "$(GPU_RENDER_NODE)" || { echo "No GPU render node available"; exit 1; }
+	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci gl "$(GPU_RENDER_NODE)"
 
 test-frame-pacing: iso-hyfs2 | check-run-tools
 	python3 tests/graphics/frame_pacing_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(HYFS2_ISO)" ahci
