@@ -84,7 +84,7 @@ RELEASE_VERSION ?= dev-$(shell git rev-parse --short HEAD)
 RELEASE_DIR = dist/release-candidate/$(RELEASE_VERSION)
 RELEASE_ISO = australis-os-$(RELEASE_VERSION)-x86_64.iso
 
-RELEASE_DOCS := README.md ROADMAP.md PLAN.md docs/hyfs-v2.md
+RELEASE_DOCS := README.md VERSIONING.md ROADMAP.md map_to_gui.md PLAN.md docs/hyfs-v2.md
 
 # ====================================================================
 # PHONY TARGET DECLARATIONS
