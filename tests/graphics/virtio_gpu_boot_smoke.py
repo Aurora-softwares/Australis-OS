@@ -83,8 +83,10 @@ def main():
                                b"VirtIO-GPU VirGL blend state probe passed" not in opening or
                                b"VirtIO-GPU VirGL shader state probe passed" not in opening or
                                b"VirtIO-GPU VirGL alpha draw/readback passed" not in opening or
+                               b"VirtIO-GPU VirGL textured alpha draw/readback passed" not in opening or
                                b"VirtIO-GPU VirGL context active" not in opening or
                                b"VirtIO-GPU 2D/3D device reset recovery passed" not in opening or
+							   b"VirtIO-GPU VirGL sampler state probe passed" not in opening or
                                b"Display: isolated GPU resource operations passed" not in opening or
                                b"Display: window-sized GPU texture passed" not in opening or
                                b"Display: two GPU-backed window contents ready" not in opening or

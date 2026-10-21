@@ -119,7 +119,11 @@ def main():
                     if pixel(moved, old_x + 32, old_y - 16) == (255, 255, 255):
                         break
                 else:
-                    raise AssertionError("USB mouse did not move the software cursor")
+                    raise AssertionError(
+                        "USB mouse did not move the software cursor: "
+                        f"old={pixel(moved, old_x + 2, old_y + 4)}, "
+                        f"target={pixel(moved, old_x + 32, old_y - 16)}, "
+                        f"background={pixel(moved, old_x + 38, old_y - 16)}")
                 if pixel(moved, old_x + 2, old_y + 4) != (42, 104, 217):
                     raise AssertionError("cursor movement did not restore the covered window")
                 click_mouse(monitor)
