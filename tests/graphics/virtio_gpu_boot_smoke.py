@@ -87,6 +87,15 @@ def main():
                                b"VirtIO-GPU VirGL context active" not in opening or
                                b"VirtIO-GPU 2D/3D device reset recovery passed" not in opening or
 							   b"VirtIO-GPU VirGL sampler state probe passed" not in opening or
+							   b"VirtIO-GPU VirGL UV shader linkage passed" not in opening or
+							   b"VirtIO-GPU VirGL UV vertex layout passed" not in opening or
+							   b"VirtIO-GPU VirGL UV pixels/readback passed" not in opening or
+							   b"VirtIO-GPU VirGL positioned UV rectangle passed" not in opening or
+							   b"VirtIO-GPU VirGL arbitrary UV rectangle passed" not in opening or
+							   b"VirtIO-GPU VirGL multi-rectangle composition passed" not in opening or
+							   b"VirtIO-GPU VirGL overlapping alpha composition passed" not in opening or
+							   b"VirtIO-GPU VirGL persistent vertex lifecycle passed" not in opening or
+							   b"VirtIO-GPU VirGL persistent vertex reuse passed" not in opening or
                                b"Display: isolated GPU resource operations passed" not in opening or
                                b"Display: window-sized GPU texture passed" not in opening or
                                b"Display: two GPU-backed window contents ready" not in opening or
