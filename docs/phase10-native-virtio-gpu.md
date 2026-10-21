@@ -13,10 +13,12 @@ display information. It checks completion length, response type, fence ID,
 and transport status. The resource manager checks geometry, transfer bounds,
 page alignment, and backing length. Resource backing comes from the kernel DMA
 allocator, which does not expose it to user processes. The bootloader reserves
-two contiguous slices of 64 and 1024 low pages. Storage bootstrap uses the
-first 16 pages of the combined interval; the remaining 1072 pages form the
-shared DMA pool. The UEFI image builder now publishes that combined interval
-in boot information when multiple literal allocations are used.
+contiguous low-memory slices. Storage bootstrap uses the first 16 pages of the
+combined interval; the remaining pages form the shared DMA pool. Phase 12
+increases this reservation to 2112 pages total, leaving 2096 for the GPU,
+USB, and other DMA users while independent window textures are resident. The
+UEFI image builder publishes that combined interval in boot information when
+multiple literal allocations are used.
 
 `AdaptiveDisplayBackend` prefers the native backend and selects GOP if the
 device is missing or initialization fails. After a failed native submission,

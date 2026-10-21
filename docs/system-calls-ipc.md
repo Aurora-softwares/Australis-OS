@@ -72,13 +72,21 @@ direct driver access.
 
 The optional VirGL GPU API uses capability bit `4` from `AUSC1`.
 `Gpu.Create(width, height)` (opcode 121) returns an opaque, process-scoped
-handle for a texture up to 64×64, with one texture per process and four
-globally. `Gpu.Destroy(handle)` (122), `Gpu.Clear(handle, rgb)` (123),
+handle for a texture up to 64×64 for ordinary clients. The display lease
+owner can create up to three textures, each up to 2048×2048 and one million
+pixels; the global limit is four. `Gpu.Destroy(handle)` (122),
+`Gpu.Clear(handle, rgb)` (123),
 `Gpu.FillRect(handle, x, y, width, height, rgb)` (124), and
 `Gpu.ReadPixel(handle, x, y)` (125) accept semantic values only. Stale or
 foreign handles return `-13`; VirGL unavailability returns `-19` on create.
 `Gpu.Blit(handle, x, y)` (126) also requires display capability bit `2` and
 the display lease, and places that texture into an open compositor frame.
+`Gpu.BlitRegion(handle, sourceX, sourceY, width, height, targetX, targetY)`
+(127) has the same authorization and copies only a validated rectangle.
+`Gpu.CopyRegion(sourceHandle, targetHandle, sourceX, sourceY, width, height,
+targetX, targetY)` (128) requires the display lease and copies between two
+textures owned by the compositor through a fenced VirGL resource copy. It
+rejects foreign handles and out-of-bounds rectangles.
 Exit and device reset revoke handles and release or safely quarantine DMA
 backing. No API accepts raw VirGL bytes, physical addresses, or resource IDs.
 

@@ -79,9 +79,17 @@ def main():
                                b"VirtIO-GPU VirGL submission probe passed" not in opening or
                                b"VirtIO-GPU VirGL surface upload/readback passed" not in opening or
                                b"VirtIO-GPU VirGL clear/readback passed" not in opening or
+                               b"VirtIO-GPU VirGL scanout probe passed" not in opening or
+                               b"VirtIO-GPU VirGL blend state probe passed" not in opening or
+                               b"VirtIO-GPU VirGL shader state probe passed" not in opening or
+                               b"VirtIO-GPU VirGL alpha draw/readback passed" not in opening or
                                b"VirtIO-GPU VirGL context active" not in opening or
                                b"VirtIO-GPU 2D/3D device reset recovery passed" not in opening or
                                b"Display: isolated GPU resource operations passed" not in opening or
+                               b"Display: window-sized GPU texture passed" not in opening or
+                               b"Display: two GPU-backed window contents ready" not in opening or
+                               b"Display: GPU region blit passed" not in opening or
+                               b"Display: GPU texture copy passed" not in opening or
                                b"Display: GPU tile composed to scanout" not in opening or
                                b"DisplayDemoA: GPU isolation passed" not in opening):
                     raise AssertionError(
@@ -170,6 +178,15 @@ def main():
                 reply = read_until(connection, b"australis> ", 20, process)
                 if b"Version: 0.0.1" not in reply:
                     raise AssertionError(f"shell failed after GPU probe: {reply[-2000:]!r}")
+        except AssertionError as failure:
+            process.terminate()
+            try:
+                _, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _, stderr = process.communicate()
+            raise AssertionError(
+                f"{failure}\nQEMU stderr: {stderr[-4000:].decode(errors='replace')}") from failure
         finally:
             process.terminate()
             try:

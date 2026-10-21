@@ -100,6 +100,12 @@ public class UserMockChildLauncher : IUserChildLauncher {
         int width, int height, int rgb) { return -4; }
     public int GpuReadPixel(int processId, int handle, int x, int y) { return -4; }
     public int GpuBlit(int processId, int handle, int x, int y) { return -4; }
+    public int GpuBlitRegion(int processId, int handle, int sourceX,
+        int sourceY, int width, int height, int targetX,
+        int targetY) { return -4; }
+    public int GpuCopyRegion(int processId, int sourceHandle,
+        int targetHandle, int sourceX, int sourceY, int width,
+        int height, int targetX, int targetY) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
@@ -172,6 +178,12 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
         int width, int height, int rgb) { return -4; }
     public int GpuReadPixel(int processId, int handle, int x, int y) { return -4; }
     public int GpuBlit(int processId, int handle, int x, int y) { return -4; }
+    public int GpuBlitRegion(int processId, int handle, int sourceX,
+        int sourceY, int width, int height, int targetX,
+        int targetY) { return -4; }
+    public int GpuCopyRegion(int processId, int sourceHandle,
+        int targetHandle, int sourceX, int sourceY, int width,
+        int height, int targetX, int targetY) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }
@@ -244,6 +256,12 @@ public class UserMockCommandLauncher : IUserChildLauncher {
         int width, int height, int rgb) { return -4; }
     public int GpuReadPixel(int processId, int handle, int x, int y) { return -4; }
     public int GpuBlit(int processId, int handle, int x, int y) { return -4; }
+    public int GpuBlitRegion(int processId, int handle, int sourceX,
+        int sourceY, int width, int height, int targetX,
+        int targetY) { return -4; }
+    public int GpuCopyRegion(int processId, int sourceHandle,
+        int targetHandle, int sourceX, int sourceY, int width,
+        int height, int targetX, int targetY) { return -4; }
     public long ClockNow() { return 0; }
     public long ClockDeadlineAfter(int milliseconds) { return 0; }
     public int MarkReady(int processId) { return 0; }

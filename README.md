@@ -36,7 +36,7 @@ services; checked AUEX programs use terminal and file-descriptor syscalls.
 The bootstrap still has
 limits described below; it is not yet a general-purpose OS.
 
-For the current release number, development milestone, and planned version
+For the current development version, release status, and planned version
 targets, see the [versioning guide](VERSIONING.md).
 
 ## Requirements

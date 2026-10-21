@@ -22,12 +22,30 @@ public class MockGpuControl : IVirtioGpuControl {
     private int failAt;
     private long lastFence;
     private long lastTransferOffset;
+    private int transferX;
+    private int transferY;
+    private int transferWidth;
+    private int transferHeight;
+    private int transferStride;
     private int lastContextId;
     private int lastResourceId;
+    private int copySourceId;
+    private int copyTargetId;
+    private int copyWidth;
+    private int copyHeight;
+    private int scanoutResourceId;
+    private int flushedResourceId;
+    private int flushedWidth;
     public MockGpuControl(int inputFailAt) {
         commands = new int[32]; count = 0; failAt = inputFailAt;
         lastFence = 0; lastTransferOffset = -1;
+        transferX = 0; transferY = 0; transferWidth = 0;
+        transferHeight = 0; transferStride = 0;
         lastContextId = 0; lastResourceId = 0;
+        copySourceId = 0; copyTargetId = 0;
+        copyWidth = 0; copyHeight = 0;
+        scanoutResourceId = 0; flushedResourceId = 0;
+        flushedWidth = 0;
     }
     private long Read(byte[] bytes, int offset, int length) {
         long value = 0; long factor = 1; int i = 0;
@@ -54,6 +72,28 @@ public class MockGpuControl : IVirtioGpuControl {
         commands[count] = type;
         count = count + 1;
         if (type == 261) { lastTransferOffset = Read(request, 40, 8); }
+        if (type == 517 || type == 518) {
+            transferX = (int)Read(request, 24, 4);
+            transferY = (int)Read(request, 28, 4);
+            transferWidth = (int)Read(request, 36, 4);
+            transferHeight = (int)Read(request, 40, 4);
+            lastTransferOffset = Read(request, 48, 8);
+            transferStride = (int)Read(request, 64, 4);
+        }
+        if (type == 519 && requestLength >= 88 &&
+            Read(request, 32, 4) == 17 + 13 * 65536) {
+            copyTargetId = (int)Read(request, 36, 4);
+            copySourceId = (int)Read(request, 56, 4);
+            copyWidth = (int)Read(request, 76, 4);
+            copyHeight = (int)Read(request, 80, 4);
+        }
+        if (type == 259) {
+            scanoutResourceId = (int)Read(request, 44, 4);
+        }
+        if (type == 260) {
+            flushedResourceId = (int)Read(request, 40, 4);
+            flushedWidth = (int)Read(request, 32, 4);
+        }
         return count != failAt;
     }
     public bool ExecuteCursor(byte[] request, int requestLength,
@@ -78,6 +118,18 @@ public class MockGpuControl : IVirtioGpuControl {
     public int Count() { return count; }
     public int At(int index) { return commands[index]; }
     public long TransferOffset() { return lastTransferOffset; }
+    public int TransferX() { return transferX; }
+    public int TransferY() { return transferY; }
+    public int TransferWidth() { return transferWidth; }
+    public int TransferHeight() { return transferHeight; }
+    public int TransferStride() { return transferStride; }
+    public int CopySourceId() { return copySourceId; }
+    public int CopyTargetId() { return copyTargetId; }
+    public int CopyWidth() { return copyWidth; }
+    public int CopyHeight() { return copyHeight; }
+    public int ScanoutResourceId() { return scanoutResourceId; }
+    public int FlushedResourceId() { return flushedResourceId; }
+    public int FlushedWidth() { return flushedWidth; }
 }
 
 public class MockPixelWriter : IFramebufferPixelWriter {
@@ -205,6 +257,16 @@ public class MockGpuBlitter : IGpuClientBlitter {
             !destination.FillRect(x, y, 2, 2, 0x123456)) {
             return false;
         }
+        calls = calls + 1; return true;
+    }
+    public bool ClientBlitRegion(int processId, int inputHandle,
+        PixelSurface destination, int sourceX, int sourceY,
+        int width, int height, int targetX, int targetY) {
+        if (ClientWidth(processId, inputHandle) < 1 ||
+            destination == null || width != 1 || height != 1 ||
+            sourceX != 1 || sourceY != 1 ||
+            !destination.FillRect(targetX, targetY, width, height,
+                0xABCDEF)) { return false; }
         calls = calls + 1; return true;
     }
     public int Calls() { return calls; }
@@ -648,7 +710,13 @@ public class Program {
             adaptiveDisplay.ComposeGpuSurface(72, 7, 7, 7,
                 blitter) != -22 ||
             adaptiveDisplay.ComposeGpuSurface(72, 7, 2, 2,
-                blitter) != 0 || blitter.Calls() != 1) {
+                blitter) != 0 ||
+            adaptiveDisplay.ComposeGpuRegion(71, 7, 1, 1, 1, 1,
+                4, 4, blitter) != -13 ||
+            adaptiveDisplay.ComposeGpuRegion(72, 7, 1, 1, 2, 1,
+                4, 4, blitter) != -22 ||
+            adaptiveDisplay.ComposeGpuRegion(72, 7, 1, 1, 1, 1,
+                4, 4, blitter) != 0 || blitter.Calls() != 2) {
             return 81;
         }
         transientNative.LoseDevice();
@@ -848,7 +916,7 @@ public class Program {
         if (!virgl.Probe() || virgl.CapsetId() != 2 ||
             virgl.CapsetVersion() != 1 || virgl.CapsetBytes() != 256 ||
             !virgl.CreateContext() || !virgl.Ready() ||
-            virgl.CreateTexture(257, 64, 4096, 262144) ||
+            virgl.CreateTexture(2049, 64, 4096, 1048576) ||
             !virgl.CreateTexture(64, 64, 4096, 16384) ||
             !virgl.TextureReady() ||
             virgl.SubmitKernelCommands(stream, 3) ||
@@ -880,6 +948,74 @@ public class Program {
             new VirtioGpu3D(isolatedControl, true, 1, 33, 65568).Probe()) {
             return 95;
         }
+        MockGpuControl regionControl = new MockGpuControl(0);
+        VirtioGpu3D regionGpu = new VirtioGpu3D(regionControl,
+            true, 1, 3, 65538);
+        if (!regionGpu.Probe() || !regionGpu.CreateContext() ||
+            !regionGpu.CreateTexture(8, 8, 4096, 16384) ||
+            regionGpu.UploadTextureRegion(-1, 0, 1, 1) ||
+            regionGpu.UploadTextureRegion(7, 6, 2, 1) ||
+            regionGpu.UploadTextureRegion(0, 0, 0, 1) ||
+            regionControl.Count() != 6 ||
+            !regionGpu.UploadTextureRegion(2, 3, 4, 2) ||
+            regionControl.Count() != 7 ||
+            regionControl.At(6) != 517 ||
+            regionControl.TransferX() != 2 ||
+            regionControl.TransferY() != 3 ||
+            regionControl.TransferWidth() != 4 ||
+            regionControl.TransferHeight() != 2 ||
+            regionControl.TransferOffset() != 104 ||
+            regionControl.TransferStride() != 32 ||
+            regionGpu.DownloadTextureRegion(7, 7, 2, 1) ||
+            !regionGpu.DownloadTextureRegion(3, 4, 2, 2) ||
+            regionControl.Count() != 8 ||
+            regionControl.At(7) != 518 ||
+            regionControl.TransferX() != 3 ||
+            regionControl.TransferY() != 4 ||
+            regionControl.TransferWidth() != 2 ||
+            regionControl.TransferHeight() != 2 ||
+            regionControl.TransferOffset() != 140 ||
+            !regionGpu.DestroyContext()) { return 96; }
+        MockGpuControl copyControl = new MockGpuControl(0);
+        VirtioGpu3D copySource = new VirtioGpu3D(copyControl,
+            true, 1, 2, 65537);
+        VirtioGpu3D copyTarget = new VirtioGpu3D(copyControl,
+            true, 1, 3, 65538);
+        if (!copySource.Probe() || !copySource.CreateContext() ||
+            !copySource.CreateTexture(4, 4, 4096, 16384) ||
+            !copyTarget.Probe() || !copyTarget.CreateContext() ||
+            !copyTarget.CreateTexture(4, 4, 8192, 16384) ||
+            copyTarget.CopyTextureRegionFrom(copySource,
+                3, 3, 2, 1, 0, 0) ||
+            copyControl.Count() != 12 ||
+            !copyTarget.CopyTextureRegionFrom(copySource,
+                1, 1, 2, 2, 0, 0) ||
+            copyControl.Count() != 15 ||
+            copyControl.At(12) != 514 ||
+            copyControl.At(13) != 519 ||
+            copyControl.At(14) != 515 ||
+            copyControl.CopySourceId() != 65537 ||
+            copyControl.CopyTargetId() != 65538 ||
+            copyControl.CopyWidth() != 2 ||
+            copyControl.CopyHeight() != 2) { return 97; }
+        MockGpuControl scanoutControl = new MockGpuControl(0);
+        VirtioGpu3D scanoutGpu = new VirtioGpu3D(scanoutControl,
+            true, 1, 4, 65539);
+        if (!scanoutGpu.Probe() || !scanoutGpu.CreateContext() ||
+            !scanoutGpu.CreateTexture(4, 4, 4096, 16384) ||
+            scanoutGpu.ScanoutTexture(16) ||
+            !scanoutGpu.ScanoutTexture(0) ||
+            scanoutControl.At(6) != 259 ||
+            scanoutControl.ScanoutResourceId() != 65539 ||
+            scanoutGpu.FlushTexture(3, 3, 2, 1) ||
+            !scanoutGpu.FlushTexture(1, 1, 2, 2) ||
+            scanoutControl.At(7) != 260 ||
+            scanoutControl.FlushedResourceId() != 65539 ||
+            scanoutControl.FlushedWidth() != 2 ||
+            !scanoutGpu.DisableScanout(0) ||
+            scanoutControl.At(8) != 259 ||
+            scanoutControl.ScanoutResourceId() != 0 ||
+            !scanoutGpu.DestroyContext()) { return 98; }
         MockGpuControl failedTextureControl = new MockGpuControl(4);
         VirtioGpu3D failedTexture = new VirtioGpu3D(
             failedTextureControl, true, 1);
@@ -932,8 +1068,17 @@ public class Program {
             copiedSurface.Pixel(3, 2) != 0x3366CC ||
             !uploadedSurface.Fill(0x224466) ||
             !softwareSurface.Upload(uploadedSurface) ||
+            !uploadedSurface.SetPixel(2, 1, 0xAABBCC) ||
+            !softwareSurface.UploadRegion(uploadedSurface, 2, 1, 1, 1) ||
+            softwareSurface.UploadRegion(uploadedSurface, 3, 2, 2, 1) ||
             !softwareSurface.Readback(copiedSurface) ||
             copiedSurface.Pixel(3, 2) != 0x224466 ||
+            copiedSurface.Pixel(2, 1) != 0xAABBCC ||
+            !copiedSurface.Fill(0x112233) ||
+            !softwareSurface.ReadbackRegion(copiedSurface, 2, 1, 1, 1) ||
+            copiedSurface.Pixel(2, 1) != 0xAABBCC ||
+            copiedSurface.Pixel(0, 0) != 0x112233 ||
+            softwareSurface.ReadbackRegion(copiedSurface, 3, 2, 2, 1) ||
             softwareSurface.Upload(new PixelSurface(3, 3)) ||
             softwareSurface.Readback(new PixelSurface(3, 3)) ||
             !softwareSurface.Recover() ||

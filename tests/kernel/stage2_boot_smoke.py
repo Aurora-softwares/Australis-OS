@@ -117,7 +117,7 @@ def main():
                 "-device", "nvme,serial=australis,drive=nvme0"]
         process = subprocess.Popen(arguments, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
-            deadline = time.monotonic() + 10
+            deadline = time.monotonic() + 30
             while not os.path.exists(serial_path):
                 if process.poll() is not None:
                     raise RuntimeError(process.stderr.read().decode(errors="replace"))
@@ -133,7 +133,7 @@ def main():
                 )
                 scratch_before = verify_panic_qr_memory(before, memory_path)
                 if (before["clock_state"] != 1 or before["ticks_per_millisecond"] == 0 or
-                    before["stage2_state"] != 0 or before["dma_reservation_pages"] != 1088 or
+                    before["stage2_state"] != 0 or before["dma_reservation_pages"] != 2112 or
                     before["xhci_mapping"] == 0 or before["xhci_mapping_size"] < 4096 or
                     before["dynamic_mapping_base"] == 0 or before["device_vector"] != 0 or
                     before["device_irqs"] != 0):

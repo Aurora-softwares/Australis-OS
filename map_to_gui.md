@@ -230,17 +230,37 @@ The implemented foundation and remaining work are described in
 
 ## Phase 12: Hardware-accelerated window composition
 
-- 🔴 Implement accelerated window composition and alpha blending
-- 🔴 Add GPU texture upload and surface update mechanisms
-- 🔴 Implement GPU-backed window surfaces with software fallback
+- 🟡 Implement accelerated window composition and alpha blending: live
+  VirGL render-target drawing blends a half-alpha triangle and readback
+  verifies its pixels, but live window textures are still composed through
+  the software frame
+- 🟢 Add GPU texture upload and surface update mechanisms: bounded
+  rectangle uploads transfer changed client-texture pixels; window-sized
+  textures are now allocated and updated for the two live windows; bounded
+  VirGL texture-to-texture copies are verified in a live boot
+- 🟢 Implement GPU-backed window surfaces with software fallback: live
+  window contents have compositor-owned VirGL textures with bounded updates,
+  and software drawing remains available after texture failures or on GOP/2D;
+  final composition still copies CPU shadows (the first item above)
 - 🔴 Accelerate window movement, resizing and stacking
-- 🔴 Support GPU-accelerated clipping and rounded window regions
+- 🔴 Support GPU-accelerated clipping and rounded window regions: bounded
+  software-frame blits respect damage clips; GPU clipping and rounded
+  decoration rendering remain to be implemented
 - 🔴 Implement GPU-accelerated shapes and transformations
-- 🔴 Introduce efficient CPU-to-GPU surface synchronization
-- 🔴 Implement incremental updates for damaged GPU-backed surfaces
-- 🔴 Prevent applications from reading or modifying other applications' GPU resources
+- 🟡 Introduce efficient CPU-to-GPU surface synchronization: changed cells
+  upload bounded regions; a CPU shadow avoids per-window GPU readback, but
+  final scanout is still software composed
+- 🟡 Implement incremental updates for damaged GPU-backed surfaces: cell
+  uploads and output blits use damage rectangles; GPU readback remains
+  available for explicit pixel verification
+- 🟢 Prevent applications from reading or modifying other applications' GPU
+  resources: process-scoped opaque handles and capability/lease checks reject
+  foreign handles; the live isolation probe passes
 - 🔴 Compare GPU and CPU compositor output for rendering correctness
 - 🔴 Benchmark accelerated composition against the software compositor
+
+The texture and region-blit work and remaining composition gaps are described
+in `docs/phase12-accelerated-composition.md`.
 
 ### Completion: Australis can compose independent application windows using GPU acceleration, including transparency, clipping and transformations, while preserving window isolation and functional software-rendering fallback.
 

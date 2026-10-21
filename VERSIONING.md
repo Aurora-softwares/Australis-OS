@@ -1,27 +1,35 @@
 # Australis OS versioning guide
 
-This guide separates **release versions** from **development progress**. The
-release number tells you what has been tagged and shipped; the GUI roadmap
-tells you what the current source tree can do. They advance at different times.
+The current development version comes from the
+[Australis OS — Development project](https://github.com/orgs/Aurora-softwares/projects/3)
+**Target version** and **Status** fields, together with the implemented work in
+[map_to_gui.md](map_to_gui.md). A Git tag records a past source snapshot; it
+does not determine which version is currently being developed.
 
 ## Where the project stands
 
-As of **20 October 2026**:
+As of **21 October 2026** (project board and source tree checked):
 
 | Measure | Current position |
 | --- | --- |
-| Latest OS Git tag | `0.0.6` on the `Release` branch |
-| Current `Development` checkout | Untagged development source, with uncommitted work; `Development` and the `0.0.6` tag have diverged |
-| GUI roadmap | 🟢 Phases 1–11 of 16 marked complete in [map_to_gui.md](map_to_gui.md); 🔴 Phases 12–16 remain |
-| Next implementation phase | Phase 12: hardware-accelerated window composition |
-| Current release claim | Development build; there is no tagged `0.1.0` OS release |
+| **Current development version** | **`0.1.0` pre-release**: foundation implemented; release qualification is next |
+| `0.1.0` release gate | 🟡 5 project items are **Ready**, 0 **Done**: freeze baseline, run/archive QEMU matrix, document limits/platforms, unify version identity, verify/tag artifacts |
+| Implemented GUI foundation | 🟢 Phases 1–11 of 16 marked complete in [map_to_gui.md](map_to_gui.md) |
+| Next feature version | `0.2.0`: Phase 12 accelerated compositor; 3 project items **In Progress**, 5 **Ready**, 3 **Done** |
+| Later GUI phases | 🔴 Phases 13–16 remain in the GUI roadmap; later project versions also include application, system, connectivity, security, and release work |
+| Current release claim | `0.1.0` is being prepared; its release gate has not been completed |
 
-**Progress estimate:** 11 of 16 named GUI phases are marked complete (about
-69% *by phase count*). This is a navigation aid, not an estimate of remaining
-time, code volume, release quality, or proximity to a stable `1.0.0`. The
-remaining phases include a full desktop, security hardening, and release
-engineering. Phase 11's status describes the current working tree, so it is
-not yet a committed or tagged release claim.
+**Progress estimate:** the implementation is at the **`0.1.0` qualification
+gate**; the next feature milestone is **`0.2.0`**. Eleven of sixteen GUI phases
+are marked complete (about 69% *by phase count*), but this does not estimate
+remaining time, code volume, release quality, or proximity to stable `1.0.0`.
+The GUI phases and project versions are different scopes: the project also
+tracks work outside graphics. A board item marked Ready is planned work, not
+implemented work.
+
+Phase 12's VirGL render-target probe now verifies source-alpha blending in a
+live boot. Window textures are still composed into a software frame, so the
+accelerated compositor item remains In Progress and the `0.2.0` gate is open.
 
 For the latest implementation details and completion criteria, use
 [map_to_gui.md](map_to_gui.md). [ROADMAP.md](ROADMAP.md) is a broader, older
@@ -29,61 +37,79 @@ milestone overview; some of its “current position” text lags the GUI roadmap
 
 ## What each number means
 
-| You see | Meaning | Use as the OS release version? |
+| You see | Meaning | Use to describe current OS progress? |
 | --- | --- | --- |
-| Git tag `0.0.6` | Latest tagged release reference, currently on `Release` | 🟢 Yes, for that tagged source only |
-| `version = "0.1.0"` in `src/australlis.hyproj` | Project/build metadata already set to a future number | 🔴 No; it does not create a release |
-| `version` app or KMon output `0.0.1` | Hard-coded runtime text awaiting automatic version wiring | 🔴 No; it does not identify the current checkout |
-| `dev-<commit>` from `make release-candidate` | Default build-artifact label and commit identifier | 🟡 Identify that candidate build, not a published release |
-| `AUKR`, `AUEX`, `AUN1`, HyFS, or boot-info ABI versions | Independent format/interface versions | 🔴 No; they can change separately from the OS version |
+| Project **Target version** and **Status** | Planned version scope and completion of its gate items | 🟢 Primary version-progress tracker |
+| [map_to_gui.md](map_to_gui.md) phase status | Implemented GUI features and next phase | 🟢 Implementation evidence; phases are not version numbers |
+| `version = "0.1.0"` in `src/australlis.hyproj` | OS project/build metadata aligned with the current development line | 🟡 Useful context, but not proof of release readiness |
+| Git tag `0.0.6` | Latest tagged historical source reference on `Release` | 🟡 Identifies that snapshot, not today's development version |
+| `version` app or KMon output `0.0.1` | Hard-coded runtime text awaiting automatic version wiring | 🔴 Stale; it does not identify the current checkout |
+| `dev-<commit>` from `make release-candidate` | Default build-artifact label and commit identifier | 🟡 Identifies that candidate build |
+| `AUKR`, `AUEX`, `AUN1`, HyFS, or boot-info ABI versions | Independent format/interface versions | 🔴 They can change separately from the OS version |
 
-The `0.0.6` tag is **not an ancestor** of the current `Development` head. Do
-not describe the checkout as a linear `0.0.6` update or infer its exact
-contents from the tag. Use its commit ID and dirty/clean state when discussing
-a development build.
+The `0.0.6` tag is not an ancestor of the current `Development` head. It has
+no bearing on whether the current development line is `0.1.0` or how far its
+release gate has progressed.
 
-## Suggested release ladder
+## Version plan from the development project
 
-These are **planning targets**, not versions already earned or promised dates.
-Assign a release number only after its gate is met and a matching Git tag is
-created. If the roadmap changes, revise the targets before tagging.
+The project board assigns these targets. They describe intended scope, not
+versions already released or promised dates. Statuses below are the board's
+snapshot on 21 October 2026.
 
-| Target | Milestone and release gate | Position today |
+| Target | Main scope | Board position |
 | --- | --- | --- |
-| `0.0.x` | Experimental tagged snapshots with explicit limitations | 🟢 `0.0.6` is the latest tag |
-| `0.1.0` technical preview | Phases 1–11 integrated in a clean commit; documented QEMU test matrix, known limitations, repeatable ISO and release notes | 🟡 Phase work marked complete; release gate and tag still outstanding |
-| `0.2.0` graphics preview | Phase 12 accelerated composition and Phase 13 performance/synchronization targets, with software fallback verified | 🔴 Planned |
-| `0.3.0` desktop beta | Phase 14 usable graphical session and applications; Phase 15 security boundaries reviewed and tested | 🔴 Planned |
-| `1.0.0` stable | Phase 16 release criteria, installation/recovery, prolonged QEMU and physical-hardware testing, published support and security policy | 🔴 Planned |
+| Baseline | Historical boot, kernel, storage, userland, graphics foundation | 🟢 64 Done |
+| `0.1.0` | Qualify and package the existing foundation; unify version identity | 🟡 5 Ready, 0 Done |
+| `0.2.0` | Accelerated compositor and GPU-backed windows (GUI Phase 12) | 🟡 3 In Progress, 5 Ready, 3 Done |
+| `0.3.0` | Frame pacing, performance, and effects (GUI Phase 13) | 🔴 11 Backlog |
+| `0.4.0` | Native application platform and packaging | 🔴 7 Backlog |
+| `0.5.0` | Usable desktop and graphical applications | 🔴 9 Backlog |
+| `0.6.0` | Sessions, users, permissions, services, and management | 🔴 8 Backlog |
+| `0.7.0` | Networking and audio support | 🔴 7 Backlog |
+| `0.8.0` | Security hardening, installer, signed packages, recovery | 🔴 7 Backlog |
+| `0.9.0` | Beta qualification, soak/fault tests, physical hardware | 🔴 9 Backlog |
+| `1.0.0` | Stable release gate: end-to-end apps, graphics, files, recovery, support evidence | 🔴 7 Backlog |
 
 Before `1.0.0`, a **minor** number (`0.1.0` to `0.2.0`) can mark a new
 capability milestone and may include incompatible interfaces if documented.
 A **patch** number (`0.1.0` to `0.1.1`) is for fixes within the same milestone.
 `1.0.0` should mark the first release whose supported behavior and interfaces
 have an explicit compatibility policy. Roadmap phase numbers are never OS
-version numbers: completing Phase 12 does not automatically publish `0.2.0`.
+version numbers: completing Phase 12 does not automatically complete every
+`0.2.0` gate.
 
 ## How to identify a build
 
-From the repository root:
+To check the *current development version*, inspect the project board's
+**Target version** and **Status** fields, then compare the current source to
+the relevant [GUI roadmap](map_to_gui.md) criteria. With GitHub CLI access:
 
 ```bash
-git tag --sort=-version:refname | head -1  # Latest tag, not necessarily on this branch
+gh project item-list 3 --owner Aurora-softwares --limit 200 --format json
+```
+
+To identify the exact source build independently of its development version:
+
+```bash
 git branch --show-current
 git rev-parse --short HEAD
 git status --short                      # Any output means uncommitted changes
 ```
 
-For the current tree, report **“Australis OS Development, Phase 11 roadmap
-complete, commit `<short-sha>` plus local changes”**. For a packaged candidate,
+For the current tree, report **“Australis OS `0.1.0` pre-release, Phase 11
+foundation complete, `0.1.0` release gate pending, commit `<short-sha>`”**.
+Append “plus local changes” if `git status --short` has output. For a packaged candidate,
 use the `Version` and `Commit` fields in its `BUILD-INFO.txt`; the default
 `dev-<commit>` label still means development. For a formal release, use the
 matching Git tag and its release notes.
 
 ## When to promote a version
 
-1. Commit the milestone implementation and update [map_to_gui.md](map_to_gui.md)
-   with evidence for its completion criteria.
+1. Update the project's Target version and Status fields, and
+   [map_to_gui.md](map_to_gui.md) when GUI phase completion changes. Refresh
+   this guide's current-position table and board counts after each requested
+   project change.
 2. Run the documented tests for that milestone on the stated QEMU configurations;
    record physical-hardware results if the release claims hardware support.
 3. Build a candidate with `make release-candidate`, verify its ISO/checksum,
