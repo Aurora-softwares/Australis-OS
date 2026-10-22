@@ -2,7 +2,7 @@ format = 2
 name = "Australlis.OS"
 version = "0.1.0"
 type = "os"
-project_references = ["bootloader/australlis.bootloader.hyproj", "kernel/australlis.kernel.hyproj", "userland/australlis.userland.hyproj"]
+project_references = ["bootloader/australlis.bootloader.hyproj", "rescue/australlis.rescue.hyproj", "kernel/australlis.kernel.hyproj", "shell/australlis.shell.hyproj", "userland/australlis.userland.hyproj"]
 
 [package]
 id = "Australlis-OS"

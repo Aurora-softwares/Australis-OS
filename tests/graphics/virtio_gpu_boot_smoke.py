@@ -96,6 +96,15 @@ def main():
 							   b"VirtIO-GPU VirGL overlapping alpha composition passed" not in opening or
 							   b"VirtIO-GPU VirGL persistent vertex lifecycle passed" not in opening or
 							   b"VirtIO-GPU VirGL persistent vertex reuse passed" not in opening or
+                               b"VirtIO-GPU VirGL independent window textures passed" not in opening or
+                               b"VirtIO-GPU VirGL persistent sampler lifecycle passed" not in opening or
+                               b"VirtIO-GPU VirGL persistent sampler drawing passed" not in opening or
+                               b"VirtIO-GPU VirGL frame composer passed" not in opening or
+                               b"VirtIO-GPU VirGL non-square viewport passed" not in opening or
+                               b"VirtIO-GPU VirGL display-sized target passed" not in opening or
+                               b"VirtIO-GPU VirGL full-frame scanout passed" not in opening or
+                               b"VirtIO-GPU VirGL native composer setup passed" not in opening or
+                               b"VirtIO-GPU VirGL owned window composition passed" not in opening or
                                b"Display: isolated GPU resource operations passed" not in opening or
                                b"Display: window-sized GPU texture passed" not in opening or
                                b"Display: two GPU-backed window contents ready" not in opening or
