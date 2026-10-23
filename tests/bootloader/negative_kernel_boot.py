@@ -23,7 +23,7 @@ def variant(kernel: bytes, name: str) -> bytes | None:
     if name == "no-gop":
         return kernel
     if name == "oversized":
-        return kernel + bytes(1048577 - len(kernel))
+        return kernel + bytes(4194305 - len(kernel))
     data = bytearray(kernel)
     if name == "bad-magic":
         data[0] ^= 1

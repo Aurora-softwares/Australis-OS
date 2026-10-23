@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import time
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "console"))
 from serial_boot_smoke import capture_screen, monitor_command, read_until  # noqa: E402
@@ -17,12 +18,27 @@ def pixel(screen, x, y):
     offset = (y * width + x) * 3
     return tuple(pixels[offset:offset + 3])
 
+def capture_gpu_screen(path):
+    subprocess.run(
+        [
+            "vncdo",
+            "-s", "127.0.0.1::5907",
+            "capture", str(path)
+        ],
+        check=True,
+        timeout=10
+    )
+
+    with Image.open(path) as image:
+        rgb = image.convert("RGB")
+        return rgb.width, rgb.height, rgb.tobytes()
 
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
     oversized_mode = len(sys.argv) > 5 and sys.argv[5] == "oversized"
     use_gl = len(sys.argv) > 6 and sys.argv[5] == "gl"
     primary_vga = len(sys.argv) > 5 and sys.argv[5] == "vga"
+    gpu_visual = len(sys.argv) > 7 and sys.argv[7] == "visual"
     if transport not in ("ahci", "nvme"):
         raise ValueError("transport must be ahci or nvme")
     iso = str(Path(iso).resolve())
@@ -37,10 +53,13 @@ def main():
                "virtio-gpu-gl-pci,id=gpu0" if use_gl else
                "virtio-vga,id=gpu0" if primary_vga else
                "virtio-gpu-pci,id=gpu0")
+        # Visual tests use VirtIO as the primary VGA-compatible GPU.
+        if gpu_visual and use_gl:
+            gpu = "virtio-vga-gl,id=gpu0"
         command = [qemu, "-machine", "q35", "-m", "256M", "-drive",
                    f"if=pflash,format=raw,readonly=on,file={firmware}",
                    "-cdrom", iso, "-display", display, "-net", "none",
-                   "-no-reboot", "-vga", "none" if primary_vga else "std",
+                   "-no-reboot", "-vga", "none" if (primary_vga or gpu_visual) else "std",
                    "-device", gpu,
                    "-device", "qemu-xhci,id=xhci0",
                    "-device", "usb-kbd,bus=xhci0.0", "-device",
@@ -48,7 +67,7 @@ def main():
                    f"unix:{serial},server=on,wait=off", "-monitor",
                    f"unix:{monitor},server=on,wait=off"]
         if use_gl:
-            command += ["-vnc", "none"]
+            command += ["-vnc", "127.0.0.1:7"]
         if transport == "ahci":
             command += ["-device", "ich9-ahci,id=ahci0", "-drive",
                         f"if=none,id=sata0,format=raw,snapshot=on,file={iso}",
@@ -68,6 +87,54 @@ def main():
                 time.sleep(0.05)
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.connect(str(serial))
+                if gpu_visual:
+                    read_until(
+                        connection, b"GPUVIS: PRESENTED", 90, process
+                    )
+
+                    gpu_path = Path("build/gpu-live-visual.png").resolve()
+                    gpu_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    gpu_screen = capture_gpu_screen(gpu_path)
+
+                    width, height, _ = gpu_screen
+
+                    def near(actual, expected, tolerance=3):
+                        return all(
+                            abs(a - b) <= tolerance
+                            for a, b in zip(actual, expected)
+                        )
+
+                    # GPU background instead of the software desktop topbar.
+                    assert near(pixel(gpu_screen, 100, 10), (38, 56, 79))
+
+                    # Rounded window A's titlebar and red close control.
+                    assert near(pixel(gpu_screen, 32, 48), (229, 232, 237))
+                    assert near(pixel(gpu_screen, 34, 63), (255, 95, 87))
+
+                    # Window B is above A and has its own close control.
+                    assert near(
+                        pixel(gpu_screen, width // 3 + 14, 87),
+                        (255, 95, 87)
+                    )
+
+                    read_until(
+                        connection, b"GPUVIS: RESTORED", 30, process
+                    )
+
+                    software_path = Path("build/gpu-restored.png").resolve()
+                    software_screen = capture_gpu_screen(software_path)
+
+                    # The original desktop topbar must reappear.
+                    assert near(
+                        pixel(software_screen, 100, 10),
+                        (17, 24, 32)
+                    )
+
+                    print("GPU live visual scanout and restoration passed")
+                    print(f"GPU screenshot: {gpu_path}")
+                    print(f"Software screenshot: {software_path}")
+                    return
                 opening = read_until(connection, b"australis> ", 90, process)
                 expected_backend = b"VirtIO-GPU native display active"
                 if (b"VirtIO-GPU 2D probe passed" not in opening or
@@ -105,6 +172,12 @@ def main():
                                b"VirtIO-GPU VirGL full-frame scanout passed" not in opening or
                                b"VirtIO-GPU VirGL native composer setup passed" not in opening or
                                b"VirtIO-GPU VirGL owned window composition passed" not in opening or
+                               b"VirtIO-GPU VirGL composed frame scanout passed" not in opening or
+                               b"Display: GPU decorated windows passed" not in opening or
+                               b"Display: GPU rounded decorations passed" not in opening or
+                               b"Display: GPU frame submission passed" not in opening or
+                               b"Display: GPU desktop composition passed" not in opening or
+                               b"Display: GPU frame rectangles passed" not in opening or
                                b"Display: isolated GPU resource operations passed" not in opening or
                                b"Display: window-sized GPU texture passed" not in opening or
                                b"Display: two GPU-backed window contents ready" not in opening or
@@ -169,8 +242,7 @@ def main():
                                30, process)
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
-                        resized = capture_screen(str(monitor), screenshot,
-                                                 "gpu0")
+                        resized = capture_screen(str(monitor), screenshot, "gpu0")
                         if (resized[0] == 1024 and resized[1] == 768 and
                                 pixel(resized, 30, 100) == (203, 56, 48) and
                                 pixel(resized, 1024 // 3 + 20, 130) ==
@@ -184,8 +256,7 @@ def main():
                                30, process)
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
-                        restored = capture_screen(str(monitor), screenshot,
-                                                  "gpu0")
+                        restored = capture_screen(str(monitor), screenshot, "gpu0")
                         if (restored[0] == 1280 and restored[1] == 800 and
                                 pixel(restored, 30, 100) == (203, 56, 48) and
                                 pixel(restored, 1280 // 3 + 20, 130) ==

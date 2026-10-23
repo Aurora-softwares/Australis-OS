@@ -2,6 +2,18 @@ using Australis.Kernel.Storage;
 using Australis.User;
 
 public class UserMockTerminal : IUserTerminal {
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     private byte[] input; private int inputCursor; private byte[] output; private int outputLength;
     private int delayedReads;
     public UserMockTerminal(byte[] inputBytes) {
@@ -35,7 +47,28 @@ public class UserMockTerminal : IUserTerminal {
 }
 
 public class UserMockChildLauncher : IUserChildLauncher {
+    public int GpuFillFrameRect(
+        int processId,
+        int x, int y,
+        int width, int height,
+        int rgb) {
+        return -4;
+    }
     private int launches;
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+    public int GpuFramePixel(int processId, int x, int y) {
+        return -4;
+    }
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     public UserMockChildLauncher() { launches = 0; }
     public int Launches() { return launches; }
     public int RunChild(byte[] path, UserArguments arguments) {
@@ -116,7 +149,28 @@ public class UserMockChildLauncher : IUserChildLauncher {
 }
 
 public class UserMockFailingChildLauncher : IUserChildLauncher {
+    public int GpuFillFrameRect(
+        int processId,
+        int x, int y,
+        int width, int height,
+        int rgb) {
+        return -4;
+    }
     private int launches;
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+    public int GpuFramePixel(int processId, int x, int y) {
+        return -4;
+    }
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     public UserMockFailingChildLauncher() { launches = 0; }
     public int Launches() { return launches; }
     public int RunChild(byte[] path, UserArguments arguments) {
@@ -194,7 +248,28 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
 }
 
 public class UserMockCommandLauncher : IUserChildLauncher {
+    public int GpuFillFrameRect(
+        int processId,
+        int x, int y,
+        int width, int height,
+        int rgb) {
+        return -4;
+    }
     private int launches;
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+    public int GpuFramePixel(int processId, int x, int y) {
+        return -4;
+    }
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     public UserMockCommandLauncher() { launches = 0; }
     public int Launches() { return launches; }
     public int RunChild(byte[] path, UserArguments arguments) {
@@ -276,6 +351,18 @@ public class UserMockFiles : IUserFiles {
     private bool manifestOpen;
     private bool created; private bool writeOpen; private byte[] content;
     private int contentLength;
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     public UserMockFiles() {
         open = false; position = 0; closeAllCalled = false; manifestOpen = false;
         created = false; writeOpen = false; content = new byte[32]; contentLength = 0;
@@ -565,6 +652,18 @@ public class UserMockFiles : IUserFiles {
 
 public class UserBytecodeBuilder {
     private byte[] code; private int length;
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     public UserBytecodeBuilder() { code = new byte[1024]; length = 0; }
     public void Byte(int value) { code[length] = (byte)value; length = length + 1; }
     public void U32(long value) {
@@ -604,6 +703,18 @@ public class UserBytecodeBuilder {
 }
 
 public class UserImages {
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     private static void Write32(byte[] bytes, int offset, long value) {
         int i = 0;
         while (i < 4) { bytes[offset + i] = (byte)(value % 256); value = value / 256; i = i + 1; }
@@ -743,6 +854,18 @@ public class UserImages {
 }
 
 public class Program {
+    public int GpuBeginComposition(int processId, int rgb) {
+        return -4;
+    }
+
+    public int GpuDrawWindow(
+        int processId, int handle, int x, int y) {
+        return -4;
+    }
+
+    public int GpuEndComposition(int processId) {
+        return -4;
+    }
     private static int CompiledSystemLaunch(string imagePath) {
         UserExecutable executable = new UserExecutable(
             System.IO.File.ReadAllBytes(imagePath));
