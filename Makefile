@@ -455,6 +455,7 @@ test-kernel-panic: iso-hyfs2 | check-run-tools ## Test kernel panic behaviour
 test-stage2: check-build-tools ## Run kernel Stage 2 host tests
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/kernel/Stage2.hyproj -o "$(BUILD_DIR)/stage2-tests"
+	@chmod +x "$(BUILD_DIR)/stage2-tests"
 	"$(BUILD_DIR)/stage2-tests"
 
 test-stage2-boot: test-stage2-boot-ahci test-stage2-boot-nvme ## Run Stage 2 boot tests (AHCI and NVMe)
@@ -501,6 +502,7 @@ test-stage4-nvme: iso | check-run-tools
 test-usb: check-build-tools ## Run USB driver host tests
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/usb/UsbDrivers.hyproj -o "$(BUILD_DIR)/usb-tests"
+	@chmod +x "$(BUILD_DIR)/usb-tests"
 	"$(BUILD_DIR)/usb-tests"
 
 test-xhci-multi: iso | check-run-tools ## Test multiple USB HID devices
@@ -527,6 +529,7 @@ test-stage5: test-stage5-host test-stage5-ahci test-stage5-nvme ## Run Stage 5 u
 test-stage5-host: check-build-tools
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests"
 
 test-stage5-ahci: iso | check-run-tools
@@ -540,6 +543,7 @@ test-auex-file-api: $(APP_COMPILER) ## Test AUEX filesystem API
 	"$(APP_COMPILER)" build applications/Australis-Inspector/Inspector.hyproj -o "$(BUILD_DIR)/inspector-file-api.exec"
 	"$(APP_COMPILER)" build tests/user/FileApiApp.hyproj -o "$(BUILD_DIR)/file-api-test.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" inspector "$(BUILD_DIR)/inspector-file-api.exec"
 	"$(BUILD_DIR)/user-runtime-tests" file-api "$(BUILD_DIR)/file-api-test.exec"
 
@@ -548,6 +552,7 @@ test-auex-portable-api: $(APP_COMPILER) ## Test AUEX portable API
 	"$(APP_COMPILER)" build applications/Australis.Dev-user-demo/UserDemo.hyproj -o "$(BUILD_DIR)/portable-api-test.exec"
 	"$(APP_COMPILER)" build tests/user/PortableApiApp.hyproj -o "$(BUILD_DIR)/portable-io-test.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" portable-api "$(BUILD_DIR)/portable-api-test.exec"
 	"$(BUILD_DIR)/user-runtime-tests" portable-io "$(BUILD_DIR)/portable-io-test.exec"
 
@@ -632,12 +637,14 @@ test-userland-files-processes: iso-hyfs2 | check-run-tools ## Test file and proc
 test-userland-shell-preview: $(APP_COMPILER) check-build-tools ## Test CommandShell via host runtime
 	"$(APP_COMPILER)" build src/shell/australlis.shell.hyproj -o "$(BUILD_DIR)/CommandShell.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" shell-preview "$(BUILD_DIR)/CommandShell.exec"
 	"$(BUILD_DIR)/user-runtime-tests" shell-commands "$(BUILD_DIR)/CommandShell.exec"
 
 test-userland-system-host: $(APP_COMPILER) check-build-tools ## Test System.exec via host runtime
 	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/System.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
+	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" system-launch "$(BUILD_DIR)/System.exec"
 	"$(BUILD_DIR)/user-runtime-tests" system-failure "$(BUILD_DIR)/System.exec"
 
@@ -703,16 +710,19 @@ test-stage6-nvme: test-stage6-image
 test-storage: check-build-tools ## Run block-device host tests
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/BlockDevice.hyproj -o "$(BUILD_DIR)/storage-tests"
+	@chmod +x "$(BUILD_DIR)/storage-tests"
 	"$(BUILD_DIR)/storage-tests"
 
 test-ahci: check-build-tools ## Test AHCI block driver
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/Ahci.hyproj -o "$(BUILD_DIR)/ahci-tests"
+	@chmod +x "$(BUILD_DIR)/ahci-tests"
 	"$(BUILD_DIR)/ahci-tests"
 
 test-ahci-controller: check-build-tools ## Test AHCI controller logic
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/AhciController.hyproj -o "$(BUILD_DIR)/ahci-controller-tests"
+	@chmod +x "$(BUILD_DIR)/ahci-controller-tests"
 	"$(BUILD_DIR)/ahci-controller-tests"
 
 test-ahci-boot: iso | check-run-tools
@@ -721,11 +731,13 @@ test-ahci-boot: iso | check-run-tools
 test-nvme: check-build-tools ## Test NVMe block driver
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/Nvme.hyproj -o "$(BUILD_DIR)/nvme-tests"
+	@chmod +x "$(BUILD_DIR)/nvme-tests"
 	"$(BUILD_DIR)/nvme-tests"
 
 test-nvme-controller: check-build-tools ## Test NVMe controller logic
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/NvmeController.hyproj -o "$(BUILD_DIR)/nvme-controller-tests"
+	@chmod +x "$(BUILD_DIR)/nvme-controller-tests"
 	"$(BUILD_DIR)/nvme-controller-tests"
 
 test-nvme-boot: iso | check-run-tools
@@ -734,11 +746,13 @@ test-nvme-boot: iso | check-run-tools
 test-partitions: check-build-tools ## Test partition handling
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/storage/Partitions.hyproj -o "$(BUILD_DIR)/partition-tests"
+	@chmod +x "$(BUILD_DIR)/partition-tests"
 	"$(BUILD_DIR)/partition-tests"
 
 test-vfs: check-build-tools ## Test virtual filesystem
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/vfs/Vfs.hyproj -o "$(BUILD_DIR)/vfs-tests"
+	@chmod +x "$(BUILD_DIR)/vfs-tests"
 	"$(BUILD_DIR)/vfs-tests"
 
 test-storage-failure-ahci: test-hyfs2-data-ahci
@@ -756,6 +770,7 @@ test-hyfs1: $(BUILD_DIR)/host-vfs/Hyfs.hy | check-build-tools ## Test HyFS1 comp
 	@mkdir -p "$(BUILD_DIR)"
 	python3 tests/vfs/hyfs_v1_fixture.py
 	"$(HYDROGEN)" build tests/vfs/Hyfs.hyproj -o "$(BUILD_DIR)/hyfs-tests"
+	@chmod +x "$(BUILD_DIR)/hyfs-tests"
 	"$(BUILD_DIR)/hyfs-tests"
 
 test-hyfs1-boot-ahci: iso-hyfs1 | check-run-tools
@@ -782,8 +797,10 @@ test-hyfs2: $(BUILD_DIR)/host-vfs/Hyfs.hy | check-build-tools ## Run HyFS2 host 
 	python3 tests/vfs/hyfs_v1_fixture.py --output "$(BUILD_DIR)/hyfs-v1-compat.img"
 	python3 tests/vfs/make_hyfs2_fixture.py "$(BUILD_DIR)/hyfs2-host.img"
 	"$(HYDROGEN)" build tests/vfs/Hyfs2.hyproj -o "$(BUILD_DIR)/hyfs2-tests"
+	@chmod +x "$(BUILD_DIR)/hyfs2-tests"
 	"$(BUILD_DIR)/hyfs2-tests"
 	"$(HYDROGEN)" build tests/vfs/Hyfs2Writer.hyproj -o "$(BUILD_DIR)/hyfs2-writer-tests"
+	@chmod +x "$(BUILD_DIR)/hyfs2-writer-tests"
 	"$(BUILD_DIR)/hyfs2-writer-tests"
 
 test-hyfs2-writes: test-hyfs2 ## Test HyFS2 write operations
@@ -814,11 +831,13 @@ test-hyfs2-data-nvme: iso-hyfs2 | check-run-tools
 test-graphics: check-build-tools ## Run graphics unit tests
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/graphics/Graphics.hyproj -o "$(BUILD_DIR)/graphics-tests"
+	@chmod +x "$(BUILD_DIR)/graphics-tests"
 	"$(BUILD_DIR)/graphics-tests"
 
 benchmark-graphics: check-build-tools ## Benchmark graphics rendering performance
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/graphics/GraphicsBenchmark.hyproj -o "$(BUILD_DIR)/graphics-benchmark"
+	@chmod +x "$(BUILD_DIR)/graphics-benchmark"
 	python3 tests/graphics/frame_benchmark.py "$(BUILD_DIR)/graphics-benchmark" "$(BUILD_DIR)/graphics-benchmark.json"
 
 test-display-ahci: iso-hyfs2 | check-run-tools ## Test compositor boot over AHCI
@@ -856,6 +875,7 @@ test-frame-pacing: iso-hyfs2 | check-run-tools ## Test display frame pacing
 test-terminal: check-build-tools ## Run terminal host tests
 	@mkdir -p "$(BUILD_DIR)"
 	"$(HYDROGEN)" build tests/console/Terminal.hyproj -o "$(BUILD_DIR)/terminal-tests"
+	@chmod +x "$(BUILD_DIR)/terminal-tests"
 	"$(BUILD_DIR)/terminal-tests"
 
 test-serial-ahci: iso-hyfs2 | check-run-tools ## Test serial console via AHCI
