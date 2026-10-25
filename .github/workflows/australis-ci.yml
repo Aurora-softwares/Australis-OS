@@ -63,21 +63,16 @@ jobs:
       - name: Validate Python test harness syntax
         run: python3 -m compileall -q -f Australis-OS/tests Australis-OS/tools
 
-      - name: Run host-side kernel, storage, filesystem and graphics tests
+      - name: Verify CI test registry and runner
         run: |
-          make -C Australis-OS -j1 \
-            test-storage test-ahci-controller test-nvme-controller \
-            test-partitions test-vfs test-usb test-terminal \
-            test-stage2 test-graphics test-hyfs2
+          python3 -m unittest discover -s Australis-OS/tests/ci -p 'test_*.py'
+          python3 Australis-OS/tools/run_ci_tests.py --root Australis-OS --list
 
       - name: Build Australis OS and HyFS2 ISO
         run: make -C Australis-OS all
 
-      - name: Smoke-test kernel boot over AHCI
-        run: timeout 600 make -C Australis-OS test-stage2-boot-ahci
-
-      - name: Confirm HyFS1 compatibility image still builds
-        run: make -C Australis-OS iso-hyfs1 DATA_DISK=none
+      - name: Automatically execute every test-ci-* target
+        run: python3 Australis-OS/tools/run_ci_tests.py --root Australis-OS --timeout 600
 
       - name: Upload failure diagnostics
         if: failure()
