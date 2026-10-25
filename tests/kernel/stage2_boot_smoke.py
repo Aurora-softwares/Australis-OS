@@ -132,8 +132,11 @@ def main():
                     before, memory_path
                 )
                 scratch_before = verify_panic_qr_memory(before, memory_path)
+                # The current kernel keeps 16 DMA pages for storage and
+                # exposes the remaining 5,168 pages to USB/GPU drivers.
+                expected_dma_pages = 16 + 5168
                 if (before["clock_state"] != 1 or before["ticks_per_millisecond"] == 0 or
-                    before["stage2_state"] != 0 or before["dma_reservation_pages"] != 2112 or
+                    before["stage2_state"] != 0 or before["dma_reservation_pages"] != expected_dma_pages or
                     before["xhci_mapping"] == 0 or before["xhci_mapping_size"] < 4096 or
                     before["dynamic_mapping_base"] == 0 or before["device_vector"] != 0 or
                     before["device_irqs"] != 0):
