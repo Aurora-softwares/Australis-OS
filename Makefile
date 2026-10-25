@@ -885,6 +885,65 @@ test-serial-nvme: iso-hyfs2 | check-run-tools ## Test serial console via NVMe
 	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme hyfs2
 
 # ====================================================================
+# AUTOMATIC CI TEST REGISTRY
+# ====================================================================
+# Every independent test-ci-* target is discovered by tools/run_ci_tests.py.
+# Use leaf targets only; aggregate test-* targets would run the same test twice.
+# Future tests require only a test-ci-NAME target, not workflow YAML changes.
+# Headless CI cannot run test-virtio-gpu-3d without a DRM render node.
+.PHONY: test-ci-storage test-ci-ahci test-ci-ahci-controller test-ci-nvme test-ci-nvme-controller test-ci-partitions test-ci-vfs test-ci-usb test-ci-terminal test-ci-stage2 test-ci-graphics test-ci-hyfs1 test-ci-hyfs2 test-ci-rescue-boot test-ci-bootloader-negative test-ci-boot-modes test-ci-kmon-recovery test-ci-kernel-panic test-ci-stage2-boot-ahci test-ci-stage2-boot-nvme test-ci-stage3-ahci test-ci-stage3-nvme test-ci-stage4-ahci test-ci-stage4-nvme test-ci-mouse-ahci test-ci-mouse-nvme test-ci-stage5-host test-ci-stage5-ahci test-ci-stage5-nvme test-ci-xhci-multi test-ci-serial-ahci test-ci-serial-nvme test-ci-hyfs2-boot-ahci test-ci-hyfs2-boot-nvme test-ci-hyfs1-boot-ahci test-ci-hyfs1-boot-nvme test-ci-display-ahci test-ci-display-nvme test-ci-display-fallback test-ci-virtio-gpu test-ci-frame-pacing test-ci-userland-system-host test-ci-userland-shell-preview test-ci-userland-system-boot test-ci-userland-essentials test-ci-userland-cat test-ci-native-files test-ci-auex-file-api test-ci-auex-portable-api
+
+test-ci-storage: test-storage
+test-ci-ahci: test-ahci
+test-ci-ahci-controller: test-ahci-controller
+test-ci-nvme: test-nvme
+test-ci-nvme-controller: test-nvme-controller
+test-ci-partitions: test-partitions
+test-ci-vfs: test-vfs
+test-ci-usb: test-usb
+test-ci-terminal: test-terminal
+test-ci-stage2: test-stage2
+test-ci-graphics: test-graphics
+test-ci-hyfs1: test-hyfs1
+test-ci-hyfs2: test-hyfs2
+test-ci-rescue-boot: test-rescue-boot
+test-ci-bootloader-negative: test-bootloader-negative
+test-ci-boot-modes: test-boot-modes
+test-ci-kmon-recovery: test-kmon-recovery
+test-ci-kernel-panic: test-kernel-panic
+test-ci-stage2-boot-ahci: test-stage2-boot-ahci
+test-ci-stage2-boot-nvme: test-stage2-boot-nvme
+test-ci-stage3-ahci: test-stage3-ahci
+test-ci-stage3-nvme: test-stage3-nvme
+test-ci-stage4-ahci: test-stage4-ahci
+test-ci-stage4-nvme: test-stage4-nvme
+test-ci-mouse-ahci: test-mouse-ahci
+test-ci-mouse-nvme: test-mouse-nvme
+test-ci-stage5-host: test-stage5-host
+test-ci-stage5-ahci: test-stage5-ahci
+test-ci-stage5-nvme: test-stage5-nvme
+test-ci-xhci-multi: test-xhci-multi
+test-ci-serial-ahci: test-serial-ahci
+test-ci-serial-nvme: test-serial-nvme
+test-ci-hyfs2-boot-ahci: test-hyfs2-boot-ahci
+test-ci-hyfs2-boot-nvme: test-hyfs2-boot-nvme
+test-ci-hyfs1-boot-ahci: test-hyfs1-boot-ahci
+test-ci-hyfs1-boot-nvme: test-hyfs1-boot-nvme
+test-ci-display-ahci: test-display-ahci
+test-ci-display-nvme: test-display-nvme
+test-ci-display-fallback: test-display-fallback
+test-ci-virtio-gpu: test-virtio-gpu
+test-ci-frame-pacing: test-frame-pacing
+test-ci-userland-system-host: test-userland-system-host
+test-ci-userland-shell-preview: test-userland-shell-preview
+test-ci-userland-system-boot: test-userland-system-boot
+test-ci-userland-essentials: test-userland-essentials
+test-ci-userland-cat: test-userland-cat
+test-ci-native-files: test-native-files
+test-ci-auex-file-api: test-auex-file-api
+test-ci-auex-portable-api: test-auex-portable-api
+
+# ====================================================================
 # TOOL & ENVIRONMENT CHECKS
 # ====================================================================
 ##@ Tool & Environment Checks
