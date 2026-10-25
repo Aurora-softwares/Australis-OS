@@ -16,9 +16,13 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: Compiler, host tests and QEMU boot
+    name: CI shard ${{ matrix.shard }} / 8
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     steps:
       - name: Check out Australis and pinned submodules
@@ -71,14 +75,14 @@ jobs:
       - name: Build Australis OS and HyFS2 ISO
         run: make -C Australis-OS all
 
-      - name: Automatically execute every test-ci-* target
-        run: python3 Australis-OS/tools/run_ci_tests.py --root Australis-OS --timeout 600
+      - name: Automatically execute this shard's test-ci-* targets
+        run: python3 Australis-OS/tools/run_ci_tests.py --root Australis-OS --shards 8 --shard ${{ matrix.shard }} --timeout 600
 
       - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: australis-ci-diagnostics-${{ github.run_id }}
+          name: australis-ci-diagnostics-${{ github.run_id }}-shard-${{ matrix.shard }}
           path: |
             Australis-OS/build/*.log
             Australis-OS/build/**/*.log
