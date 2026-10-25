@@ -888,10 +888,12 @@ test-serial-nvme: iso-hyfs2 | check-run-tools ## Test serial console via NVMe
 # AUTOMATIC CI TEST REGISTRY
 # ====================================================================
 # Every independent test-ci-* target is discovered by tools/run_ci_tests.py.
+# CI executes all aliases, including default HyFS2, VirtIO-GPU 2D, storage,
+# user isolation, persistence, recovery and both AHCI/NVMe boot paths.
 # Use leaf targets only; aggregate test-* targets would run the same test twice.
 # Future tests require only a test-ci-NAME target, not workflow YAML changes.
 # Headless CI cannot run test-virtio-gpu-3d without a DRM render node.
-.PHONY: test-ci-storage test-ci-ahci test-ci-ahci-controller test-ci-nvme test-ci-nvme-controller test-ci-partitions test-ci-vfs test-ci-usb test-ci-terminal test-ci-stage2 test-ci-graphics test-ci-hyfs1 test-ci-hyfs2 test-ci-rescue-boot test-ci-bootloader-negative test-ci-boot-modes test-ci-kmon-recovery test-ci-kernel-panic test-ci-stage2-boot-ahci test-ci-stage2-boot-nvme test-ci-stage3-ahci test-ci-stage3-nvme test-ci-stage4-ahci test-ci-stage4-nvme test-ci-mouse-ahci test-ci-mouse-nvme test-ci-stage5-host test-ci-stage5-ahci test-ci-stage5-nvme test-ci-xhci-multi test-ci-serial-ahci test-ci-serial-nvme test-ci-hyfs2-boot-ahci test-ci-hyfs2-boot-nvme test-ci-hyfs1-boot-ahci test-ci-hyfs1-boot-nvme test-ci-display-ahci test-ci-display-nvme test-ci-display-fallback test-ci-virtio-gpu test-ci-frame-pacing test-ci-userland-system-host test-ci-userland-shell-preview test-ci-userland-system-boot test-ci-userland-essentials test-ci-userland-cat test-ci-native-files test-ci-auex-file-api test-ci-auex-portable-api
+.PHONY: test-ci-storage test-ci-ahci test-ci-ahci-controller test-ci-nvme test-ci-nvme-controller test-ci-partitions test-ci-vfs test-ci-usb test-ci-terminal test-ci-stage2 test-ci-graphics test-ci-hyfs1 test-ci-hyfs2 test-ci-rescue-boot test-ci-bootloader-negative test-ci-boot-modes test-ci-kmon-recovery test-ci-kernel-panic test-ci-stage2-boot-ahci test-ci-stage2-boot-nvme test-ci-stage3-ahci test-ci-stage3-nvme test-ci-stage4-ahci test-ci-stage4-nvme test-ci-mouse-ahci test-ci-mouse-nvme test-ci-stage5-host test-ci-stage5-ahci test-ci-stage5-nvme test-ci-xhci-multi test-ci-serial-ahci test-ci-serial-nvme test-ci-hyfs2-boot-ahci test-ci-hyfs2-boot-nvme test-ci-hyfs1-boot-ahci test-ci-hyfs1-boot-nvme test-ci-display-ahci test-ci-display-nvme test-ci-display-fallback test-ci-virtio-gpu test-ci-frame-pacing test-ci-userland-system-host test-ci-userland-shell-preview test-ci-userland-system-boot test-ci-userland-essentials test-ci-userland-cat test-ci-native-files test-ci-auex-file-api test-ci-auex-portable-api test-ci-auex-arguments test-ci-userland-stage1-host test-ci-userland-stage1-ahci test-ci-userland-stage1-nvme test-ci-userland-stage2 test-ci-userland-stage3 test-ci-userland-stage4-supervision test-ci-userland-stage4-concurrency test-ci-userland-stage5-ipc test-ci-userland-info test-ci-userland-files-processes test-ci-native-user-mode test-ci-stage6-ahci test-ci-stage6-nvme test-ci-hyfs1-serial-ahci test-ci-hyfs1-serial-nvme test-ci-hyfs1-storage-failure-ahci test-ci-hyfs1-storage-failure-nvme test-ci-hyfs2-data-ahci test-ci-hyfs2-data-nvme test-ci-cursor-stress
 
 test-ci-storage: test-storage
 test-ci-ahci: test-ahci
@@ -942,6 +944,27 @@ test-ci-userland-cat: test-userland-cat
 test-ci-native-files: test-native-files
 test-ci-auex-file-api: test-auex-file-api
 test-ci-auex-portable-api: test-auex-portable-api
+test-ci-auex-arguments: test-auex-arguments
+test-ci-userland-stage1-host: test-userland-stage1-host
+test-ci-userland-stage1-ahci: test-userland-stage1-ahci
+test-ci-userland-stage1-nvme: test-userland-stage1-nvme
+test-ci-userland-stage2: test-userland-stage2
+test-ci-userland-stage3: test-userland-stage3
+test-ci-userland-stage4-supervision: test-userland-stage4-supervision
+test-ci-userland-stage4-concurrency: test-userland-stage4-concurrency
+test-ci-userland-stage5-ipc: test-userland-stage5-ipc
+test-ci-userland-info: test-userland-info
+test-ci-userland-files-processes: test-userland-files-processes
+test-ci-native-user-mode: test-native-user-mode
+test-ci-stage6-ahci: test-stage6-ahci
+test-ci-stage6-nvme: test-stage6-nvme
+test-ci-hyfs1-serial-ahci: test-hyfs1-serial-ahci
+test-ci-hyfs1-serial-nvme: test-hyfs1-serial-nvme
+test-ci-hyfs1-storage-failure-ahci: test-hyfs1-storage-failure-ahci
+test-ci-hyfs1-storage-failure-nvme: test-hyfs1-storage-failure-nvme
+test-ci-hyfs2-data-ahci: test-hyfs2-data-ahci
+test-ci-hyfs2-data-nvme: test-hyfs2-data-nvme
+test-ci-cursor-stress: test-cursor-stress
 
 # ====================================================================
 # TOOL & ENVIRONMENT CHECKS
