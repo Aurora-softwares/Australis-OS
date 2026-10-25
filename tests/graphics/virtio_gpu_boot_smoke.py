@@ -280,64 +280,64 @@ def main():
 
                         time.sleep(0.1)
 
-                        # Press and keep the button held until Australis
-                        # has actually processed the button-down event.
-                        monitor_command(str(monitor), "mouse_button 1")
+                    # Press and keep the button held until Australis
+                    # has actually processed the button-down event.
+                    monitor_command(str(monitor), "mouse_button 1")
 
-                        press_started = time.monotonic()
+                    press_started = time.monotonic()
 
-                        try:
-                            routed = read_until(
-                                connection,
-                                b"DisplayDemoB: pointer down",
-                                30,
-                                process,
+                    try:
+                        routed = read_until(
+                            connection,
+                            b"DisplayDemoB: pointer down",
+                            30,
+                            process,
+                        )
+                        # Confirm that Window B received keyboard ownership
+                        # before attempting the mode-switch shortcut.
+                        print(
+                            "POINTER AND FOCUS LOG:",
+                            repr(routed[-4000:]),
+                            flush=True,
+                        )
+
+                        expected_capture = (
+                            b"DBG: keyboard focus=2 capture=1 result=0"
+                        )
+
+                        if expected_capture not in routed:
+                            raise AssertionError(
+                                "Window B received pointer-down, but successful "
+                                "keyboard capture was not confirmed.\n"
+                                f"Serial output: {routed[-4000:]!r}"
                             )
-                            # Confirm that Window B received keyboard ownership
-                            # before attempting the mode-switch shortcut.
-                            print(
-                                "POINTER AND FOCUS LOG:",
-                                repr(routed[-4000:]),
-                                flush=True,
-                            )
+                        print(
+                            "POINTER DOWN SERIAL:",
+                            routed[-2000:].decode(errors="replace"),
+                            flush=True,
+                        )
+                    finally:
+                        # Always release the mouse button, including on failure.
+                        monitor_command(str(monitor), "mouse_button 0")
 
-                            expected_capture = (
-                                b"DBG: keyboard focus=2 capture=1 result=0"
-                            )
+                    press_latency = time.monotonic() - press_started
 
-                            if expected_capture not in routed:
-                                raise AssertionError(
-                                    "Window B received pointer-down, but successful "
-                                    "keyboard capture was not confirmed.\n"
-                                    f"Serial output: {routed[-4000:]!r}"
-                                )
-                            print(
-                                "POINTER DOWN SERIAL:",
-                                routed[-2000:].decode(errors="replace"),
-                                flush=True,
-                            )
-                        finally:
-                            # Always release the mouse button, including on failure.
-                            monitor_command(str(monitor), "mouse_button 0")
+                    print(f"VirtIO pointer-down latency: {press_latency:.3f}s")
 
-                        press_latency = time.monotonic() - press_started
+                    # Check that the release reaches the same client.
+                    if b"DisplayDemoB: pointer up" not in routed:
+                        released = read_until(
+                            connection,
+                            b"DisplayDemoB: pointer up",
+                            30,
+                            process,
+                        )
 
-                        print(f"VirtIO pointer-down latency: {press_latency:.3f}s")
-
-                        # Check that the release reaches the same client.
-                        if b"DisplayDemoB: pointer up" not in routed:
-                            released = read_until(
-                                connection,
-                                b"DisplayDemoB: pointer up",
-                                30,
-                                process,
-                            )
-
-                            print(
-                                "POINTER UP SERIAL:",
-                                released[-2000:].decode(errors="replace"),
-                                flush=True,
-                            )
+                        print(
+                            "POINTER UP SERIAL:",
+                            released[-2000:].decode(errors="replace"),
+                            flush=True,
+                        )
 
                     time.sleep(0.2)
                     monitor_command(str(monitor), "sendkey m 50")

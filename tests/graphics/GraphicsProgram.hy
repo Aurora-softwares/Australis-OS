@@ -1169,6 +1169,295 @@ public class Program {
 		if (retainedDisplay.RetainedFocus(81, windowId) != -13 || retainedDisplay.RetainedFocus(80, windowId) != 0 || retainedDisplay.Release(80) != 0 || retainedDisplay.RetainedFocus(80, windowId) != -13) {
 			return 109;
 		}
+
+		// Retained content submission from a process-owned GPU handle.
+		MockPixelWriter submitPixels =
+			new MockPixelWriter(65536, 320 * 240);
+
+		DisplayDevice submitDisplay =
+			new DisplayDevice(
+				new FramebufferMode(
+					65536, 320 * 240 * 4,
+					320, 240, 320, 1),
+				submitPixels, null);
+
+		MockGpuBlitter submitGpu =
+			new MockGpuBlitter(90, 7);
+
+		if (submitDisplay.Claim(90) != 0 ||
+			submitDisplay.RetainedEnable(90, 32) != 0) {
+			return 110;
+		}
+
+		int submitWindow =
+			submitDisplay.RetainedOpen(
+				90, 20, 48, 140, 100);
+
+		if (submitWindow < 1) {
+			return 111;
+		}
+
+		// Another process must not submit into this window.
+		if (submitDisplay.RetainedSubmitGpu(
+				91, submitWindow, 7, submitGpu) != -13) {
+			return 112;
+		}
+
+		// An unknown GPU handle must also be rejected.
+		if (submitDisplay.RetainedSubmitGpu(
+				90, submitWindow, 999, submitGpu) != -13) {
+			return 113;
+		}
+
+		// The legitimate owner can submit its GPU content.
+		if (submitDisplay.RetainedSubmitGpu(
+				90, submitWindow, 7, submitGpu) != 0 ||
+			submitGpu.Calls() != 1) {
+			return 114;
+		}
+
+		// Compose only the content region that changed.
+		DamageTracker submitDamage =
+			new DamageTracker(320, 240);
+
+		if (!submitDamage.Add(20, 76, 2, 2) ||
+			submitDisplay.BeginFrame(90) != 0 ||
+			submitDisplay.RetainedCompose(90, submitDamage) != 0 ||
+			submitDisplay.PresentFrame(90) != 0) {
+			return 115;
+		}
+
+		// The submitted pixels must appear in the framebuffer.
+		// Window y=48 plus its 28px title bar gives content y=76.
+		if (submitPixels.Pixel(77 * 320 + 21) != 0x123456) {
+			return 116;
+		}
+
+		if (submitDisplay.Release(90) != 0) {
+			return 117;
+		}
+
+        // Positive retained lifecycle tests.
+        MockPixelWriter lifecyclePixels =
+            new MockPixelWriter(65536, 320 * 240);
+
+        DisplayDevice lifecycleDisplay = new DisplayDevice(
+            new FramebufferMode(
+                65536, 320 * 240 * 4,
+                320, 240, 320, 1),
+            lifecyclePixels, null);
+
+        DamageTracker lifecycleDamage =
+            new DamageTracker(320, 240);
+
+        PixelSurface lifecycleContent =
+            new PixelSurface(100, 60);
+
+        if (!lifecycleContent.Ready() ||
+            !lifecycleContent.Fill(0xCC3322) ||
+            lifecycleDisplay.Claim(90) != 0 ||
+            lifecycleDisplay.RetainedEnable(90, 32) != 0) {
+            return 110;
+        }
+
+        int lifecycleWindow = lifecycleDisplay.RetainedOpen(
+            90, 20, 48, 140, 100);
+
+        if (lifecycleWindow < 1 ||
+            lifecycleDisplay.RetainedSubmit(
+                90, lifecycleWindow, lifecycleContent) != 0) {
+            return 111;
+        }
+
+        // Verify an authorised window displays its content.
+        if (!lifecycleDamage.Add(30, 80, 1, 1) ||
+            lifecycleDisplay.BeginFrame(90) != 0 ||
+            lifecycleDisplay.RetainedCompose(
+                90, lifecycleDamage) != 0 ||
+            lifecycleDisplay.PresentFrame(90) != 0 ||
+            lifecyclePixels.Pixel(80 * 320 + 30) != 0xCC3322) {
+            return 112;
+        }
+
+        // Another process must not control this window.
+        if (lifecycleDisplay.RetainedMinimize(
+                91, lifecycleWindow) != -13 ||
+            lifecycleDisplay.RetainedRestore(
+                91, lifecycleWindow) != -13 ||
+            lifecycleDisplay.RetainedClose(
+                91, lifecycleWindow) != -13) {
+            return 113;
+        }
+
+        // Minimising must hide content without destroying it.
+        if (lifecycleDisplay.RetainedMinimize(
+                90, lifecycleWindow) != 0 ||
+            lifecycleDisplay.RetainedMinimize(
+                90, lifecycleWindow) != -22) {
+            return 114;
+        }
+
+        lifecycleDamage.Clear();
+
+        if (!lifecycleDamage.Add(30, 80, 1, 1) ||
+            lifecycleDisplay.BeginFrame(90) != 0 ||
+            lifecycleDisplay.RetainedCompose(
+                90, lifecycleDamage) != 0 ||
+            lifecycleDisplay.PresentFrame(90) != 0 ||
+            lifecyclePixels.Pixel(80 * 320 + 30) == 0xCC3322) {
+            return 115;
+        }
+
+        // Restore without resubmitting the original pixels.
+        if (lifecycleDisplay.RetainedRestore(
+                90, lifecycleWindow) != 0 ||
+            lifecycleDisplay.RetainedRestore(
+                90, lifecycleWindow) != -22) {
+            return 116;
+        }
+
+        lifecycleDamage.Clear();
+
+        if (!lifecycleDamage.Add(30, 80, 1, 1) ||
+            lifecycleDisplay.BeginFrame(90) != 0 ||
+            lifecycleDisplay.RetainedCompose(
+                90, lifecycleDamage) != 0 ||
+            lifecycleDisplay.PresentFrame(90) != 0 ||
+            lifecyclePixels.Pixel(80 * 320 + 30) != 0xCC3322) {
+            return 117;
+        }
+
+        // Exercise cache reclamation beyond the eight-slot limit.
+        if (lifecycleDisplay.RetainedClose(
+                90, lifecycleWindow) != 0) {
+            return 118;
+        }
+
+        int cycle = 0;
+
+        while (cycle < 16) {
+            int nextWindow = lifecycleDisplay.RetainedOpen(
+                90, 20, 48, 140, 100);
+
+            if (nextWindow < 1 ||
+                lifecycleDisplay.RetainedSubmit(
+                    90, nextWindow, lifecycleContent) != 0) {
+                return 119;
+            }
+
+            lifecycleDamage.Clear();
+
+            if (!lifecycleDamage.Add(30, 80, 1, 1) ||
+                lifecycleDisplay.BeginFrame(90) != 0 ||
+                lifecycleDisplay.RetainedCompose(
+                    90, lifecycleDamage) != 0 ||
+                lifecycleDisplay.PresentFrame(90) != 0 ||
+                lifecyclePixels.Pixel(80 * 320 + 30) != 0xCC3322) {
+                return 120;
+            }
+
+            if (lifecycleDisplay.RetainedClose(
+                    90, nextWindow) != 0) {
+                return 121;
+            }
+
+            // Force composition after close, reclaiming old caches.
+            lifecycleDamage.Clear();
+
+            if (!lifecycleDamage.Add(30, 80, 1, 1) ||
+                lifecycleDisplay.BeginFrame(90) != 0 ||
+                lifecycleDisplay.RetainedCompose(
+                    90, lifecycleDamage) != 0 ||
+                lifecycleDisplay.PresentFrame(90) != 0 ||
+                lifecyclePixels.Pixel(80 * 320 + 30) == 0xCC3322) {
+                return 122;
+            }
+
+            cycle = cycle + 1;
+        }
+
+        if (lifecycleDisplay.Release(90) != 0) {
+            return 123;
+        }
+
+        System.Console.WriteLine("Australis retained lifecycle and cache reuse tests passed");
+
+        // Retained geometry and resubmission tests.
+        MockPixelWriter geometryPixels =
+            new MockPixelWriter(65536, 320 * 240);
+
+        DisplayDevice geometryDisplay = new DisplayDevice(
+            new FramebufferMode(
+                65536, 320 * 240 * 4,
+                320, 240, 320, 1),
+            geometryPixels, null);
+
+        PixelSurface originalContent =
+            new PixelSurface(100, 60);
+
+        PixelSurface resizedContent =
+            new PixelSurface(120, 70);
+
+        DamageTracker geometryDamage =
+            new DamageTracker(320, 240);
+
+        if (!originalContent.Ready() ||
+            !resizedContent.Ready() ||
+            !originalContent.Fill(0xCC3322) ||
+            !resizedContent.Fill(0x00CC66) ||
+            geometryDisplay.Claim(100) != 0 ||
+            geometryDisplay.RetainedEnable(100, 32) != 0) {
+            return 124;
+        }
+
+        int geometryWindow = geometryDisplay.RetainedOpen(100, 20, 48, 140, 100);
+
+        if (geometryWindow < 1 || geometryDisplay.RetainedSubmit(100, geometryWindow, originalContent) != 0) {
+            return 125;
+        }
+
+        // Reject another process's geometry operations.
+        if (geometryDisplay.RetainedMaximize(101, geometryWindow) != -13 || geometryDisplay.RetainedUnmaximize(101, geometryWindow) != -13 || geometryDisplay.RetainedResize(101, geometryWindow, 160, 110) != -13) {
+            return 126;
+        }
+
+        // Maximise and retain previously submitted pixels.
+        if (geometryDisplay.RetainedMaximize(100, geometryWindow) != 0 || geometryDisplay.RetainedMove(100, geometryWindow, 10, 40) != -22) {
+            return 127;
+        }
+
+        if (!geometryDamage.Add(10, 35, 1, 1) || geometryDisplay.BeginFrame(100) != 0 || geometryDisplay.RetainedCompose(100, geometryDamage) != 0 || geometryDisplay.PresentFrame(100) != 0 || geometryPixels.Pixel(35 * 320 + 10) != 0xCC3322) {
+            return 128;
+        }
+
+        // Restore original geometry.
+        if (geometryDisplay.RetainedUnmaximize(100, geometryWindow) != 0 || geometryDisplay.RetainedUnmaximize(100, geometryWindow) != -22) {
+            return 129;
+        }
+
+        // Reject dimensions below the window minimum.
+        if (geometryDisplay.RetainedResize(100, geometryWindow, 90, 50) != -22) {
+            return 130;
+        }
+
+        // Resize, then replace with a larger content surface.
+        if (geometryDisplay.RetainedResize(100, geometryWindow, 160, 110) != 0 || geometryDisplay.RetainedSubmit(100, geometryWindow, resizedContent) != 0) {
+            return 131;
+        }
+
+        geometryDamage.Clear();
+
+        // Pixel lies outside old 100px content width,
+        // but inside the new 120px content width.
+        if (!geometryDamage.Add(130, 81, 1, 1) || geometryDisplay.BeginFrame(100) != 0 || geometryDisplay.RetainedCompose(100, geometryDamage) != 0 || geometryDisplay.PresentFrame(100) != 0 || geometryPixels.Pixel(81 * 320 + 130) != 0x00CC66) {
+            return 132;
+        }
+
+        if (geometryDisplay.RetainedClose(100, geometryWindow) != 0 || geometryDisplay.RetainedResize(100, geometryWindow, 140, 100) != -13 || geometryDisplay.Release(100) != 0) {
+            return 133;
+        }
+        System.Console.WriteLine("Australis retained geometry and resize tests passed");
+
         System.Console.WriteLine("Australis bounded graphics and window layout tests passed");
         return 0;
     }

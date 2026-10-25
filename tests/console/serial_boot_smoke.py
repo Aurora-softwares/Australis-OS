@@ -186,7 +186,7 @@ def read_until(connection, marker, timeout, process):
             raise RuntimeError(f"QEMU exited with status {process.returncode}")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError(f"serial output timed out: {bytes(received[-300:])!r}")
+            raise TimeoutError("serial output timed out:\n" + received[-6000:].decode(errors="replace"))
         connection.settimeout(min(remaining, 1))
         try:
             part = connection.recv(4096)
