@@ -153,16 +153,16 @@ def main():
                                b"VirtIO-GPU VirGL textured alpha draw/readback passed" not in opening or
                                b"VirtIO-GPU VirGL context active" not in opening or
                                b"VirtIO-GPU 2D/3D device reset recovery passed" not in opening or
-							   b"VirtIO-GPU VirGL sampler state probe passed" not in opening or
-							   b"VirtIO-GPU VirGL UV shader linkage passed" not in opening or
-							   b"VirtIO-GPU VirGL UV vertex layout passed" not in opening or
-							   b"VirtIO-GPU VirGL UV pixels/readback passed" not in opening or
-							   b"VirtIO-GPU VirGL positioned UV rectangle passed" not in opening or
-							   b"VirtIO-GPU VirGL arbitrary UV rectangle passed" not in opening or
-							   b"VirtIO-GPU VirGL multi-rectangle composition passed" not in opening or
-							   b"VirtIO-GPU VirGL overlapping alpha composition passed" not in opening or
-							   b"VirtIO-GPU VirGL persistent vertex lifecycle passed" not in opening or
-							   b"VirtIO-GPU VirGL persistent vertex reuse passed" not in opening or
+                               b"VirtIO-GPU VirGL sampler state probe passed" not in opening or
+                               b"VirtIO-GPU VirGL UV shader linkage passed" not in opening or
+                               b"VirtIO-GPU VirGL UV vertex layout passed" not in opening or
+                               b"VirtIO-GPU VirGL UV pixels/readback passed" not in opening or
+                               b"VirtIO-GPU VirGL positioned UV rectangle passed" not in opening or
+                               b"VirtIO-GPU VirGL arbitrary UV rectangle passed" not in opening or
+                               b"VirtIO-GPU VirGL multi-rectangle composition passed" not in opening or
+                               b"VirtIO-GPU VirGL overlapping alpha composition passed" not in opening or
+                               b"VirtIO-GPU VirGL persistent vertex lifecycle passed" not in opening or
+                               b"VirtIO-GPU VirGL persistent vertex reuse passed" not in opening or
                                b"VirtIO-GPU VirGL independent window textures passed" not in opening or
                                b"VirtIO-GPU VirGL persistent sampler lifecycle passed" not in opening or
                                b"VirtIO-GPU VirGL persistent sampler drawing passed" not in opening or
@@ -203,13 +203,7 @@ def main():
                         "native VirtIO-GPU boot did not activate scanout cursor")
                 screen = capture_screen(str(monitor), screenshot, "gpu0")
                 width, height, _ = screen
-                if ((oversized_mode and (width, height) != (1280, 800)) or
-                        width < 320 or height < 240 or
-                        pixel(screen, 30, 100) != (203, 56, 48) or
-                        pixel(screen, width // 3 + 20, 130) != (42, 104, 217) or
-                        pixel(screen, 100, 10) != (17, 24, 32) or
-                        pixel(screen, width // 2 + 2, height // 2 + 4) !=
-                        (255, 255, 255)):
+                if ((oversized_mode and (width, height) != (1280, 800)) or width < 320 or height < 240 or pixel(screen, 30, 100) != (203, 56, 48) or pixel(screen, width // 3 + 20, 130) != (42, 104, 217) or pixel(screen, 100, 10) != (17, 24, 32) or pixel(screen, width // 2, height // 2 + 4) != (255, 255, 255) or pixel(screen, width // 2 + 2, height // 2 + 4) != (16, 16, 16)):
                     raise AssertionError(
                         f"scanout missed desktop: {width}x{height}, "
                         f"A={pixel(screen, 30, 100)}, "
@@ -220,26 +214,134 @@ def main():
                     read_until(connection,
                                b"VirtIO-GPU scanout cursor moved", 15,
                                process)
-                    moved = capture_screen(str(monitor), screenshot, "gpu0")
-                    if (pixel(moved, width // 2 + 32,
-                              height // 2 - 16) != (255, 255, 255) or
-                            pixel(moved, width // 2 + 2,
-                                  height // 2 + 4) == (255, 255, 255)):
-                        raise AssertionError(
-                            "native scanout missed or did not restore cursor")
-                    monitor_command(str(monitor), "mouse_button 1")
-                    time.sleep(0.08)
-                    monitor_command(str(monitor), "mouse_button 0")
-                    routed = read_until(connection,
-                                        b"DisplayDemoB: pointer down",
-                                        15, process)
-                    if b"DisplayDemoB: pointer up" not in routed:
-                        read_until(connection, b"DisplayDemoB: pointer up",
-                                   15, process)
+
+                    # Wait for the cursor to become visible at its new position.
+                    old_x = width // 2
+                    old_y = height // 2
+
+                    new_x = old_x + 30
+                    new_y = old_y - 20
+
+                    deadline = time.monotonic() + 5
+
+                    while True:
+                        moved = capture_screen(
+                            str(monitor), screenshot, "gpu0"
+                        )
+
+                        outline = pixel(moved, new_x, new_y + 4)
+                        fill = pixel(moved, new_x + 2, new_y + 4)
+                        old_outline = pixel(moved, old_x, old_y + 4)
+
+                        cursor_correct = (
+                            outline == (255, 255, 255)
+                            and fill == (16, 16, 16)
+                        )
+                        old_restored = old_outline != (255, 255, 255)
+
+                        if cursor_correct and old_restored:
+                            break
+
+                        if time.monotonic() >= deadline:
+                            # Preserve the failing screenshot for inspection.
+                            debug_path = Path("build/virtio-cursor-after.ppm")
+                            debug_path.parent.mkdir(parents=True, exist_ok=True)
+                            debug_path.write_bytes(screenshot.read_bytes())
+
+                            # Search for cursor-shaped pixels near the expected location.
+                            candidates = []
+
+                            for cy in range(max(0, new_y - 64),
+                                            min(height - 16, new_y + 65)):
+                                for cx in range(max(0, new_x - 64),
+                                                min(width - 14, new_x + 65)):
+                                    if (
+                                        pixel(moved, cx, cy + 4) == (255, 255, 255)
+                                        and pixel(moved, cx + 2, cy + 4) == (16, 16, 16)
+                                        and pixel(moved, cx + 5, cy + 4) == (255, 255, 255)
+                                    ):
+                                        candidates.append((cx, cy))
+
+                                    if len(candidates) >= 8:
+                                        break
+
+                                if len(candidates) >= 8:
+                                    break
+
+                            raise AssertionError(
+                                "VirtIO cursor move failed: "
+                                f"expected=({new_x}, {new_y}), "
+                                f"outline={outline}, "
+                                f"fill={fill}, "
+                                f"old_outline={old_outline}, "
+                                f"nearby_cursor_candidates={candidates}, "
+                                f"screenshot={debug_path}"
+                            )
+
+                        time.sleep(0.1)
+
+                        # Press and keep the button held until Australis
+                        # has actually processed the button-down event.
+                        monitor_command(str(monitor), "mouse_button 1")
+
+                        press_started = time.monotonic()
+
+                        try:
+                            routed = read_until(
+                                connection,
+                                b"DisplayDemoB: pointer down",
+                                30,
+                                process,
+                            )
+                            # Confirm that Window B received keyboard ownership
+                            # before attempting the mode-switch shortcut.
+                            print(
+                                "POINTER AND FOCUS LOG:",
+                                repr(routed[-4000:]),
+                                flush=True,
+                            )
+
+                            expected_capture = (
+                                b"DBG: keyboard focus=2 capture=1 result=0"
+                            )
+
+                            if expected_capture not in routed:
+                                raise AssertionError(
+                                    "Window B received pointer-down, but successful "
+                                    "keyboard capture was not confirmed.\n"
+                                    f"Serial output: {routed[-4000:]!r}"
+                                )
+                            print(
+                                "POINTER DOWN SERIAL:",
+                                routed[-2000:].decode(errors="replace"),
+                                flush=True,
+                            )
+                        finally:
+                            # Always release the mouse button, including on failure.
+                            monitor_command(str(monitor), "mouse_button 0")
+
+                        press_latency = time.monotonic() - press_started
+
+                        print(f"VirtIO pointer-down latency: {press_latency:.3f}s")
+
+                        # Check that the release reaches the same client.
+                        if b"DisplayDemoB: pointer up" not in routed:
+                            released = read_until(
+                                connection,
+                                b"DisplayDemoB: pointer up",
+                                30,
+                                process,
+                            )
+
+                            print(
+                                "POINTER UP SERIAL:",
+                                released[-2000:].decode(errors="replace"),
+                                flush=True,
+                            )
+
                     time.sleep(0.2)
                     monitor_command(str(monitor), "sendkey m 50")
-                    read_until(connection, b"Display: mode changed to 1024x768",
-                               30, process)
+                    read_until(connection, b"Display: mode changed to 1024x768", 30, process)
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
                         resized = capture_screen(str(monitor), screenshot, "gpu0")

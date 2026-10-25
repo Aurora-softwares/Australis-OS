@@ -1,0 +1,13 @@
+
+format = 2
+name = "AustralisRetainedPermissionTest"
+type = "exec"
+output = "retained-permission.exec"
+sources = ["RetainedPermissionApp.hy"]
+project_references = []
+
+[package]
+id = "os.australis.retained-permission-test"
+description = "AUEX retained compositor permission denial test"
+authors = ["Aurora Softwares"]
+license = "MIT"

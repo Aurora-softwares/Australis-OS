@@ -46,7 +46,7 @@ GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
 APPLICATIONS_DIR := $(BUILD_DIR)/applications
 
 # EFI and kernel
-PROJECT := src/australlis.hyproj
+PROJECT := src/australis.hyproj
 OS_SOURCES := $(wildcard src/bootloader/*.hy src/bootloader/*.hyproj src/kernel/*.hy src/kernel/*.hyproj src/kernel/*/*.hy)
 NATIVE_RUNTIME_BLOB := src/kernel/user/NativeRuntimeBlob.hy
 EFI_BINARY := $(EFI_BOOT_DIR)/BOOTX64.EFI
@@ -241,6 +241,9 @@ RELEASE_DOCS :=
 .PHONY: help config list-targets check-build-tools check-image-tools
 .PHONY: check-efi-image-tools check-iso-tools check-run-tools check-efi-binaries
 .PHONY: check-app-binaries check-hyfs-iso check-hyfs1-iso check-hyfs2-iso check-data-disk
+
+# Permissions
+.PHONY: test-retained-denial test-ci-retained-denial
 
 #
 # RELEASE CANDIDATE
@@ -635,14 +638,14 @@ test-userland-files-processes: iso-hyfs2 | check-run-tools ## Test file and proc
 	python3 tests/user/files_processes_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" nvme
 
 test-userland-shell-preview: $(APP_COMPILER) check-build-tools ## Test CommandShell via host runtime
-	"$(APP_COMPILER)" build src/shell/australlis.shell.hyproj -o "$(BUILD_DIR)/CommandShell.exec"
+	"$(APP_COMPILER)" build src/shell/australis.shell.hyproj -o "$(BUILD_DIR)/CommandShell.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" shell-preview "$(BUILD_DIR)/CommandShell.exec"
 	"$(BUILD_DIR)/user-runtime-tests" shell-commands "$(BUILD_DIR)/CommandShell.exec"
 
 test-userland-system-host: $(APP_COMPILER) check-build-tools ## Test System.exec via host runtime
-	"$(APP_COMPILER)" build src/userland/australlis.userland.hyproj -o "$(BUILD_DIR)/System.exec"
+	"$(APP_COMPILER)" build src/userland/australis.userland.hyproj -o "$(BUILD_DIR)/System.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
 	"$(BUILD_DIR)/user-runtime-tests" system-launch "$(BUILD_DIR)/System.exec"
@@ -885,6 +888,22 @@ test-serial-nvme: iso-hyfs2 | check-run-tools ## Test serial console via NVMe
 	python3 tests/console/serial_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(ISO)" nvme hyfs2
 
 # ====================================================================
+# PERMISSIONS TESTS
+# ====================================================================
+##@ Permissions Tests
+
+test-retained-denial: $(APP_COMPILER) | check-run-tools
+	@mkdir -p "$(BUILD_DIR)"
+	@if grep -q '^/System/Bin/retained-permission\.exec|' src/userland/system/capabilities.manifest; then \
+		echo "ERROR: retained test application has capabilities"; \
+		exit 1; \
+	fi
+	"$(APP_COMPILER)" build tests/user/RetainedPermissionApp.hyproj -o "$(BUILD_DIR)/retained-permission.exec"
+	"$(MAKE)" iso-hyfs2 APPLICATION_ARTIFACTS="$(BUILD_DIR)/retained-permission.exec"
+	python3 tests/user/retained_permission_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci
+	python3 tests/user/retained_permission_boot.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" nvme
+
+# ====================================================================
 # AUTOMATIC CI TEST REGISTRY
 # ====================================================================
 # Every independent test-ci-* target is discovered by tools/run_ci_tests.py.
@@ -965,6 +984,7 @@ test-ci-hyfs1-storage-failure-nvme: test-hyfs1-storage-failure-nvme
 test-ci-hyfs2-data-ahci: test-hyfs2-data-ahci
 test-ci-hyfs2-data-nvme: test-hyfs2-data-nvme
 test-ci-cursor-stress: test-cursor-stress
+test-ci-retained-denial: test-retained-denial
 
 # ====================================================================
 # TOOL & ENVIRONMENT CHECKS

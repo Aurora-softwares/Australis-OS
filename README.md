@@ -72,7 +72,7 @@ Use `make all` or two shell commands (`make build && make iso`) after changing
 kernel sources. In `make build iso`, Make reads the packaging input signature
 before the build runs, so that single invocation can reuse an older ISO.
 
-`src/australlis.hyproj` is a Hydrogen `os` project referencing the bootloader
+`src/australis.hyproj` is a Hydrogen `os` project referencing the bootloader
 and kernel projects. The bootloader uses `type = "efi"`; the kernel uses
 `type = "kernel"`. Hydrogen builds the bootloader as a UEFI application and
 the kernel as a raw binary. Each manifest's `output` field places the artifact
@@ -80,7 +80,7 @@ in the EFI tree.
 You can invoke the compiler directly:
 
 ```bash
-hy build src/australlis.hyproj -o build/efi
+hy build src/australis.hyproj -o build/efi
 ```
 
 `make build` runs that command. `make iso` builds and bundles these files:

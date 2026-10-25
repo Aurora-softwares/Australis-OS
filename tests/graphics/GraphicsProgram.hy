@@ -1085,6 +1085,90 @@ public class Program {
             !softwareSurface.Destroy() || softwareSurface.Ready() ||
             softwareSurface.Recover() ||
             softwareSurface.Clear(0x112233)) { return 90; }
+		WindowLayout retainedLayout = new WindowLayout(320, 240, 32);
+		int retainedA = retainedLayout.Open(10, 20, 48, 140, 100);
+		int retainedB = retainedLayout.Open(20, 60, 64, 140, 100);
+		PixelSurface retainedContent = new PixelSurface(100, 60);
+		retainedContent.Fill(0xCC3322);
+		WindowRenderer retained = new WindowRenderer(retainedLayout);
+		if (retainedA < 1 || retainedB < 1 || !retained.Submit(10, retainedA, retainedContent) || retained.Compose() == null || retained.WindowCacheBuilds() != 2) {
+			return 95;
+		}
+		int originalBuilds = retained.WindowCacheBuilds();
+		// Moving a window must reuse its cached pixels.
+		if (!retainedLayout.Move(10, retainedA, 25, 52) || retained.Compose() == null || retained.WindowCacheBuilds() != originalBuilds) {
+			return 96;
+		}
+
+		// Focusing a different window changes decorations.
+		if (!retainedLayout.Focus(retainedA) || retained.Compose() == null || retained.WindowCacheBuilds() != originalBuilds + 2) {
+			return 97;
+		}
+
+		// Clicking the already-focused window must not
+		// regenerate either window surface.
+		int focusedBuilds = retained.WindowCacheBuilds();
+
+		if (!retainedLayout.Focus(retainedA) || retained.Compose() == null || retained.WindowCacheBuilds() != focusedBuilds) {
+			return 98;
+		}
+
+		// Changing application content invalidates its cache.
+		retainedContent.Fill(0x00FF00);
+		if (!retained.Submit(10, retainedA, retainedContent) || retained.Compose() == null || retained.WindowCacheBuilds() != focusedBuilds + 1) {
+			return 99;
+		}
+
+		WindowLayout bridgeLayout = new WindowLayout(320, 240, 32);
+		int bridgeWindow = bridgeLayout.Open(10, 20, 48, 140, 100);
+		PixelSurface bridgeContent = new PixelSurface(100, 60);
+		bridgeContent.Fill(0xCC3322);
+		WindowRenderer bridgeRenderer = new WindowRenderer(bridgeLayout);
+		DamageTracker bridgeDamage = new DamageTracker(320, 240);
+		MockPixelWriter bridgePixels = new MockPixelWriter(65536, 320 * 240);
+		DisplayDevice bridgeDisplay = new DisplayDevice(new FramebufferMode(65536, 320 * 240 * 4, 320, 240, 320, 1), bridgePixels, null);
+		// Render only a 4x4 region of application content.
+		if (bridgeWindow < 1 ||
+			!bridgeRenderer.Submit(
+				10, bridgeWindow, bridgeContent) ||
+			!bridgeDamage.Add(30, 80, 4, 4) ||
+			bridgeDisplay.Claim(73) != 0 ||
+			bridgeDisplay.ComposeRetainedDamage(
+				74, bridgeRenderer, bridgeDamage) != -13 ||
+			bridgeDisplay.ComposeRetainedDamage(
+				73, bridgeRenderer, bridgeDamage) != -19 ||
+			bridgeDisplay.BeginFrame(73) != 0 ||
+			bridgeDisplay.ComposeRetainedDamage(
+				73, bridgeRenderer, bridgeDamage) != 0 ||
+			bridgeDisplay.PresentFrame(73) != 0 ||
+			bridgePixels.Writes() != 16 ||
+			bridgePixels.Pixel(80 * 320 + 30) != 0xCC3322 ||
+			bridgePixels.Pixel(80 * 320 + 35) != 0 ||
+			bridgeDisplay.Release(73) != 0) {
+			return 105;
+		}
+
+		MockPixelWriter retainedPixels = new MockPixelWriter(65536, 320 * 240);
+		DisplayDevice retainedDisplay = new DisplayDevice(new FramebufferMode(65536, 320 * 240 * 4, 320, 240, 320, 1), retainedPixels, null);
+		PixelSurface retainedDeviceContent = new PixelSurface(100, 60);
+
+		retainedDeviceContent.Fill(0xCC3322);
+		DamageTracker retainedDamage = new DamageTracker(320, 240);
+		if (retainedDisplay.Claim(80) != 0 || retainedDisplay.RetainedEnable(81, 32) != -13 || retainedDisplay.RetainedEnable(80, 32) != 0) {
+			return 106;
+		}
+		int windowId = retainedDisplay.RetainedOpen(80, 20, 48, 140, 100);
+		if (windowId < 1 || retainedDisplay.RetainedSubmit(81, windowId, retainedDeviceContent) != -13 || retainedDisplay.RetainedSubmit(80, windowId, retainedDeviceContent) != 0 || !retainedDamage.Add(30, 80, 4, 4) || retainedDisplay.BeginFrame(80) != 0 || retainedDisplay.RetainedCompose(80, retainedDamage) != 0 || retainedDisplay.PresentFrame(80) != 0 || retainedPixels.Writes() != 16 || retainedPixels.Pixel(80 * 320 + 30) != 0xCC3322) {
+			return 107;
+		}
+		// Move the window without resubmitting its content.
+		retainedDamage.Clear();
+		if (retainedDisplay.RetainedMove(80, windowId, 30, 48) != 0 || !retainedDamage.Add(25, 80, 1, 1) || !retainedDamage.Add(124, 80, 1, 1) || retainedDisplay.BeginFrame(80) != 0 || retainedDisplay.RetainedCompose(80, retainedDamage) != 0 || retainedDisplay.PresentFrame(80) != 0 || retainedPixels.Pixel(80 * 320 + 25) == 0xCC3322 || retainedPixels.Pixel(80 * 320 + 124) != 0xCC3322) {
+			return 108;
+		}
+		if (retainedDisplay.RetainedFocus(81, windowId) != -13 || retainedDisplay.RetainedFocus(80, windowId) != 0 || retainedDisplay.Release(80) != 0 || retainedDisplay.RetainedFocus(80, windowId) != -13) {
+			return 109;
+		}
         System.Console.WriteLine("Australis bounded graphics and window layout tests passed");
         return 0;
     }

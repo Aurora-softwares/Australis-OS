@@ -41,7 +41,7 @@ milestone overview; some of its “current position” text lags the GUI roadmap
 | --- | --- | --- |
 | Project **Target version** and **Status** | Planned version scope and completion of its gate items | 🟢 Primary version-progress tracker |
 | [map_to_gui.md](map_to_gui.md) phase status | Implemented GUI features and next phase | 🟢 Implementation evidence; phases are not version numbers |
-| `version = "0.1.0"` in `src/australlis.hyproj` | OS project/build metadata aligned with the current development line | 🟡 Useful context, but not proof of release readiness |
+| `version = "0.1.0"` in `src/australis.hyproj` | OS project/build metadata aligned with the current development line | 🟡 Useful context, but not proof of release readiness |
 | Git tag `0.0.6` | Latest tagged historical source reference on `Release` | 🟡 Identifies that snapshot, not today's development version |
 | `version` app or KMon output `0.0.1` | Hard-coded runtime text awaiting automatic version wiring | 🔴 Stale; it does not identify the current checkout |
 | `dev-<commit>` from `make release-candidate` | Default build-artifact label and commit identifier | 🟡 Identifies that candidate build |
