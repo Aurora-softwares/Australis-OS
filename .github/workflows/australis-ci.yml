@@ -1,0 +1,91 @@
+name: Australis OS CI
+
+on:
+  push:
+    branches: [Development, Release]
+  pull_request:
+    branches: [Development, Release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: australis-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Compiler, host tests and QEMU boot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out Australis and pinned submodules
+        uses: actions/checkout@v4
+        with:
+          path: Australis-OS
+          submodules: recursive
+          persist-credentials: false
+
+      # Keep the tested Hydrogen version fixed until an intentional upgrade.
+      # Source repositories are siblings because Australis's Makefile and test
+      # fixtures resolve ../Hylang-Compiler from the Australis directory.
+      - name: Check out Hydrogen toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: Aurora-softwares/Hylang-Compiler
+          ref: e7676ad6d4393b3414dd2969f75115d95e561339
+          path: Hylang-Compiler
+          persist-credentials: false
+
+      - name: Install build, filesystem and emulator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake python3 python3-pil \
+            mtools xorriso qemu-system-x86 ovmf
+          test -f /usr/share/OVMF/OVMF_CODE_4M.fd
+
+      - name: Check submodule checkout and toolchain versions
+        run: |
+          git -C Australis-OS submodule status --recursive
+          git -C Australis-OS submodule status --recursive | awk '/^[-+U]/ { bad=1; print } END { exit bad }'
+          git -C Hylang-Compiler rev-parse HEAD
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Build Hydrogen compiler
+        run: |
+          cmake -S Hylang-Compiler -B Hylang-Compiler/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build Hylang-Compiler/build --target hydrogen_stage1 --parallel 2
+          test -x Hylang-Compiler/build/self_hosting/hydrogen-stage1
+
+      - name: Validate Python test harness syntax
+        run: python3 -m compileall -q -f Australis-OS/tests Australis-OS/tools
+
+      - name: Run host-side kernel, storage, filesystem and graphics tests
+        run: |
+          make -C Australis-OS -j1 \
+            test-storage test-ahci-controller test-nvme-controller \
+            test-partitions test-vfs test-usb test-terminal \
+            test-stage2 test-graphics test-hyfs2
+
+      - name: Build Australis OS and HyFS2 ISO
+        run: make -C Australis-OS all
+
+      - name: Smoke-test kernel boot over AHCI
+        run: timeout 600 make -C Australis-OS test-stage2-boot-ahci
+
+      - name: Confirm HyFS1 compatibility image still builds
+        run: make -C Australis-OS iso-hyfs1 DATA_DISK=none
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: australis-ci-diagnostics-${{ github.run_id }}
+          path: |
+            Australis-OS/build/*.log
+            Australis-OS/build/**/*.log
+          if-no-files-found: ignore
+          retention-days: 14
