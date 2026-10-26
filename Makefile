@@ -202,7 +202,7 @@ RELEASE_DOCS :=
 
 # Kernel & Boot Tests
 .PHONY: test-rescue-boot test-bootloader-negative test-boot-modes test-kmon-recovery
-.PHONY: test-kernel-panic test-stage2 test-stage2-boot test-stage2-boot-ahci
+.PHONY: test-kernel-panic test-audr-driver test-stage2 test-stage2-boot test-stage2-boot-ahci
 .PHONY: test-stage2-boot-nvme test-phase5-6
 
 # Input & USB Tests
@@ -458,6 +458,9 @@ test-kmon-recovery: iso-hyfs2 | check-run-tools ## Test kernel monitor recovery 
 test-kernel-panic: iso-hyfs2 | check-run-tools ## Test kernel panic behaviour
 	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)"
 	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" gpu
+
+test-audr-driver: $(APP_COMPILER) | check-run-tools ## Test AUDR driver loading and rejection in QEMU
+	python3 tests/kernel/driver_boot_smoke.py "$(APP_COMPILER)" "$(CURDIR)" "$(QEMU)" "$(OVMF_CODE)"
 
 test-stage2: check-build-tools ## Run kernel Stage 2 host tests
 	@mkdir -p "$(BUILD_DIR)"
