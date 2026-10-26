@@ -13,7 +13,8 @@ As of **26 October 2026** (project board and source tree checked):
 | Measure | Current position |
 | --- | --- |
 | **Current development version** | **`0.1.0` pre-release**: foundation implemented; release qualification is next |
-| `0.1.0` release gate | 🟡 5 project items are **Ready**, 0 **Done**: freeze baseline, run/archive QEMU matrix, document limits/platforms, unify version identity, verify/tag artifacts |
+| `0.1.0` release gate | 🟡 5 project items are **Ready**, 3 **Done**: freeze baseline, run/archive QEMU matrix, document limits/platforms, unify version identity, verify/tag artifacts |
+| Clean ISO build | 🟢 A fresh recursive `Development` checkout passes `make -j1 iso` and boots the PID 1 shell under QEMU AHCI; the working checkout also passes the NVMe shell boot |
 | Implemented GUI foundation | 🟢 Phases 1–11 of 16 marked complete in [map_to_gui.md](map_to_gui.md) |
 | Next feature version | `0.2.0`: Phase 12 accelerated compositor; 4 project items **In Progress**, 4 **Ready**, 3 **Done** |
 | Later GUI phases | 🟡 Phase 13 has one graphics performance item In Progress; Phases 14–16 remain in the GUI roadmap alongside application, system, connectivity, security, and release work |
@@ -26,6 +27,12 @@ remaining time, code volume, release quality, or proximity to stable `1.0.0`.
 The GUI phases and project versions are different scopes: the project also
 tracks work outside graphics. A board item marked Ready is planned work, not
 implemented work.
+
+The next `0.1.0` release task is the full foundation QEMU matrix with archived
+results. The remaining gates also include supported-platform and limitation
+documentation, version-identity wiring, a frozen baseline, and checksum/tag
+verification of candidate artifacts. The clean ISO and PID 1 boot checks do
+not by themselves qualify a release.
 
 Phase 12's VirGL render-target probe now verifies source-alpha blending in a
 live boot. Window textures are still composed into a software frame, so the
@@ -71,7 +78,7 @@ snapshot on 26 October 2026.
 | Target | Main scope | Board position |
 | --- | --- | --- |
 | Baseline | Historical boot, kernel, storage, userland, graphics foundation | 🟢 64 Done |
-| `0.1.0` | Qualify and package the existing foundation; unify version identity | 🟡 5 Ready, 0 Done |
+| `0.1.0` | Qualify and package the existing foundation; unify version identity | 🟡 5 Ready, 3 Done |
 | `0.2.0` | Accelerated compositor and GPU-backed windows (GUI Phase 12) | 🟡 4 In Progress, 4 Ready, 3 Done |
 | `0.3.0` | Frame pacing, performance, and effects (GUI Phase 13) | 🟡 1 In Progress, 10 Backlog |
 | `0.4.0` | Native application platform and packaging | 🔴 8 Backlog |
