@@ -47,6 +47,8 @@ public class UserMockTerminal : IUserTerminal {
 }
 
 public class UserMockChildLauncher : IUserChildLauncher {
+    public int DisplayRetainedSubmitCells(
+        int processId, int windowId, byte[] cells) { return -4; }
     public int GpuFillFrameRect(
         int processId,
         int x, int y,
@@ -149,6 +151,8 @@ public class UserMockChildLauncher : IUserChildLauncher {
 }
 
 public class UserMockFailingChildLauncher : IUserChildLauncher {
+    public int DisplayRetainedSubmitCells(
+        int processId, int windowId, byte[] cells) { return -4; }
     public int GpuFillFrameRect(
         int processId,
         int x, int y,
@@ -248,6 +252,8 @@ public class UserMockFailingChildLauncher : IUserChildLauncher {
 }
 
 public class UserMockCommandLauncher : IUserChildLauncher {
+    public int DisplayRetainedSubmitCells(
+        int processId, int windowId, byte[] cells) { return -4; }
     public int GpuFillFrameRect(
         int processId,
         int x, int y,

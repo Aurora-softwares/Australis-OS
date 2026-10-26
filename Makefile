@@ -232,7 +232,7 @@ RELEASE_DOCS :=
 
 # Graphics & GPU Tests
 .PHONY: test-graphics benchmark-graphics test-display-ahci test-display-nvme test-cursor-stress
-.PHONY: test-display-fallback test-virtio-gpu test-virtio-gpu-3d test-frame-pacing
+.PHONY: test-display test-display-fallback test-virtio-gpu test-virtio-gpu-3d test-frame-pacing
 
 # Console & Serial Tests
 .PHONY: test-terminal test-serial-ahci test-serial-nvme
@@ -842,6 +842,8 @@ benchmark-graphics: check-build-tools ## Benchmark graphics rendering performanc
 	"$(HYDROGEN)" build tests/graphics/GraphicsBenchmark.hyproj -o "$(BUILD_DIR)/graphics-benchmark"
 	@chmod +x "$(BUILD_DIR)/graphics-benchmark"
 	python3 tests/graphics/frame_benchmark.py "$(BUILD_DIR)/graphics-benchmark" "$(BUILD_DIR)/graphics-benchmark.json"
+
+test-display: test-display-ahci test-display-nvme test-display-fallback
 
 test-display-ahci: iso-hyfs2 | check-run-tools ## Test compositor boot over AHCI
 	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci

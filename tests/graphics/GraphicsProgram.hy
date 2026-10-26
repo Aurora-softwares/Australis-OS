@@ -1210,26 +1210,20 @@ public class Program {
 		}
 
 		// The legitimate owner can submit its GPU content.
-		if (submitDisplay.RetainedSubmitGpu(
-				90, submitWindow, 7, submitGpu) != 0 ||
-			submitGpu.Calls() != 1) {
+		if (submitDisplay.RetainedSubmitGpu(90, submitWindow, 7, submitGpu) != 0 || submitGpu.Calls() != 1) {
 			return 114;
 		}
 
 		// Compose only the content region that changed.
-		DamageTracker submitDamage =
-			new DamageTracker(320, 240);
+		DamageTracker submitDamage = new DamageTracker(320, 240);
 
-		if (!submitDamage.Add(20, 76, 2, 2) ||
-			submitDisplay.BeginFrame(90) != 0 ||
-			submitDisplay.RetainedCompose(90, submitDamage) != 0 ||
-			submitDisplay.PresentFrame(90) != 0) {
+		if (!submitDamage.Add(20, 78, 2, 2) || submitDisplay.BeginFrame(90) != 0 || submitDisplay.RetainedCompose(90, submitDamage) != 0 || submitDisplay.PresentFrame(90) != 0) {
 			return 115;
 		}
 
 		// The submitted pixels must appear in the framebuffer.
-		// Window y=48 plus its 28px title bar gives content y=76.
-		if (submitPixels.Pixel(77 * 320 + 21) != 0x123456) {
+		// Window y=48 plus its 30px title bar gives content y=78.
+		if (submitPixels.Pixel(79 * 320 + 21) != 0x123456) {
 			return 116;
 		}
 

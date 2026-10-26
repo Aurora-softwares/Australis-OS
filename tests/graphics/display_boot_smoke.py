@@ -119,6 +119,27 @@ def main():
                     if pixel(moved, old_x + 32, old_y - 16) == (255, 255, 255):
                         break
                 else:
+					connection.settimeout(0.25)
+					serial_tail = bytearray()
+
+					for _ in range(32):
+						try:
+							chunk = connection.recv(4096)
+						except socket.timeout:
+							break
+
+						if not chunk:
+							break
+
+						serial_tail.extend(chunk)
+
+					connection.settimeout(None)
+
+					print(
+						"DISPLAY SERIAL AFTER MOUSE MOVEMENT:\n"
+						+ serial_tail[-6000:].decode(errors="replace"),
+						flush=True,
+					)
                     raise AssertionError(
                         "USB mouse did not move the software cursor: "
                         f"old={pixel(moved, old_x + 2, old_y + 4)}, "
