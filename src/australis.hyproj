@@ -10,7 +10,7 @@ project_references = [
 	"kernel/australis.kernel.hyproj",
 	"rescue/australis.rescue.hyproj",
 	"shell/australis.shell.hyproj",
-	"userland/australis.userland.hyproj"
+	"userland/australis.userland.collection.hyproj"
 ]
 
 [package]

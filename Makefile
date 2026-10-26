@@ -48,6 +48,7 @@ EFI_DIR := $(BUILD_DIR)/efi
 EFI_BOOT_DIR := $(EFI_DIR)/EFI/BOOT
 GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
 APPLICATIONS_DIR := $(BUILD_DIR)/src/applications
+APPLICATIONS_STAGE := $(BUILD_DIR)/src/applications.stage
 
 # EFI and kernel
 PROJECT := src/australis.hyproj
@@ -62,7 +63,7 @@ EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
 APPLICATIONS_PROJECT ?= src/applications/australis.applications.hyproj
 APPLICATIONS_STAMP := $(APPLICATIONS_DIR)/.built
 APPLICATION_ARTIFACTS ?=
-APPLICATION_SOURCES := $(shell find src/applications src/userland src/shell -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
+APPLICATION_SOURCES := $(shell find src/applications src/userland src/shell src/rescue -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
 APP_COMPILER := $(BUILD_DIR)/hydrogen-apps
 APP_COMPILER_INPUTS := $(wildcard ../Hylang-Compiler/samples/self_hosting/*/*.hy ../Hylang-Compiler/samples/self_hosting/*/*.hyproj)
 ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged
@@ -292,11 +293,18 @@ $(NATIVE_RUNTIME_BLOB): src/kernel/user/native_runtime.S tools/generate_native_r
 	python3 tools/generate_native_runtime_blob.py "$<" "$@"
 
 $(EFI_BINARY) $(KERNEL_BINARY) &: $(PROJECT) $(OS_SOURCES) $(NATIVE_RUNTIME_BLOB) $(APP_COMPILER) | check-build-tools
+	@mkdir -p "$(EFI_DIR)/EFI/BOOT" "$(EFI_DIR)/EFI/AUSTRALIS" "$(EFI_DIR)/system/Core"
 	"$(APP_COMPILER)" build "$(PROJECT)" -o "$(EFI_DIR)"
 
 $(APPLICATIONS_STAMP): $(APPLICATIONS_PROJECT) $(APPLICATION_SOURCES) $(APP_COMPILER) | check-build-tools
-	@mkdir -p "$(APPLICATIONS_DIR)"
-	"$(APP_COMPILER)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_DIR)"
+	@rm -rf "$(APPLICATIONS_STAGE)"
+	@mkdir -p "$(APPLICATIONS_STAGE)/system/Core"
+	"$(APP_COMPILER)" build "$(APPLICATIONS_PROJECT)" -o "$(APPLICATIONS_STAGE)"
+	"$(APP_COMPILER)" build src/userland/australis.userland.collection.hyproj -o "$(APPLICATIONS_STAGE)"
+	"$(APP_COMPILER)" build src/shell/australis.shell.hyproj -o "$(APPLICATIONS_STAGE)/system/Core/CommandShell.exec"
+	"$(APP_COMPILER)" build src/rescue/australis.rescue.hyproj -o "$(APPLICATIONS_STAGE)/rescue.exec"
+	@rm -rf "$(APPLICATIONS_DIR)"
+	@mv "$(APPLICATIONS_STAGE)" "$(APPLICATIONS_DIR)"
 	@touch "$@"
 
 # Input-snapshot stamp files
@@ -318,7 +326,7 @@ $(ARTIFACT_SELECTION_STAMP):
 
 # Root filesystem staging
 
-$(ROOTFS_STAMP): $(APP_CONTENT_STAMP) $(ROOTFS_INPUTS) $(APPLICATION_ARTIFACTS) $(ARTIFACT_SELECTION_STAMP) | check-app-binaries
+$(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(APP_CONTENT_STAMP) $(ROOTFS_INPUTS) $(APPLICATION_ARTIFACTS) $(ARTIFACT_SELECTION_STAMP)
 	@rm -rf "$(GENERATED_ROOTFS)"
 	@mkdir -p "$(GENERATED_ROOTFS)"
 	@cp -a rootfs/. "$(GENERATED_ROOTFS)/"
@@ -332,7 +340,7 @@ $(ROOTFS_STAMP): $(APP_CONTENT_STAMP) $(ROOTFS_INPUTS) $(APPLICATION_ARTIFACTS) 
 
 # Standalone EFI and boot images
 
-$(IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-tools check-efi-binaries
+$(IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-tools
 	@mkdir -p "$(BUILD_DIR)"
 	@rm -f "$@"
 	truncate -s 64M "$@"
@@ -341,7 +349,7 @@ $(IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-to
 	mcopy -i "$@" "$(EFI_BINARY)" ::/EFI/BOOT/BOOTX64.EFI
 	mcopy -i "$@" "$(KERNEL_BINARY)" ::/EFI/AUSTRALIS/KERNEL.BIN
 
-$(EFI_BOOT_IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-tools check-efi-binaries
+$(EFI_BOOT_IMAGE): $(EFI_INPUT_STAMP) $(EFI_BINARY) $(KERNEL_BINARY) | check-efi-image-tools
 	@mkdir -p "$(dir $(EFI_BOOT_IMAGE))"
 	@rm -f "$@"
 	truncate -s 8M "$@"
@@ -365,7 +373,7 @@ $(HYFS2_DATA_DISK): $(wildcard $(call hyfs_iso,2)) | check-hyfs2-iso
 	python3 tools/make_hyfs2_data_disk.py "$(call hyfs_iso,2)" "$@"
 
 # Bootable ISO packaging, common to both filesystem versions.
-$(ISO): $(EFI_BOOT_IMAGE) $(HYFS_IMAGE) | check-iso-tools check-efi-binaries check-app-binaries
+$(ISO): $(EFI_BOOT_IMAGE) $(HYFS_IMAGE) | check-iso-tools
 	@rm -rf "$(HYFS_ISO_ROOT)"
 	@mkdir -p "$(HYFS_ISO_ROOT)/EFI/BOOT"
 	cp "$(EFI_BOOT_IMAGE)" "$(HYFS_ISO_ROOT)/EFI/BOOT/efiboot.img"
@@ -406,11 +414,11 @@ clean: ## Remove the generated build directory
 # ====================================================================
 ##@ Images & Packaging
 
-image: check-efi-binaries $(IMAGE) ## Package compiled EFI binaries into a standalone disk image
+image: $(IMAGE) ## Package compiled EFI binaries into a standalone disk image
 
-boot_image: check-efi-binaries $(EFI_BOOT_IMAGE) ## Package compiled EFI boot image
+boot_image: $(EFI_BOOT_IMAGE) ## Package compiled EFI boot image
 
-iso: check-efi-binaries check-app-binaries $(ISO) ## Build the selected HyFS ISO (default: v2)
+iso: $(ISO) ## Build the selected HyFS ISO (default: v2)
 
 iso-hyfs1: ## Build the HyFS1 ISO (regardless of HYFS setting)
 	@$(MAKE) iso HYFS=1 PROJECT="$(PROJECT)"
