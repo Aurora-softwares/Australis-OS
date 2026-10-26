@@ -1,0 +1,24 @@
+format = 2
+name = "Australis Applications"
+type = "collection"
+sources = []
+project_references = [
+	"Australis-BaseConvertor/BaseConvertor.hyproj",
+	"Australis-Calculator/Calculator.hyproj",
+	"Australis-ChangeDirectory/ChangeDirectory.hyproj",
+	"Australis-Clear/Clear.hyproj",
+	"Australis-HelloWorld/HelloWorld.hyproj",
+	"Australis-HexViewer/HexViewer.hyproj",
+	"Australis-Inspector/Inspector.hyproj",
+	"Australis-MemInfo/MemInfo.hyproj",
+	"Australis-SysInfo/SysInfo.hyproj",
+	"Australis-Version/Version.hyproj",
+	"Australis.Dev-user-demo/UserDemo.hyproj",
+	"Australis.Dev-user-fault/UserFault.hyproj",
+]
+
+[package]
+id = "Australis.applications"
+description = "Applications to be included in Australis OS"
+authors = ["Aurora Softwares"]
+license = "MIT"

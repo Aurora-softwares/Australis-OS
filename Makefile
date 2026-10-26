@@ -47,7 +47,7 @@ BUILD_DIR := build
 EFI_DIR := $(BUILD_DIR)/efi
 EFI_BOOT_DIR := $(EFI_DIR)/EFI/BOOT
 GENERATED_ROOTFS := $(BUILD_DIR)/rootfs
-APPLICATIONS_DIR := $(BUILD_DIR)/applications
+APPLICATIONS_DIR := $(BUILD_DIR)/src/applications
 
 # EFI and kernel
 PROJECT := src/australis.hyproj
@@ -59,10 +59,10 @@ IMAGE := $(BUILD_DIR)/australis-hylang-uefi.img
 EFI_BOOT_IMAGE := $(BUILD_DIR)/boot/efiboot.img
 
 # Application compilation
-APPLICATIONS_PROJECT ?= applications/Applications.hyproj
+APPLICATIONS_PROJECT ?= src/applications/australis.applications.hyproj
 APPLICATIONS_STAMP := $(APPLICATIONS_DIR)/.built
 APPLICATION_ARTIFACTS ?=
-APPLICATION_SOURCES := $(shell find applications src/userland src/shell -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
+APPLICATION_SOURCES := $(shell find src/applications src/userland src/shell -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
 APP_COMPILER := $(BUILD_DIR)/hydrogen-apps
 APP_COMPILER_INPUTS := $(wildcard ../Hylang-Compiler/samples/self_hosting/*/*.hy ../Hylang-Compiler/samples/self_hosting/*/*.hyproj)
 ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged

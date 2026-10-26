@@ -13,40 +13,46 @@
 [submodule "src/shell"]
 	path = src/shell
 	url = https://github.com/Aurora-softwares/Australis-Shell
+[submodule "src/drivers"]
+	path = src/drivers
+	url = https://github.com/Aurora-softwares/Australis-Drivers
+[submodule "src/filesystems"]
+	path = src/filesystems
+	url = https://github.com/Aurora-softwares/Australis-Filesystems
 
-[submodule "applications/Australis-BaseConvertor"]
-	path = applications/Australis-BaseConvertor
+[submodule "src/applications/Australis-BaseConvertor"]
+	path = src/applications/Australis-BaseConvertor
 	url = https://github.com/Aurora-softwares/Australis-BaseConvertor
-[submodule "applications/Australis-Calculator"]
-	path = applications/Australis-Calculator
+[submodule "src/applications/Australis-Calculator"]
+	path = src/applications/Australis-Calculator
 	url = https://github.com/Aurora-softwares/Australis-Calculator
-[submodule "applications/Australis-ChangeDirectory"]
-	path = applications/Australis-ChangeDirectory
+[submodule "src/applications/Australis-ChangeDirectory"]
+	path = src/applications/Australis-ChangeDirectory
 	url = https://github.com/Aurora-softwares/Australis-ChangeDirectory
-[submodule "applications/Australis-Clear"]
-	path = applications/Australis-Clear
+[submodule "src/applications/Australis-Clear"]
+	path = src/applications/Australis-Clear
 	url = https://github.com/Aurora-softwares/Australis-Clear
-[submodule "applications/Australis-HelloWorld"]
-	path = applications/Australis-HelloWorld
+[submodule "src/applications/Australis-HelloWorld"]
+	path = src/applications/Australis-HelloWorld
 	url = https://github.com/Aurora-softwares/Australis-HelloWorld
-[submodule "applications/Australis-HexViewer"]
-	path = applications/Australis-HexViewer
+[submodule "src/applications/Australis-HexViewer"]
+	path = src/applications/Australis-HexViewer
 	url = https://github.com/Aurora-softwares/Australis-HexViewer
-[submodule "applications/Australis-Inspector"]
-	path = applications/Australis-Inspector
+[submodule "src/applications/Australis-Inspector"]
+	path = src/applications/Australis-Inspector
 	url = https://github.com/Aurora-softwares/Australis-Inspector
-[submodule "applications/Australis-MemInfo"]
-	path = applications/Australis-MemInfo
+[submodule "src/applications/Australis-MemInfo"]
+	path = src/applications/Australis-MemInfo
 	url = https://github.com/Aurora-softwares/Australis-MemInfo
-[submodule "applications/Australis-SysInfo"]
-	path = applications/Australis-SysInfo
+[submodule "src/applications/Australis-SysInfo"]
+	path = src/applications/Australis-SysInfo
 	url = https://github.com/Aurora-softwares/Australis-SysInfo
-[submodule "applications/Australis-Version"]
-	path = applications/Australis-Version
+[submodule "src/applications/Australis-Version"]
+	path = src/applications/Australis-Version
 	url = https://github.com/Aurora-softwares/Australis-Version
-[submodule "applications/Australis.Dev-user-demo"]
-	path = applications/Australis.Dev-user-demo
+[submodule "src/applications/Australis.Dev-user-demo"]
+	path = src/applications/Australis.Dev-user-demo
 	url = https://github.com/Aurora-softwares/Australis.Dev-user-demo
-[submodule "applications/Australis.Dev-user-fault"]
-	path = applications/Australis.Dev-user-fault
+[submodule "src/applications/Australis.Dev-user-fault"]
+	path = src/applications/Australis.Dev-user-fault
 	url = https://github.com/Aurora-softwares/Australis.Dev-user-fault

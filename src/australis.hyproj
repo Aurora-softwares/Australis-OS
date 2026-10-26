@@ -1,11 +1,20 @@
 format = 2
-name = "Australis.OS"
+name = "Australis OS"
 version = "0.1.0"
 type = "os"
-project_references = ["bootloader/australis.bootloader.hyproj", "rescue/australis.rescue.hyproj", "kernel/australis.kernel.hyproj", "shell/australis.shell.hyproj", "userland/australis.userland.hyproj"]
+project_references = [
+	"applications/australis.applications.hyproj",
+	"bootloader/australis.bootloader.hyproj",
+	"drivers/australis.drivers.hyproj",
+	"filesystems/australis.filesystems.hyproj",
+	"kernel/australis.kernel.hyproj",
+	"rescue/australis.rescue.hyproj",
+	"shell/australis.shell.hyproj",
+	"userland/australis.userland.hyproj"
+]
 
 [package]
-id = "Australis-OS"
+id = "Australis"
 description = ""
 authors = ["Aurora Softwares"]
 license = "MIT"
