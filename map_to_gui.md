@@ -242,7 +242,9 @@ The implemented foundation and remaining work are described in
   window contents have compositor-owned VirGL textures with bounded updates,
   and software drawing remains available after texture failures or on GOP/2D;
   final composition still copies CPU shadows (the first item above)
-- 🔴 Accelerate window movement, resizing and stacking
+- 🟡 Accelerate window movement, resizing and stacking: retained CPU
+  composition now stays active during live move and resize; GPU composition,
+  maximized-window synchronization and full stacking acceleration remain open
 - 🔴 Support GPU-accelerated clipping and rounded window regions: bounded
   software-frame blits respect damage clips; GPU clipping and rounded
   decoration rendering remain to be implemented
@@ -269,7 +271,9 @@ in `docs/phase12-accelerated-composition.md`.
 - 🔴 Implement advanced frame pacing and presentation scheduling
 - 🔴 Add VSync support where supported by the display backend
 - 🔴 Implement presentation timing and missed-frame detection
-- 🔴 Reduce CPU/GPU synchronization stalls
+- 🟡 Reduce CPU/GPU synchronization stalls: VirtIO-GPU 2D now batches
+  transfers before a shared flush when damage regions are close, while
+  broader asynchronous scheduling and VirGL fence reduction remain open
 - 🔴 Implement efficient GPU buffer reuse and resource caching
 - 🔴 Add GPU-accelerated window animations and transitions
 - 🔴 Implement animated minimize, maximize and window movement effects

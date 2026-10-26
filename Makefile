@@ -14,6 +14,9 @@ USB_STORAGE       ?= 0
 DATA_DISK         ?= $(if $(filter 1,$(HYFS)),none,ahci)
 SERIAL            ?= stdio
 QEMU_MEMORY       ?= 256M
+# Use hardware virtualization for interactive runs when it is available.
+# QEMU falls back to TCG on hosts without an accessible KVM device.
+QEMU_ACCEL        ?= kvm:tcg
 QEMU_EXTRA_ARGS   ?=
 
 # External tools and host configuration
@@ -37,6 +40,7 @@ $(call validate-option,BOOT_CDROM,0 1)
 $(call validate-option,USB_STORAGE,0 1)
 $(call validate-option,DATA_DISK,none ahci nvme)
 $(call validate-option,SERIAL,stdio none only)
+$(call validate-option,QEMU_ACCEL,kvm:tcg kvm tcg)
 
 # Build directories
 BUILD_DIR := build
@@ -78,7 +82,7 @@ HYFS2_DATA_DISK ?= $(BUILD_DIR)/hyfs2-data.img
 
 # QEMU composition: one boot source, one display selection, optional peripherals.
 HYFS_GPT_TYPE := 9f5eb82e-692e-5a8f-b968-adaaa349dd93
-QEMU_BASE_ARGS = -machine q35 -m $(QEMU_MEMORY) -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)"
+QEMU_BASE_ARGS = -machine q35,accel=$(QEMU_ACCEL) -m $(QEMU_MEMORY) -drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)"
 AHCI_DISK_ARGS = -device ich9-ahci,id=ahci0 -drive if=none,id=sata0,format=raw,snapshot=on,file="$(ISO)" -device ide-hd,drive=sata0,bus=ahci0.0
 NVME_DISK_ARGS = -drive if=none,id=nvme0,format=raw,readonly=on,file="$(ISO)" -device nvme,serial=australis,drive=nvme0
 USB_CONTROLLER_ARGS = -device qemu-xhci,id=xhci0
@@ -231,7 +235,7 @@ RELEASE_DOCS :=
 .PHONY: test-hyfs2-serial-ahci test-hyfs2-serial-nvme test-hyfs2-data-ahci test-hyfs2-data-nvme
 
 # Graphics & GPU Tests
-.PHONY: test-graphics benchmark-graphics test-display-ahci test-display-nvme test-cursor-stress
+.PHONY: test-graphics benchmark-graphics benchmark-virtio2d test-retained-resize test-display-ahci test-display-nvme test-cursor-stress
 .PHONY: test-display test-display-fallback test-virtio-gpu test-virtio-gpu-3d test-frame-pacing
 
 # Console & Serial Tests
@@ -843,10 +847,16 @@ benchmark-graphics: check-build-tools ## Benchmark graphics rendering performanc
 	@chmod +x "$(BUILD_DIR)/graphics-benchmark"
 	python3 tests/graphics/frame_benchmark.py "$(BUILD_DIR)/graphics-benchmark" "$(BUILD_DIR)/graphics-benchmark.json"
 
+benchmark-virtio2d: iso-hyfs2 | check-run-tools ## Measure live VirtIO 2D window-drag response
+	python3 tests/graphics/virtio_gpu_drag_benchmark.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" "$(QEMU_ACCEL)" "$(BUILD_DIR)/virtio2d-drag-benchmark.json"
+
 test-display: test-display-ahci test-display-nvme test-display-fallback
 
 test-display-ahci: iso-hyfs2 | check-run-tools ## Test compositor boot over AHCI
 	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci
+
+test-retained-resize: iso-hyfs2 | check-run-tools ## Verify retained window move and resize in QEMU
+	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci resize
 
 test-display-nvme: iso-hyfs2 | check-run-tools ## Test compositor boot over NVMe
 	python3 tests/graphics/display_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" nvme
@@ -1002,6 +1012,7 @@ config: ## Show the selected QEMU and filesystem settings
 	@printf '  USB_STORAGE: %s\n' '$(USB_STORAGE)'
 	@printf '  DATA_DISK:   %s\n' '$(DATA_DISK)'
 	@printf '  SERIAL:      %s\n' '$(SERIAL)'
+	@printf '  QEMU_ACCEL:  %s\n' '$(QEMU_ACCEL)'
 	@printf '  ISO:         %s\n' '$(ISO)'
 
 help: ## Show this help menu

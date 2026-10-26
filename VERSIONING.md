@@ -8,15 +8,15 @@ does not determine which version is currently being developed.
 
 ## Where the project stands
 
-As of **21 October 2026** (project board and source tree checked):
+As of **26 October 2026** (project board and source tree checked):
 
 | Measure | Current position |
 | --- | --- |
 | **Current development version** | **`0.1.0` pre-release**: foundation implemented; release qualification is next |
 | `0.1.0` release gate | 🟡 5 project items are **Ready**, 0 **Done**: freeze baseline, run/archive QEMU matrix, document limits/platforms, unify version identity, verify/tag artifacts |
 | Implemented GUI foundation | 🟢 Phases 1–11 of 16 marked complete in [map_to_gui.md](map_to_gui.md) |
-| Next feature version | `0.2.0`: Phase 12 accelerated compositor; 3 project items **In Progress**, 5 **Ready**, 3 **Done** |
-| Later GUI phases | 🔴 Phases 13–16 remain in the GUI roadmap; later project versions also include application, system, connectivity, security, and release work |
+| Next feature version | `0.2.0`: Phase 12 accelerated compositor; 4 project items **In Progress**, 4 **Ready**, 3 **Done** |
+| Later GUI phases | 🟡 Phase 13 has one graphics performance item In Progress; Phases 14–16 remain in the GUI roadmap alongside application, system, connectivity, security, and release work |
 | Current release claim | `0.1.0` is being prepared; its release gate has not been completed |
 
 **Progress estimate:** the implementation is at the **`0.1.0` qualification
@@ -30,6 +30,17 @@ implemented work.
 Phase 12's VirGL render-target probe now verifies source-alpha blending in a
 live boot. Window textures are still composed into a software frame, so the
 accelerated compositor item remains In Progress and the `0.2.0` gate is open.
+The live retained compositor now follows window move and resize changes without
+dropping to the older software fallback; maximized-window synchronization is
+still disabled pending a kernel-panic investigation.
+
+VirtIO-GPU 2D drag response improved from about **1.9 to 3.2 visible updates
+per second** in the same 1280×800 QEMU TCG screenshot probe after reducing
+software copies and batching nearby damage flushes. The probe includes QEMU
+monitor screenshot overhead, so it is a comparative latency measurement, not
+an FPS certification. Interactive `make run` now tries KVM before TCG; KVM
+performance remains unmeasured on this host. The Phase 13 synchronization and
+60 FPS qualification gates remain open.
 
 For the latest implementation details and completion criteria, use
 [map_to_gui.md](map_to_gui.md). [ROADMAP.md](ROADMAP.md) is a broader, older
@@ -55,18 +66,18 @@ release gate has progressed.
 
 The project board assigns these targets. They describe intended scope, not
 versions already released or promised dates. Statuses below are the board's
-snapshot on 21 October 2026.
+snapshot on 26 October 2026.
 
 | Target | Main scope | Board position |
 | --- | --- | --- |
 | Baseline | Historical boot, kernel, storage, userland, graphics foundation | 🟢 64 Done |
 | `0.1.0` | Qualify and package the existing foundation; unify version identity | 🟡 5 Ready, 0 Done |
-| `0.2.0` | Accelerated compositor and GPU-backed windows (GUI Phase 12) | 🟡 3 In Progress, 5 Ready, 3 Done |
-| `0.3.0` | Frame pacing, performance, and effects (GUI Phase 13) | 🔴 11 Backlog |
-| `0.4.0` | Native application platform and packaging | 🔴 7 Backlog |
+| `0.2.0` | Accelerated compositor and GPU-backed windows (GUI Phase 12) | 🟡 4 In Progress, 4 Ready, 3 Done |
+| `0.3.0` | Frame pacing, performance, and effects (GUI Phase 13) | 🟡 1 In Progress, 10 Backlog |
+| `0.4.0` | Native application platform and packaging | 🔴 8 Backlog |
 | `0.5.0` | Usable desktop and graphical applications | 🔴 9 Backlog |
 | `0.6.0` | Sessions, users, permissions, services, and management | 🔴 8 Backlog |
-| `0.7.0` | Networking and audio support | 🔴 7 Backlog |
+| `0.7.0` | Networking and audio support | 🔴 8 Backlog |
 | `0.8.0` | Security hardening, installer, signed packages, recovery | 🔴 7 Backlog |
 | `0.9.0` | Beta qualification, soak/fault tests, physical hardware | 🔴 9 Backlog |
 | `1.0.0` | Stable release gate: end-to-end apps, graphics, files, recovery, support evidence | 🔴 7 Backlog |

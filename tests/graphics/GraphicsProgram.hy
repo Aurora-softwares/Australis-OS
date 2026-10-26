@@ -879,6 +879,18 @@ public class Program {
             gpuControl.At(2) != 259 || gpuControl.At(3) != 261 ||
             gpuControl.At(4) != 260 || gpuControl.At(5) != 263 ||
             gpuControl.At(6) != 258) { return 52; }
+        MockGpuControl batchedControl = new MockGpuControl(0);
+        VirtioGpu2D batchedGpu = new VirtioGpu2D(batchedControl);
+        if (!batchedGpu.Create(64, 32, 4096, 8192) ||
+            !batchedGpu.Transfer(2, 3, 8, 4) ||
+            !batchedGpu.Transfer(18, 3, 8, 4) ||
+            !batchedGpu.Flush(2, 3, 24, 4) ||
+            batchedControl.Count() != 5 ||
+            batchedControl.At(2) != 261 ||
+            batchedControl.At(3) != 261 ||
+            batchedControl.At(4) != 260 ||
+            batchedGpu.Transfer(63, 31, 2, 1) ||
+            batchedGpu.Flush(63, 31, 2, 1)) { return 52; }
         MockGpuControl failingControl = new MockGpuControl(2);
         VirtioGpu2D failingGpu = new VirtioGpu2D(failingControl);
         if (failingGpu.Create(64, 32, 4096, 8192) ||

@@ -20,6 +20,13 @@ def pixel(screen, x, y):
     return tuple(pixels[offset:offset + 3])
 
 
+def wallpaper(width, height, x, y):
+    """Match the retained compositor's wallpaper gradient."""
+    return (27 + y * 24 // height,
+            38 + x * 30 // width,
+            56 + (x + y) * 28 // (width + height))
+
+
 def wait_pixel(monitor, screenshot, x, y, expected, seconds=10):
     deadline = time.monotonic() + seconds
     seen = None
@@ -29,29 +36,53 @@ def wait_pixel(monitor, screenshot, x, y, expected, seconds=10):
         if seen == expected:
             return screen
         time.sleep(0.1)
+    candidates = []
+    if expected == (255, 255, 255):
+        width, height, _ = screen
+        for cy in range(height - 20):
+            for cx in range(width - 14):
+                if (pixel(screen, cx, cy + 4) == (16, 24, 32) and
+                        pixel(screen, cx + 1, cy + 4) == expected and
+                        pixel(screen, cx + 2, cy + 4) == expected and
+                        pixel(screen, cx + 3, cy + 4) == (16, 24, 32)):
+                    candidates.append((cx, cy))
+                    if len(candidates) == 8:
+                        break
+            if len(candidates) == 8:
+                break
     raise AssertionError(
         f"pixel ({x},{y}) remained {seen}, expected {expected}; "
-        f"bar={pixel(screen, 100, 10)}, A={pixel(screen, 130, 140)}")
+        f"bar={pixel(screen, 100, 10)}, A={pixel(screen, 130, 140)}, "
+        f"cursor_candidates={candidates}")
 
 
-def move_mouse(monitor, dx, dy):
+def move_mouse(monitor, dx, dy, screenshot=None, start_x=0, start_y=0):
+    current_x, current_y = start_x, start_y
     while dx or dy:
         step_x = max(-100, min(100, dx))
         step_y = max(-100, min(100, dy))
         monitor_command(str(monitor), f"mouse_move {step_x} {step_y}")
         dx -= step_x
         dy -= step_y
-        time.sleep(0.08)
+        if screenshot is not None:
+            current_x += step_x
+            current_y += step_y
+            wait_pixel(monitor, screenshot, current_x + 2, current_y + 4,
+                       (255, 255, 255))
+        else:
+            # Give the guest time to consume each USB report during a redraw.
+            time.sleep(0.3)
 
 
 def click_mouse(monitor):
     monitor_command(str(monitor), "mouse_button 1")
-    time.sleep(0.08)
+    time.sleep(0.3)
     monitor_command(str(monitor), "mouse_button 0")
 
 
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
+    stop_after_resize = len(sys.argv) > 5 and sys.argv[5] == "resize"
     if transport not in ("ahci", "nvme"):
         raise ValueError("transport must be ahci or nvme")
     iso = str(Path(iso).resolve())
@@ -119,27 +150,27 @@ def main():
                     if pixel(moved, old_x + 32, old_y - 16) == (255, 255, 255):
                         break
                 else:
-					connection.settimeout(0.25)
-					serial_tail = bytearray()
+                    connection.settimeout(0.25)
+                    serial_tail = bytearray()
 
-					for _ in range(32):
-						try:
-							chunk = connection.recv(4096)
-						except socket.timeout:
-							break
+                    for _ in range(32):
+                        try:
+                            chunk = connection.recv(4096)
+                        except socket.timeout:
+                            break
 
-						if not chunk:
-							break
+                        if not chunk:
+                            break
 
-						serial_tail.extend(chunk)
+                        serial_tail.extend(chunk)
 
-					connection.settimeout(None)
+                    connection.settimeout(None)
 
-					print(
-						"DISPLAY SERIAL AFTER MOUSE MOVEMENT:\n"
-						+ serial_tail[-6000:].decode(errors="replace"),
-						flush=True,
-					)
+                    print(
+                        "DISPLAY SERIAL AFTER MOUSE MOVEMENT:\n"
+                        + serial_tail[-6000:].decode(errors="replace"),
+                        flush=True,
+                    )
                     raise AssertionError(
                         "USB mouse did not move the software cursor: "
                         f"old={pixel(moved, old_x + 2, old_y + 4)}, "
@@ -153,7 +184,7 @@ def main():
                 if b"DisplayDemoA: pointer down" in routed:
                     raise AssertionError("top window pointer event reached client A")
                 wait_pixel(monitor, screenshot, width // 3 + 100, 80,
-                           (125, 167, 203))
+                           (225, 230, 236))
                 monitor_command(str(monitor), "sendkey b 50")
                 routed = read_until(connection, b"DisplayDemoB: key", 15, process)
                 if b"DisplayDemoA: key" in routed:
@@ -174,9 +205,9 @@ def main():
                     raise AssertionError("A-only hit reached client B")
                 if b"DisplayDemoA: pointer up" not in routed:
                     read_until(connection, b"DisplayDemoA: pointer up", 15, process)
-                wait_pixel(monitor, screenshot, 100, 55, (125, 167, 203))
+                wait_pixel(monitor, screenshot, 100, 55, (225, 230, 236))
                 wait_pixel(monitor, screenshot, 800, 80,
-                           (199, 206, 214))
+                           (197, 204, 213))
                 monitor_command(str(monitor), "sendkey a 50")
                 routed = read_until(connection, b"DisplayDemoA: key", 15, process)
                 if b"DisplayDemoB: key" in routed:
@@ -220,7 +251,7 @@ def main():
                            (255, 255, 255))
                 click_mouse(monitor)
                 wait_pixel(monitor, screenshot, width // 3 + 100, 80,
-                           (199, 206, 214))
+                           (225, 230, 236))
                 for key in "version":
                     monitor_command(str(monitor), f"sendkey {key} 20")
                     time.sleep(0.04)
@@ -242,7 +273,8 @@ def main():
                 monitor_command(str(monitor), "mouse_button 0")
                 time.sleep(0.2)
                 wait_pixel(monitor, screenshot, 130, 140, (20, 200, 75))
-                wait_pixel(monitor, screenshot, 30, 100, (38, 56, 79))
+                wait_pixel(monitor, screenshot, 30, 100,
+                           wallpaper(width, height, 30, 100))
                 wait_pixel(monitor, screenshot, 500, 150, (203, 56, 48))
                 move_mouse(monitor, 725 - cursor_x, 483 - cursor_y)
                 cursor_x, cursor_y = 725, 483
@@ -255,15 +287,55 @@ def main():
                 cursor_x, cursor_y = 805, 543
                 time.sleep(0.3)
                 monitor_command(str(monitor), "mouse_button 0")
-                time.sleep(0.2)
+                # The release must reach the guest before the next control
+                # click; a held resize button changes how that click routes.
+                time.sleep(1.0)
                 wait_pixel(monitor, screenshot, 770, 510, (203, 56, 48))
-                move_mouse(monitor, width // 3 + 53 - cursor_x,
-                           85 - cursor_y)
+                if stop_after_resize:
+                    connection.settimeout(0.2)
+                    serial_tail = bytearray()
+                    while True:
+                        try:
+                            chunk = connection.recv(4096)
+                        except socket.timeout:
+                            break
+                        if not chunk:
+                            break
+                        serial_tail.extend(chunk)
+                    if (b"Display: retained shadow suspended" in serial_tail or
+                            b"Display: retained sync stopped" in serial_tail or
+                            b"Display: retained fallback" in serial_tail):
+                        raise AssertionError(
+                            f"resize left retained composition: {serial_tail[-2000:]!r}")
+                    print(f"Australis {transport.upper()} retained resize passed")
+                    return
+                try:
+                    move_mouse(monitor, width // 3 + 53 - cursor_x,
+                               85 - cursor_y, screenshot, cursor_x, cursor_y)
+                except AssertionError as error:
+                    connection.settimeout(0.2)
+                    try:
+                        serial_tail = connection.recv(8192)
+                    except socket.timeout:
+                        serial_tail = b""
+                    connection.settimeout(None)
+                    raise AssertionError(
+                        f"{error}; serial={serial_tail[-3000:]!r}") from error
                 cursor_x, cursor_y = width // 3 + 53, 85
                 wait_pixel(monitor, screenshot, cursor_x + 2, cursor_y + 4,
                            (255, 255, 255))
                 click_mouse(monitor)
-                wait_pixel(monitor, screenshot, 100, 10, (0, 0, 0))
+                try:
+                    wait_pixel(monitor, screenshot, 100, 10, (0, 0, 0))
+                except AssertionError as error:
+                    connection.settimeout(0.2)
+                    try:
+                        serial_tail = connection.recv(8192)
+                    except socket.timeout:
+                        serial_tail = b""
+                    connection.settimeout(None)
+                    raise AssertionError(
+                        f"{error}; serial={serial_tail[-3000:]!r}") from error
                 wait_pixel(monitor, screenshot, 30, 100, (240, 211, 62))
                 move_mouse(monitor, 53 - cursor_x, 14 - cursor_y)
                 cursor_x, cursor_y = 53, 14
@@ -303,7 +375,8 @@ def main():
                 cursor_x, cursor_y = 137, 105
                 wait_pixel(monitor, screenshot, 131, 99, (255, 255, 255))
                 click_mouse(monitor)
-                wait_pixel(monitor, screenshot, 150, 150, (38, 56, 79))
+                wait_pixel(monitor, screenshot, 150, 150,
+                           wallpaper(width, height, 150, 150))
                 move_mouse(monitor, width - 30 - cursor_x,
                            height - 30 - cursor_y)
                 cursor_x, cursor_y = width - 30, height - 30
@@ -315,7 +388,8 @@ def main():
                 while time.monotonic() < deadline:
                     stressed = capture_screen(str(monitor), screenshot)
                     if (pixel(stressed, 100, 10) != (17, 24, 32) or
-                            pixel(stressed, 30, 100) != (38, 56, 79) or
+                            pixel(stressed, 30, 100) !=
+                            wallpaper(width, height, 30, 100) or
                             pixel(stressed, width // 3 + 20, 130) !=
                             (240, 211, 62)):
                         raise AssertionError("mouse burst corrupted or lost the display")
