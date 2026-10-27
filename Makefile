@@ -20,7 +20,7 @@ QEMU_ACCEL        ?= kvm:tcg
 QEMU_EXTRA_ARGS   ?=
 
 # External tools and host configuration
-HYDROGEN		?= ../Hylang-Compiler/build/self_hosting/hydrogen-stage1
+HYDROGEN		?= ../Hylang-Compiler/build/self_hosting/linux/hydrogen-stage1
 QEMU			?= qemu-system-x86_64
 QEMU_DISPLAY	?= sdl
 XORRISO			?= xorriso
@@ -289,7 +289,7 @@ release-candidate: iso
 
 $(APP_COMPILER): $(APP_COMPILER_INPUTS) $(HYDROGEN) | check-build-tools
 	@mkdir -p "$(dir $@)"
-	"$(HYDROGEN)" build ../Hylang-Compiler/samples/self_hosting/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj -o "$@"
+	"$(HYDROGEN)" build ../Hylang-Compiler/src/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj -o "$@"
 	@chmod +x "$@"
 
 $(NATIVE_RUNTIME_BLOB): src/kernel/user/native_runtime.S tools/generate_native_runtime_blob.py
