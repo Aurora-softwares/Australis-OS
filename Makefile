@@ -566,7 +566,7 @@ test-stage5-nvme: iso | check-run-tools
 
 test-auex-file-api: $(APP_COMPILER) ## Test AUEX filesystem API
 	@mkdir -p "$(BUILD_DIR)"
-	"$(APP_COMPILER)" build applications/Australis-Inspector/Inspector.hyproj -o "$(BUILD_DIR)/inspector-file-api.exec"
+	"$(APP_COMPILER)" build src/applications/Australis-Inspector/Inspector.hyproj -o "$(BUILD_DIR)/inspector-file-api.exec"
 	"$(APP_COMPILER)" build tests/user/FileApiApp.hyproj -o "$(BUILD_DIR)/file-api-test.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	@chmod +x "$(BUILD_DIR)/user-runtime-tests"
@@ -575,7 +575,7 @@ test-auex-file-api: $(APP_COMPILER) ## Test AUEX filesystem API
 
 test-auex-portable-api: $(APP_COMPILER) ## Test AUEX portable API
 	@mkdir -p "$(BUILD_DIR)"
-	"$(APP_COMPILER)" build applications/Australis.Dev-user-demo/UserDemo.hyproj -o "$(BUILD_DIR)/portable-api-test.exec"
+	"$(APP_COMPILER)" build src/applications/Australis.Dev-user-demo/UserDemo.hyproj -o "$(BUILD_DIR)/portable-api-test.exec"
 	"$(APP_COMPILER)" build tests/user/PortableApiApp.hyproj -o "$(BUILD_DIR)/portable-io-test.exec"
 	"$(HYDROGEN)" build tests/user/UserRuntime.hyproj -o "$(BUILD_DIR)/user-runtime-tests"
 	@chmod +x "$(BUILD_DIR)/user-runtime-tests"

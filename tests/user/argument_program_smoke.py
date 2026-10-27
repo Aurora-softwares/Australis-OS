@@ -67,7 +67,7 @@ def main():
                 inspected = command(connection, process,
                                     b"inspector /System/Bin/inspector.exec",
                                     b"Target: Australis bytecode\r\n")
-                image = (Path(iso).parent / "applications" / "inspector.exec").read_bytes()
+                image = (Path(iso).parent / "rootfs" / "inspector.exec").read_bytes()
                 if b"Format version:\r\n1\r\n" not in inspected:
                     raise AssertionError(f"AUEX version missing: {inspected!r}")
                 for title, offset in ((b"Code bytes", 8),

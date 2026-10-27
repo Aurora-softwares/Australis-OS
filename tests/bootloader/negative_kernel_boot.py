@@ -13,6 +13,7 @@ import time
 
 ERROR = b"[BOOT] Failed to start kernel."
 NO_GOP = b"[KERNEL] GOP framebuffer is unavailable."
+MAX_KERNEL_BYTES = 4 * 1024 * 1024
 
 
 def variant(kernel: bytes, name: str) -> bytes | None:
@@ -23,12 +24,12 @@ def variant(kernel: bytes, name: str) -> bytes | None:
     if name == "no-gop":
         return kernel
     if name == "oversized":
-        return kernel + bytes(4194305 - len(kernel))
+        return kernel + bytes(MAX_KERNEL_BYTES + 1 - len(kernel))
     data = bytearray(kernel)
     if name == "bad-magic":
         data[0] ^= 1
     elif name == "bad-version":
-        struct.pack_into("<I", data, 4, 2)
+        struct.pack_into("<I", data, 4, 3)
     elif name == "bad-length":
         struct.pack_into("<I", data, 8, len(data) - 15)
     elif name == "bad-entry":
@@ -114,7 +115,7 @@ def check(qemu: str, firmware: str, base: Path, kernel: bytes,
 def main() -> None:
     qemu, firmware, base_image, kernel_path = sys.argv[1:5]
     kernel = Path(kernel_path).read_bytes()
-    if kernel[:4] != b"AUKR" or len(kernel) <= 16 or len(kernel) >= 1048576:
+    if kernel[:4] != b"AUKR" or len(kernel) <= 24 or len(kernel) > MAX_KERNEL_BYTES:
         raise ValueError("the source kernel is not a valid AUKR test fixture")
     for transport in ("ahci", "nvme"):
         for name in ("missing", "short", "oversized", "bad-magic",

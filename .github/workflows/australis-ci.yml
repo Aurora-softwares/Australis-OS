@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Aurora-softwares/Hylang-Compiler
-          ref: e7676ad6d4393b3414dd2969f75115d95e561339
+          ref: 4e6d3e40502ad4425c470031fc4888ce08026275
           path: Hylang-Compiler
           persist-credentials: false
 
