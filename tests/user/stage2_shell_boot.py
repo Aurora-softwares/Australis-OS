@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "console"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "usb"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from serial_boot_smoke import capture_record, capture_screen, read_until, screen_lines  # noqa: E402
+from serial_boot_smoke import capture_record, capture_screen, read_until  # noqa: E402
 from xhci_keyboard_smoke import send_text  # noqa: E402
 from make_hyfs2_data_disk import create  # noqa: E402
 from hyfs2 import Hyfs2Image  # noqa: E402
@@ -97,9 +97,16 @@ def main():
                     if marker not in usb_output:
                         raise AssertionError(f"USB command output differed: {usb_output!r}")
                     screen = capture_screen(str(monitor), str(directory / "screen.ppm"))
-                    text = marker.decode(errors="replace").strip()
-                    if not any(text in line for line in screen_lines(screen)):
-                        raise AssertionError(f"framebuffer missed USB output {text!r}")
+                    # The display service owns the framebuffer while the
+                    # shell's output remains available through serial.
+                    width, height, pixels = screen
+                    def color(x, y):
+                        offset = (y * width + x) * 3
+                        return tuple(pixels[offset:offset + 3])
+                    if (width < 640 or height < 480 or
+                            color(100, 10) != (17, 24, 32) or
+                            color(100, 150) != (203, 56, 48)):
+                        raise AssertionError("desktop changed during USB shell input")
                 run(connection, process, b"set NOTE local")
                 local = run(connection, process, b"context-probe", b"cwd=/")
                 if b"env=NOTE=" in local:

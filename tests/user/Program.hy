@@ -882,7 +882,7 @@ public class Program {
             new int[55], launcher, 1).Run(executable);
         if (result.Pid() != 1 || result.State() != UserProgramState.Exited() ||
             result.ExitCode() != 0 || result.Fault() != UserFault.None() ||
-            launcher.Launches() != 3) { return 49; }
+            launcher.Launches() != 4) { return 49; }
         System.Console.WriteLine("Compiled PID 1 launcher passed");
         return 0;
     }
@@ -895,7 +895,7 @@ public class Program {
             new UserMockTerminal(new byte[0]), new UserMockFiles(),
             new int[55], launcher, 1).Run(executable);
         if (result.Pid() != 1 || result.State() != UserProgramState.Exited() ||
-            result.ExitCode() != 1 || launcher.Launches() != 5) { return 55; }
+            result.ExitCode() != 1 || launcher.Launches() != 6) { return 55; }
         System.Console.WriteLine("PID 1 bounded restart passed");
         return 0;
     }
