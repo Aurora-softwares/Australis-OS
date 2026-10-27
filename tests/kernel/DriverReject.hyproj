@@ -1,0 +1,13 @@
+format = 2
+name = "DriverReject"
+type = "driver"
+sources = ["DriverReject.hy"]
+
+[driver]
+abi = 2
+match = "pci"
+vendor = 65535
+device = 65535
+class = 12
+subclass = 3
+interface = 48

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import zlib
 
 
 def run(*args, quiet=False):
@@ -19,8 +20,10 @@ def make_iso(repo, case_dir, bootloader, kernel, driver):
     shutil.copytree(repo / "rootfs", rootfs)
     (rootfs / "drivers.list").unlink(missing_ok=True)
     if driver is not None:
-        (rootfs / "drivers.list").write_text("/Example.driver\n")
-        (rootfs / "Example.driver").write_bytes(driver)
+        entries = driver if isinstance(driver, tuple) else (("/Example.driver", driver),)
+        (rootfs / "drivers.list").write_text("".join(path + "\n" for path, _ in entries))
+        for path, image in entries:
+            (rootfs / path.lstrip("/")).write_bytes(image)
     hyfs = case_dir / "root.hyfs2.img"
     run("python3", repo / "tools/make_hyfs2_image.py", rootfs, hyfs)
 
@@ -48,7 +51,8 @@ def boot(qemu, ovmf, iso, serial_log):
             "-device", "ich9-ahci,id=ahci0", "-drive",
             f"if=none,id=sata0,format=raw,snapshot=on,file={iso}",
             "-device", "ide-hd,drive=sata0,bus=ahci0.0", "-device",
-            "qemu-xhci,id=xhci0", "-net", "none", "-display", "none",
+            "qemu-xhci,id=xhci0", "-device", "usb-kbd,bus=xhci0.0",
+            "-net", "none", "-display", "none",
             "-monitor", "none", "-serial", f"file:{serial_log}"]
     process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
@@ -97,13 +101,30 @@ def main():
         packaged_log = boot(args.qemu, args.ovmf, args.packaged_iso.resolve(),
                             workspace / "packaged-serial.log")
         assert "AUDR: driver loaded" in packaged_log, packaged_log[-1000:]
+        assert "AUDR: xHCI probe selected" in packaged_log, packaged_log[-1000:]
         print("AUDR packaged ISO: passed")
         bad = bytearray(good)
         bad[-1] ^= 1
-        cases = (("valid", good, "AUDR: driver loaded"),
-                 ("corrupt", bytes(bad), "AUDR: driver rejected (-5)"),
-                 ("absent", None, None))
-        for name, image, expected in cases:
+        rejecting = workspace / "Reject.driver"
+        run(compiler, "build", repo / "tests/kernel/DriverReject.hyproj",
+            "-o", rejecting, "--hide-progress", "--hide-spinner", "--hide-log", quiet=True)
+        mismatch = bytearray(good)
+        mismatch[36:40] = (13).to_bytes(4, "little")
+        mismatch[16:20] = zlib.crc32(mismatch[24:]).to_bytes(4, "little")
+        large = bytearray(good)
+        large.extend(b"\x90" * (65537 - (len(large) - 48)))
+        large[8:12] = (len(large) - 48).to_bytes(4, "little")
+        large[16:20] = zlib.crc32(large[24:]).to_bytes(4, "little")
+        cases = (("valid", good, "AUDR: driver loaded", True, False),
+                 ("second-candidate", (("/Reject.driver", rejecting.read_bytes()),
+                                       ("/Example.driver", good)),
+                  "AUDR: xHCI probe selected", True, False),
+                 ("large", bytes(large), "AUDR: driver loaded", True, False),
+                 ("reject", rejecting.read_bytes(), "AUDR: xHCI probe fallback", False, True),
+                 ("mismatch", bytes(mismatch), "AUDR: driver loaded", False, False),
+                 ("corrupt", bytes(bad), "AUDR: driver rejected (-5)", False, False),
+                 ("absent", None, None, False, False))
+        for name, image, expected, selected, fallback in cases:
             case_dir = workspace / name
             case_dir.mkdir()
             iso = make_iso(repo, case_dir, bootloader, kernel, image)
@@ -112,6 +133,8 @@ def main():
                 assert "AUDR:" not in log, log[-1000:]
             else:
                 assert expected in log, log[-1000:]
+            assert ("AUDR: xHCI probe selected" in log) == selected, log[-1000:]
+            assert ("AUDR: xHCI probe fallback" in log) == fallback, log[-1000:]
             print(f"AUDR {name}: passed")
 
 
