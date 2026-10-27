@@ -17,6 +17,7 @@ def run(*args, quiet=False):
 def make_iso(repo, case_dir, bootloader, kernel, driver):
     rootfs = case_dir / "rootfs"
     shutil.copytree(repo / "rootfs", rootfs)
+    (rootfs / "drivers.list").unlink(missing_ok=True)
     if driver is not None:
         (rootfs / "drivers.list").write_text("/Example.driver\n")
         (rootfs / "Example.driver").write_bytes(driver)
@@ -54,12 +55,12 @@ def boot(qemu, ovmf, iso, serial_log):
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             contents = serial_log.read_text(errors="replace") if serial_log.exists() else ""
-            if "kmon> " in contents:
+            if "kmon> " in contents or "australis> " in contents:
                 return contents
             if process.poll() is not None:
                 raise AssertionError(f"QEMU exited {process.returncode}: {process.stderr.read()!r}")
             time.sleep(0.2)
-        raise AssertionError(f"Australis did not reach KMon: {contents[-1000:]}")
+        raise AssertionError(f"Australis did not reach a command prompt: {contents[-1000:]}")
     finally:
         process.terminate()
         try:
@@ -75,6 +76,7 @@ def main():
     parser.add_argument("repo", type=Path)
     parser.add_argument("qemu")
     parser.add_argument("ovmf", type=Path)
+    parser.add_argument("packaged_iso", type=Path)
     args = parser.parse_args()
     repo = args.repo.resolve()
     compiler = args.compiler.resolve()
@@ -87,9 +89,15 @@ def main():
             "-o", bootloader, "--hide-progress", "--hide-spinner", "--hide-log", quiet=True)
         run(compiler, "build", repo / "src/kernel/australis.kernel.hyproj",
             "-o", kernel, "--hide-progress", "--hide-spinner", "--hide-log", quiet=True)
-        run(compiler, "build", repo.parent / "Hylang-Compiler/samples/australis_driver/ExampleDriver.hyproj",
+        run(compiler, "build", repo / "src/drivers/usb/australis.drivers.usb.hyproj",
             "-o", driver, "--hide-progress", "--hide-spinner", "--hide-log", quiet=True)
         good = driver.read_bytes()
+        assert (repo / "build/rootfs/drivers.list").read_text() == "/usb.driver\n"
+        assert (repo / "build/rootfs/usb.driver").read_bytes() == good
+        packaged_log = boot(args.qemu, args.ovmf, args.packaged_iso.resolve(),
+                            workspace / "packaged-serial.log")
+        assert "AUDR: driver loaded" in packaged_log, packaged_log[-1000:]
+        print("AUDR packaged ISO: passed")
         bad = bytearray(good)
         bad[-1] ^= 1
         cases = (("valid", good, "AUDR: driver loaded"),

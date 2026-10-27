@@ -64,6 +64,9 @@ APPLICATIONS_PROJECT ?= src/applications/australis.applications.hyproj
 APPLICATIONS_STAMP := $(APPLICATIONS_DIR)/.built
 APPLICATION_ARTIFACTS ?=
 APPLICATION_SOURCES := $(shell find src/applications src/userland src/shell src/rescue -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
+DRIVER_PROJECT := src/drivers/usb/australis.drivers.usb.hyproj
+DRIVER_SOURCES := $(shell find src/drivers -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
+DRIVER_BINARY := $(BUILD_DIR)/src/drivers/usb.driver
 APP_COMPILER := $(BUILD_DIR)/hydrogen-apps
 APP_COMPILER_INPUTS := $(wildcard ../Hylang-Compiler/samples/self_hosting/*/*.hy ../Hylang-Compiler/samples/self_hosting/*/*.hyproj)
 ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged
@@ -307,6 +310,10 @@ $(APPLICATIONS_STAMP): $(APPLICATIONS_PROJECT) $(APPLICATION_SOURCES) $(APP_COMP
 	@mv "$(APPLICATIONS_STAGE)" "$(APPLICATIONS_DIR)"
 	@touch "$@"
 
+$(DRIVER_BINARY): $(DRIVER_PROJECT) $(DRIVER_SOURCES) $(APP_COMPILER) | check-build-tools
+	@mkdir -p "$(dir $@)"
+	"$(APP_COMPILER)" build "$(DRIVER_PROJECT)" -o "$@"
+
 # Input-snapshot stamp files
 
 $(EFI_INPUT_STAMP):
@@ -326,10 +333,11 @@ $(ARTIFACT_SELECTION_STAMP):
 
 # Root filesystem staging
 
-$(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(APP_CONTENT_STAMP) $(ROOTFS_INPUTS) $(APPLICATION_ARTIFACTS) $(ARTIFACT_SELECTION_STAMP)
+$(ROOTFS_STAMP): $(APPLICATIONS_STAMP) $(APP_CONTENT_STAMP) $(DRIVER_BINARY) $(ROOTFS_INPUTS) $(APPLICATION_ARTIFACTS) $(ARTIFACT_SELECTION_STAMP)
 	@rm -rf "$(GENERATED_ROOTFS)"
 	@mkdir -p "$(GENERATED_ROOTFS)"
 	@cp -a rootfs/. "$(GENERATED_ROOTFS)/"
+	@cp "$(DRIVER_BINARY)" "$(GENERATED_ROOTFS)/usb.driver"
 	@cp "$(APPLICATIONS_DIR)"/*.exec "$(GENERATED_ROOTFS)/"
 	@for artifact in $(APPLICATION_ARTIFACTS); do \
 		name=$$(basename "$$artifact"); \
@@ -467,8 +475,8 @@ test-kernel-panic: iso-hyfs2 | check-run-tools ## Test kernel panic behaviour
 	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)"
 	python3 tests/kernel/panic_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" gpu
 
-test-audr-driver: $(APP_COMPILER) | check-run-tools ## Test AUDR driver loading and rejection in QEMU
-	python3 tests/kernel/driver_boot_smoke.py "$(APP_COMPILER)" "$(CURDIR)" "$(QEMU)" "$(OVMF_CODE)"
+test-audr-driver: $(APP_COMPILER) $(ISO) | check-run-tools ## Test packaged AUDR module, rejection, and fallback in QEMU
+	python3 tests/kernel/driver_boot_smoke.py "$(APP_COMPILER)" "$(CURDIR)" "$(QEMU)" "$(OVMF_CODE)" "$(ISO)"
 
 test-stage2: check-build-tools ## Run kernel Stage 2 host tests
 	@mkdir -p "$(BUILD_DIR)"
