@@ -4,12 +4,29 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import socket
+import select
 import subprocess
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "console"))
 from serial_boot_smoke import capture_screen, monitor_command, read_until  # noqa: E402
+
+
+serial_drain = None
+serial_history = bytearray()
+
+
+def drain_serial():
+    if serial_drain is None:
+        return
+    while select.select([serial_drain], [], [], 0)[0]:
+        chunk = serial_drain.recv(8192)
+        if not chunk:
+            return
+        serial_history.extend(chunk)
+        if len(serial_history) > 16384:
+            del serial_history[:-16384]
 
 
 def pixel(screen, x, y):
@@ -31,6 +48,7 @@ def wait_pixel(monitor, screenshot, x, y, expected, seconds=10):
     deadline = time.monotonic() + seconds
     seen = None
     while time.monotonic() < deadline:
+        drain_serial()
         screen = capture_screen(str(monitor), screenshot)
         seen = pixel(screen, x, y)
         if seen == expected:
@@ -56,27 +74,57 @@ def wait_pixel(monitor, screenshot, x, y, expected, seconds=10):
         f"cursor_candidates={candidates}")
 
 
-def move_mouse(monitor, dx, dy, screenshot=None, start_x=0, start_y=0):
-    current_x, current_y = start_x, start_y
-    while dx or dy:
-        step_x = max(-100, min(100, dx))
-        step_y = max(-100, min(100, dy))
-        monitor_command(str(monitor), f"mouse_move {step_x} {step_y}")
-        dx -= step_x
-        dy -= step_y
-        if screenshot is not None:
-            current_x += step_x
-            current_y += step_y
-            wait_pixel(monitor, screenshot, current_x + 2, current_y + 4,
-                       (255, 255, 255))
-        else:
-            # Give the guest time to consume each USB report during a redraw.
+def cursor_position(screen):
+    width, height, pixels = screen
+    stride = width * 3
+    marker = bytes((16, 24, 32, 255, 255, 255,
+                    255, 255, 255, 16, 24, 32))
+    for row in range(4, height - 16):
+        start = row * stride
+        found = pixels.find(marker, start, start + stride)
+        if found >= 0 and (found - start) % 3 == 0:
+            return (found - start) // 3, row - 4
+    return None
+
+
+def move_mouse_to(monitor, screenshot, target_x, target_y):
+    # QEMU can merge relative USB reports while the guest is redrawing.
+    # Correct against the cursor the guest actually painted.
+    observed = []
+    for _ in range(8):
+        drain_serial()
+        deadline = time.monotonic() + 5
+        current = None
+        while time.monotonic() < deadline:
+            drain_serial()
+            current = cursor_position(capture_screen(str(monitor), screenshot))
+            if current is not None:
+                break
+            time.sleep(0.1)
+        if current is None:
+            raise AssertionError("software cursor disappeared during movement")
+        observed.append(current)
+        dx = target_x - current[0]
+        dy = target_y - current[1]
+        if dx == 0 and dy == 0:
+            return
+        while dx or dy:
+            step_x = max(-100, min(100, dx))
+            step_y = max(-100, min(100, dy))
+            monitor_command(str(monitor), f"mouse_move {step_x} {step_y}")
+            drain_serial()
+            dx -= step_x
+            dy -= step_y
             time.sleep(0.3)
+        time.sleep(1.0)
+    raise AssertionError(
+        f"cursor did not reach ({target_x},{target_y}); observed={observed}")
 
 
 def click_mouse(monitor):
     monitor_command(str(monitor), "mouse_button 1")
     time.sleep(0.3)
+    drain_serial()
     monitor_command(str(monitor), "mouse_button 0")
 
 
@@ -195,7 +243,7 @@ def main():
                         203, 56, 48):
                     raise AssertionError("B update damaged A window")
                 cursor_x, cursor_y = old_x + 30, old_y - 20
-                move_mouse(monitor, 200 - cursor_x, 200 - cursor_y)
+                move_mouse_to(monitor, screenshot, 200, 200)
                 cursor_x, cursor_y = 200, 200
                 wait_pixel(monitor, screenshot, 202, 204, (255, 255, 255))
                 click_mouse(monitor)
@@ -219,7 +267,7 @@ def main():
                 overlap_x = width // 3 + 60
                 monitor_command(str(monitor), "mouse_button 1")
                 time.sleep(0.08)
-                move_mouse(monitor, overlap_x - cursor_x, 0)
+                move_mouse_to(monitor, screenshot, overlap_x, cursor_y)
                 cursor_x = overlap_x
                 wait_pixel(monitor, screenshot, cursor_x + 2, cursor_y + 4,
                            (255, 255, 255))
@@ -234,7 +282,7 @@ def main():
                                     15, process)
                 if b"DisplayDemoB: pointer down" in routed:
                     raise AssertionError("raised A window lost the overlap hit")
-                move_mouse(monitor, 760 - cursor_x, 0)
+                move_mouse_to(monitor, screenshot, 760, cursor_y)
                 cursor_x = 760
                 wait_pixel(monitor, screenshot, cursor_x + 2, cursor_y + 4,
                            (255, 255, 255))
@@ -244,8 +292,7 @@ def main():
                 if b"DisplayDemoA: pointer down" in routed:
                     raise AssertionError("B-only hit reached client A")
                 wait_pixel(monitor, screenshot, 500, 150, (240, 211, 62))
-                move_mouse(monitor, width - 30 - cursor_x,
-                           height - 30 - cursor_y)
+                move_mouse_to(monitor, screenshot, width - 30, height - 30)
                 cursor_x, cursor_y = width - 30, height - 30
                 wait_pixel(monitor, screenshot, cursor_x + 2, cursor_y + 4,
                            (255, 255, 255))
@@ -264,11 +311,13 @@ def main():
                 if b"Version: 0.0.1" not in reply:
                     raise AssertionError(
                         f"serial shell stopped during display ownership: {reply[-1000:]!r}")
-                move_mouse(monitor, 120 - cursor_x, 60 - cursor_y)
+                global serial_drain
+                serial_drain = connection
+                move_mouse_to(monitor, screenshot, 120, 60)
                 cursor_x, cursor_y = 120, 60
                 wait_pixel(monitor, screenshot, 122, 64, (255, 255, 255))
                 monitor_command(str(monitor), "mouse_button 1")
-                move_mouse(monitor, 100, 40)
+                move_mouse_to(monitor, screenshot, 220, 100)
                 cursor_x, cursor_y = 220, 100
                 monitor_command(str(monitor), "mouse_button 0")
                 time.sleep(0.2)
@@ -276,14 +325,14 @@ def main():
                 wait_pixel(monitor, screenshot, 30, 100,
                            wallpaper(width, height, 30, 100))
                 wait_pixel(monitor, screenshot, 500, 150, (203, 56, 48))
-                move_mouse(monitor, 725 - cursor_x, 483 - cursor_y)
+                move_mouse_to(monitor, screenshot, 725, 483)
                 cursor_x, cursor_y = 725, 483
                 wait_pixel(monitor, screenshot, 727, 487, (255, 255, 255))
                 monitor_command(str(monitor), "mouse_button 1")
                 # Keep the press visible to the guest before sending motion;
                 # USB reports can otherwise merge while a redraw is active.
                 time.sleep(0.3)
-                move_mouse(monitor, 80, 60)
+                move_mouse_to(monitor, screenshot, 805, 543)
                 cursor_x, cursor_y = 805, 543
                 time.sleep(0.3)
                 monitor_command(str(monitor), "mouse_button 0")
@@ -292,93 +341,67 @@ def main():
                 time.sleep(1.0)
                 wait_pixel(monitor, screenshot, 770, 510, (203, 56, 48))
                 if stop_after_resize:
-                    connection.settimeout(0.2)
-                    serial_tail = bytearray()
-                    while True:
-                        try:
-                            chunk = connection.recv(4096)
-                        except socket.timeout:
-                            break
-                        if not chunk:
-                            break
-                        serial_tail.extend(chunk)
-                    if (b"Display: retained shadow suspended" in serial_tail or
-                            b"Display: retained sync stopped" in serial_tail or
-                            b"Display: retained fallback" in serial_tail):
+                    drain_serial()
+                    if (b"Display: retained shadow suspended" in serial_history or
+                            b"Display: retained sync stopped" in serial_history or
+                            b"Display: retained fallback" in serial_history):
                         raise AssertionError(
-                            f"resize left retained composition: {serial_tail[-2000:]!r}")
+                            f"resize left retained composition: {serial_history[-2000:]!r}")
                     print(f"Australis {transport.upper()} retained resize passed")
                     return
-                try:
-                    move_mouse(monitor, width // 3 + 53 - cursor_x,
-                               85 - cursor_y, screenshot, cursor_x, cursor_y)
-                except AssertionError as error:
-                    connection.settimeout(0.2)
-                    try:
-                        serial_tail = connection.recv(8192)
-                    except socket.timeout:
-                        serial_tail = b""
-                    connection.settimeout(None)
-                    raise AssertionError(
-                        f"{error}; serial={serial_tail[-3000:]!r}") from error
+                move_mouse_to(monitor, screenshot, width // 3 + 53, 85)
                 cursor_x, cursor_y = width // 3 + 53, 85
                 wait_pixel(monitor, screenshot, cursor_x + 2, cursor_y + 4,
                            (255, 255, 255))
+                pre_max_bar = pixel(capture_screen(str(monitor), screenshot),
+                                    100, 10)
                 click_mouse(monitor)
-                try:
-                    wait_pixel(monitor, screenshot, 100, 10, (0, 0, 0))
-                except AssertionError as error:
-                    connection.settimeout(0.2)
-                    try:
-                        serial_tail = connection.recv(8192)
-                    except socket.timeout:
-                        serial_tail = b""
-                    connection.settimeout(None)
-                    raise AssertionError(
-                        f"{error}; serial={serial_tail[-3000:]!r}") from error
+                wait_pixel(monitor, screenshot, 100, 10, (0, 0, 0))
                 wait_pixel(monitor, screenshot, 30, 100, (240, 211, 62))
-                move_mouse(monitor, 53 - cursor_x, 14 - cursor_y)
+                move_mouse_to(monitor, screenshot, 53, 14)
                 cursor_x, cursor_y = 53, 14
                 click_mouse(monitor)
-                wait_pixel(monitor, screenshot, 100, 10, (17, 24, 32))
+                wait_pixel(monitor, screenshot, 100, 10, pre_max_bar)
                 wait_pixel(monitor, screenshot, 500, 150, (240, 211, 62))
-                move_mouse(monitor, width // 3 + 33 - cursor_x,
-                           85 - cursor_y)
+                move_mouse_to(monitor, screenshot, width // 3 + 33, 85)
                 cursor_x, cursor_y = width // 3 + 33, 85
                 click_mouse(monitor)
                 wait_pixel(monitor, screenshot, 500, 150, (203, 56, 48))
+                # Let the release report reach the guest after the minimize
+                # redraw before pressing a badge in the top bar.
+                time.sleep(1.0)
                 wait_pixel(monitor, screenshot, width - 30, 16,
                            (97, 112, 128))
-                move_mouse(monitor, width - 28 - cursor_x,
-                           16 - cursor_y)
+                move_mouse_to(monitor, screenshot, width - 28, 16)
                 cursor_x, cursor_y = width - 28, 16
-                click_mouse(monitor)
-                try:
-                    wait_pixel(monitor, screenshot, 500, 150,
-                               (240, 211, 62))
-                except AssertionError as error:
-                    connection.settimeout(0.2)
-                    try:
-                        serial_tail = connection.recv(8192)
-                    except socket.timeout:
-                        serial_tail = b""
-                    connection.settimeout(None)
-                    connection.sendall(b"exit\r")
-                    try:
-                        serial_tail += read_until(connection, b"kmon> ",
-                                                  15, process)
-                    except (AssertionError, TimeoutError, OSError):
-                        pass
-                    raise AssertionError(
-                        f"{error}; serial={serial_tail[-3000:]!r}") from error
-                move_mouse(monitor, 137 - cursor_x, 105 - cursor_y)
+                monitor_command(str(monitor), "mouse_button 0")
+                monitor_command(str(monitor), "mouse_move 1 0")
+                time.sleep(0.5)
+                monitor_command(str(monitor), "mouse_button 1")
+                monitor_command(str(monitor), "mouse_move -1 0")
+                time.sleep(0.8)
+                monitor_command(str(monitor), "mouse_button 0")
+                monitor_command(str(monitor), "mouse_move 1 0")
+                time.sleep(0.4)
+                wait_pixel(monitor, screenshot, 500, 150,
+                           (240, 211, 62), seconds=60)
+                time.sleep(1.0)
+                move_mouse_to(monitor, screenshot, 137, 105)
                 cursor_x, cursor_y = 137, 105
-                wait_pixel(monitor, screenshot, 131, 99, (255, 255, 255))
-                click_mouse(monitor)
+                wait_pixel(monitor, screenshot, cursor_x + 2,
+                           cursor_y + 4, (255, 255, 255))
+                monitor_command(str(monitor), "mouse_button 0")
+                monitor_command(str(monitor), "mouse_move 1 0")
+                time.sleep(0.5)
+                monitor_command(str(monitor), "mouse_button 1")
+                monitor_command(str(monitor), "mouse_move -1 0")
+                time.sleep(0.8)
+                monitor_command(str(monitor), "mouse_button 0")
+                monitor_command(str(monitor), "mouse_move 1 0")
+                time.sleep(0.4)
                 wait_pixel(monitor, screenshot, 150, 150,
-                           wallpaper(width, height, 150, 150))
-                move_mouse(monitor, width - 30 - cursor_x,
-                           height - 30 - cursor_y)
+                           wallpaper(width, height, 150, 150), seconds=30)
+                move_mouse_to(monitor, screenshot, width - 30, height - 30)
                 cursor_x, cursor_y = width - 30, height - 30
                 click_mouse(monitor)
                 for index in range(96):
@@ -387,7 +410,7 @@ def main():
                 deadline = time.monotonic() + 3
                 while time.monotonic() < deadline:
                     stressed = capture_screen(str(monitor), screenshot)
-                    if (pixel(stressed, 100, 10) != (17, 24, 32) or
+                    if (pixel(stressed, 100, 10) != pre_max_bar or
                             pixel(stressed, 30, 100) !=
                             wallpaper(width, height, 30, 100) or
                             pixel(stressed, width // 3 + 20, 130) !=
@@ -395,6 +418,7 @@ def main():
                         raise AssertionError("mouse burst corrupted or lost the display")
                     time.sleep(0.1)
                 connection.sendall(b"version\r")
+                serial_drain = None
                 reply = read_until(connection, b"australis> ", 20, process)
                 if b"Version: 0.0.1" not in reply:
                     raise AssertionError("serial shell stopped after mouse burst")
@@ -406,7 +430,7 @@ def main():
                         b"\x1b[2J" in ended):
                     raise AssertionError("display release erased serial output")
                 recovered = capture_screen(str(monitor), screenshot)
-                if pixel(recovered, 100, 10) == (17, 24, 32):
+                if pixel(recovered, 100, 10) == pre_max_bar:
                     raise AssertionError("display lease did not restore framebuffer console")
         finally:
             process.terminate()
