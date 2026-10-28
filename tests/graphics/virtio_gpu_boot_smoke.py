@@ -36,6 +36,7 @@ def capture_gpu_screen(path):
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
     oversized_mode = len(sys.argv) > 5 and sys.argv[5] == "oversized"
+    console_handoff = len(sys.argv) > 5 and sys.argv[5] == "console"
     use_gl = len(sys.argv) > 6 and sys.argv[5] == "gl"
     primary_vga = len(sys.argv) > 5 and sys.argv[5] == "vga"
     gpu_visual = len(sys.argv) > 7 and sys.argv[7] == "visual"
@@ -141,6 +142,26 @@ def main():
                         expected_backend not in opening or
                         b"System: display ready" not in opening):
                     raise AssertionError(f"GPU display boot failed: {opening[-3000:]!r}")
+                if console_handoff:
+                    before = capture_screen(str(monitor), screenshot, "gpu0")
+                    if pixel(before, 100, 10) != (17, 24, 32):
+                        raise AssertionError("selected GPU missed desktop before handoff")
+                    connection.sendall(b"exit\r")
+                    ended = read_until(connection, b"kmon> ", 30, process)
+                    if b"Display stopped; COM1 active" not in ended:
+                        raise AssertionError("display lease did not release")
+                    after = capture_screen(str(monitor), screenshot, "gpu0")
+                    if (after[:2] != before[:2] or
+                            pixel(after, 100, 10) == (17, 24, 32) or
+                            pixel(after, after[0] - 20, after[1] - 20) !=
+                            (0, 0, 0) or
+                            not any(pixel(after, x, y) == (255, 255, 255)
+                                    for y in range(8, 48)
+                                    for x in range(0, 256))):
+                        raise AssertionError(
+                            "recovery console did not use selected GPU scanout")
+                    print("Australis selected VirtIO-GPU console handoff passed")
+                    return
                 if use_gl and (b"VirtIO-GPU VirGL context probe passed" not in opening or
                                b"VirtIO-GPU VirGL texture probe passed" not in opening or
                                b"VirtIO-GPU VirGL submission probe passed" not in opening or

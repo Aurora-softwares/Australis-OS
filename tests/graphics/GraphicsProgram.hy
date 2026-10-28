@@ -735,6 +735,38 @@ public class Program {
             adaptiveDisplay.BackendKind() != 1 ||
             fallbackPixels.Pixel(18) != 0xEFCDAB ||
             adaptiveDisplay.Release(72) != 0) { return 84; }
+        MockNativeDisplayBackend consoleNative =
+            new MockNativeDisplayBackend();
+        MockPixelWriter consoleFallbackPixels =
+            new MockPixelWriter(4096, 64);
+        DisplayDevice consoleDisplay = new DisplayDevice(
+            new AdaptiveDisplayBackend(consoleNative,
+                new GopDisplayBackend(
+                    new FramebufferMode(4096, 256, 8, 8, 8, 0),
+                    consoleFallbackPixels)), null);
+        PixelSurface consoleSurface = new PixelSurface(8, 8);
+        DamageTracker consoleDamage = new DamageTracker(8, 8);
+        consoleSurface.SetPixel(2, 2, 0x123456);
+        consoleDamage.Full();
+        if (!consoleDisplay.PresentConsole(consoleSurface, consoleDamage) ||
+            consoleDisplay.BackendKind() != 2 ||
+            consoleNative.Presentations() != 1 ||
+            consoleFallbackPixels.Writes() != 0 ||
+            consoleDisplay.Claim(73) != 0 ||
+            consoleDisplay.PresentConsole(consoleSurface, consoleDamage) ||
+            consoleDisplay.Release(73) != 0) { return 141; }
+        consoleNative.LoseDevice();
+        consoleDamage.Full();
+        if (!consoleDisplay.PresentConsole(consoleSurface, consoleDamage) ||
+            consoleDisplay.BackendKind() != 2 ||
+            consoleNative.Presentations() != 2 ||
+            consoleFallbackPixels.Writes() != 0) { return 142; }
+        consoleNative.LoseDevice();
+        consoleNative.FailRecovery();
+        consoleDamage.Full();
+        if (!consoleDisplay.PresentConsole(consoleSurface, consoleDamage) ||
+            consoleDisplay.BackendKind() != 1 ||
+            consoleFallbackPixels.Pixel(18) != 0x563412) { return 143; }
         if (new DisplayBufferLayout(2048, 2048, 8192, 1).Ready() ||
             new DisplayBufferLayout(8, 8, 31, 1).Ready() ||
             new DisplayBufferLayout(8, 8, 32, 2).Ready() ||

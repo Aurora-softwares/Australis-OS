@@ -891,6 +891,7 @@ test-virtio-gpu: iso-hyfs2 | check-run-tools ## Test VirtIO-GPU 2D and oversized
 	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci
 	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" nvme
 	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci oversized
+	python3 tests/graphics/virtio_gpu_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)" ahci console
 
 test-cursor-stress: iso-hyfs2 | check-run-tools ## Test native cursor under sustained input
 	python3 tests/graphics/cursor_stress_boot_smoke.py "$(QEMU)" "$(OVMF_CODE)" "$(call hyfs_iso,2)"
