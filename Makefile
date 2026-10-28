@@ -20,7 +20,8 @@ QEMU_ACCEL        ?= kvm:tcg
 QEMU_EXTRA_ARGS   ?=
 
 # External tools and host configuration
-HYDROGEN		?= ../Hylang-Compiler/build/self_hosting/linux/hydrogen-stage1
+# The pinned CI compiler and the current compiler use different source/build layouts.
+HYDROGEN		?= $(if $(wildcard ../Hylang-Compiler/src/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj),../Hylang-Compiler/build/self_hosting/linux/hydrogen-stage1,../Hylang-Compiler/build/self_hosting/hydrogen-stage1)
 QEMU			?= qemu-system-x86_64
 QEMU_DISPLAY	?= sdl
 XORRISO			?= xorriso
@@ -68,7 +69,8 @@ DRIVER_PROJECT := src/drivers/usb/australis.drivers.usb.hyproj
 DRIVER_SOURCES := $(shell find src/drivers -type f \( -name '*.hy' -o -name '*.hyproj' \) 2>/dev/null)
 DRIVER_BINARY := $(BUILD_DIR)/src/drivers/usb.driver
 APP_COMPILER := $(BUILD_DIR)/hydrogen-apps
-APP_COMPILER_INPUTS := $(wildcard ../Hylang-Compiler/samples/self_hosting/*/*.hy ../Hylang-Compiler/samples/self_hosting/*/*.hyproj)
+APP_COMPILER_PROJECT := $(firstword $(wildcard ../Hylang-Compiler/src/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj ../Hylang-Compiler/samples/self_hosting/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj))
+APP_COMPILER_INPUTS := $(wildcard ../Hylang-Compiler/src/Hydrogen.Compiler.*/*.hy ../Hylang-Compiler/src/Hydrogen.Compiler.*/*.hyproj ../Hylang-Compiler/samples/self_hosting/*/*.hy ../Hylang-Compiler/samples/self_hosting/*/*.hyproj)
 ROOTFS_STAMP := $(GENERATED_ROOTFS)/.staged
 
 # HyFS image configuration, shared between both filesystem versions.
@@ -289,7 +291,7 @@ release-candidate: iso
 
 $(APP_COMPILER): $(APP_COMPILER_INPUTS) $(HYDROGEN) | check-build-tools
 	@mkdir -p "$(dir $@)"
-	"$(HYDROGEN)" build ../Hylang-Compiler/src/Hydrogen.Compiler.Cli/Hydrogen.Compiler.Cli.hyproj -o "$@"
+	"$(HYDROGEN)" build "$(APP_COMPILER_PROJECT)" -o "$@"
 	@chmod +x "$@"
 
 $(NATIVE_RUNTIME_BLOB): src/kernel/user/native_runtime.S tools/generate_native_runtime_blob.py
