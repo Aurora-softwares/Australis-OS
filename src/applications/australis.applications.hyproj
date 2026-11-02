@@ -3,18 +3,18 @@ name = "Australis Applications"
 type = "collection"
 sources = []
 project_references = [
-	"Australis-BaseConvertor/BaseConvertor.hyproj",
-	"Australis-Calculator/Calculator.hyproj",
-	"Australis-ChangeDirectory/ChangeDirectory.hyproj",
-	"Australis-Clear/Clear.hyproj",
-	"Australis-HelloWorld/HelloWorld.hyproj",
-	"Australis-HexViewer/HexViewer.hyproj",
-	"Australis-Inspector/Inspector.hyproj",
-	"Australis-MemInfo/MemInfo.hyproj",
-	"Australis-SysInfo/SysInfo.hyproj",
-	"Australis-Version/Version.hyproj",
-	"Australis.Dev-user-demo/UserDemo.hyproj",
-	"Australis.Dev-user-fault/UserFault.hyproj",
+	"Australis-BaseConvertor/australis.applications.base-convertor.hyproj",
+	"Australis-Calculator/australis.applications.calculator.hyproj",
+	"Australis-ChangeDirectory/australis.applications.change-directory.hyproj",
+	"Australis-Clear/australis.applications.clear.hyproj",
+	"Australis-HelloWorld/australis.applications.hello-world.hyproj",
+	"Australis-HexViewer/australis.applications.hex-viewer.hyproj",
+	"Australis-Inspector/australis.applications.inspector.hyproj",
+	"Australis-MemInfo/australis.applications.mem-info.hyproj",
+	"Australis-SysInfo/australis.applications.sys-info.hyproj",
+	"Australis-Version/australis.applications.version.hyproj",
+	"Australis.Dev-user-demo/australis.applications.user-demo.hyproj",
+	"Australis.Dev-user-fault/australis.applications.user-fault.hyproj",
 ]
 
 [package]
