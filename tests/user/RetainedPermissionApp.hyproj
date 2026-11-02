@@ -7,7 +7,7 @@ sources = ["RetainedPermissionApp.hy"]
 project_references = []
 
 [package]
-id = "os.australis.retained-permission-test"
+id = "os.australis.tests.retained-permission-test"
 description = "AUEX retained compositor permission denial test"
 authors = ["Aurora Softwares"]
 license = "MIT"

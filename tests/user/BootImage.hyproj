@@ -5,7 +5,7 @@ sources = []
 project_references = ["../../src/bootloader/australis.bootloader.hyproj", "../../src/kernel/australis.kernel.hyproj"]
 
 [package]
-id = "os.australis.command-test-boot"
+id = "os.australis.tests.command-test-boot"
 description = "Bootloader and kernel aggregate for command integration tests"
 authors = ["Aurora Softwares"]
 license = "MIT"

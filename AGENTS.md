@@ -8,3 +8,6 @@
   and other development documentation live in Australis-Docs. Put future checklist work on
   the development project with the applicable fields filled out.
 - When editing a checklist, use 🟢, 🟡, and 🔴 traffic lights instead of checkbox syntax.
+- There should be little to no extra markdown / logs / docs files explaining what things do. That
+  should all be andled within the assigned project documentation file. This way there is nothing stray
+  to be accidentally forgotten or left un-updated on changes and all of the latest changes are available to everyone.

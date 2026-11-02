@@ -7,7 +7,7 @@ sources = ["ArgumentApp.hy"]
 project_references = []
 
 [package]
-id = "os.australis.argv-check"
+id = "os.australis.tests.argv-check"
 description = "AUEX shell argument integration test"
 authors = ["Aurora Softwares"]
 license = "MIT"

@@ -14,7 +14,7 @@ project_references = [
 ]
 
 [package]
-id = "Australis"
+id = "australis"
 description = ""
 authors = ["Aurora Softwares"]
 license = "MIT"
