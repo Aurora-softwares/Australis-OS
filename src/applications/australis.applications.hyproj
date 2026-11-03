@@ -13,8 +13,8 @@ project_references = [
 	"Australis-MemInfo/australis.applications.mem-info.hyproj",
 	"Australis-SysInfo/australis.applications.sys-info.hyproj",
 	"Australis-Version/australis.applications.version.hyproj",
-	"Australis.Dev-user-demo/australis.applications.user-demo.hyproj",
-	"Australis.Dev-user-fault/australis.applications.user-fault.hyproj",
+	"Australis.user-demo/australis.applications.user-demo.hyproj",
+	"Australis.user-fault/australis.applications.user-fault.hyproj",
 ]
 
 [package]

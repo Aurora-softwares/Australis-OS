@@ -50,9 +50,9 @@
 [submodule "src/applications/Australis-Version"]
 	path = src/applications/Australis-Version
 	url = https://github.com/Aurora-softwares/Australis-Version
-[submodule "src/applications/Australis.Dev-user-demo"]
-	path = src/applications/Australis.Dev-user-demo
+[submodule "src/applications/Australis.user-demo"]
+	path = src/applications/Australis.user-demo
 	url = https://github.com/Aurora-softwares/Australis.Dev-user-demo
-[submodule "src/applications/Australis.Dev-user-fault"]
-	path = src/applications/Australis.Dev-user-fault
+[submodule "src/applications/Australis.user-fault"]
+	path = src/applications/Australis.user-fault
 	url = https://github.com/Aurora-softwares/Australis.Dev-user-fault
