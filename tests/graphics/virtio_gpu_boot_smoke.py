@@ -3,6 +3,7 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import select
 import socket
 import subprocess
 import sys
@@ -33,6 +34,19 @@ def capture_gpu_screen(path):
         rgb = image.convert("RGB")
         return rgb.width, rgb.height, rgb.tobytes()
 
+
+def gpu_cursor_position(screen):
+    width, height, pixels = screen
+    stride = width * 3
+    marker = bytes((255, 255, 255, 16, 16, 16,
+                    16, 16, 16, 255, 255, 255))
+    for row in range(4, height - 16):
+        start = row * stride
+        found = pixels.find(marker, start, start + stride)
+        if found >= 0 and (found - start) % 3 == 0:
+            return (found - start) // 3, row - 4
+    return None
+
 def main():
     qemu, firmware, iso, transport = sys.argv[1:5]
     oversized_mode = len(sys.argv) > 5 and sys.argv[5] == "oversized"
@@ -40,6 +54,8 @@ def main():
     use_gl = len(sys.argv) > 6 and sys.argv[5] == "gl"
     primary_vga = len(sys.argv) > 5 and sys.argv[5] == "vga"
     gpu_visual = len(sys.argv) > 7 and sys.argv[7] == "visual"
+    gpu_live = len(sys.argv) > 7 and sys.argv[7] == "live"
+    gpu_lowmem = len(sys.argv) > 7 and sys.argv[7] == "lowmem"
     if transport not in ("ahci", "nvme"):
         raise ValueError("transport must be ahci or nvme")
     iso = str(Path(iso).resolve())
@@ -47,6 +63,12 @@ def main():
         serial = Path(directory) / "serial.sock"
         monitor = Path(directory) / "monitor.sock"
         screenshot = Path(directory) / "desktop.ppm"
+        live_screenshot = Path(directory) / "live.png"
+
+        def capture_current():
+            if gpu_live or gpu_lowmem:
+                return capture_gpu_screen(live_screenshot)
+            return capture_screen(str(monitor), screenshot, "gpu0")
         display = (f"egl-headless,rendernode={sys.argv[6]}"
                    if use_gl else "none")
         gpu = ("virtio-gpu-pci,id=gpu0,xres=1600,yres=900"
@@ -55,12 +77,13 @@ def main():
                "virtio-vga,id=gpu0" if primary_vga else
                "virtio-gpu-pci,id=gpu0")
         # Visual tests use VirtIO as the primary VGA-compatible GPU.
-        if gpu_visual and use_gl:
+        if (gpu_visual or gpu_live or gpu_lowmem) and use_gl:
             gpu = "virtio-vga-gl,id=gpu0"
-        command = [qemu, "-machine", "q35", "-m", "256M", "-drive",
+        memory = "512M" if gpu_live else "256M"
+        command = [qemu, "-machine", "q35", "-m", memory, "-drive",
                    f"if=pflash,format=raw,readonly=on,file={firmware}",
                    "-cdrom", iso, "-display", display, "-net", "none",
-                   "-no-reboot", "-vga", "none" if (primary_vga or gpu_visual) else "std",
+                   "-no-reboot", "-vga", "none" if (primary_vga or gpu_visual or gpu_live or gpu_lowmem) else "std",
                    "-device", gpu,
                    "-device", "qemu-xhci,id=xhci0",
                    "-device", "usb-kbd,bus=xhci0.0", "-device",
@@ -132,6 +155,30 @@ def main():
                         (17, 24, 32)
                     )
 
+                    # Compare the whole desktop below the top bar. This
+                    # probe does not draw the top bar, and the restored 2D
+                    # scanout has the software cursor at the screen center.
+                    assert gpu_screen[:2] == software_screen[:2]
+                    gpu_pixels = gpu_screen[2]
+                    software_pixels = software_screen[2]
+                    for y in range(30, height):
+                        spans = ((0, width),)
+                        if height // 2 <= y < height // 2 + 20:
+                            spans = ((0, width // 2),
+                                     (width // 2 + 14, width))
+                        for left, right in spans:
+                            start = (y * width + left) * 3
+                            end = (y * width + right) * 3
+                            if gpu_pixels[start:end] != software_pixels[start:end]:
+                                for x in range(left, right):
+                                    actual = pixel(gpu_screen, x, y)
+                                    expected = pixel(software_screen, x, y)
+                                    if not near(actual, expected):
+                                        raise AssertionError(
+                                            "GPU/software mismatch at "
+                                            f"({x}, {y}): {actual} != {expected}"
+                                        )
+
                     print("GPU live visual scanout and restoration passed")
                     print(f"GPU screenshot: {gpu_path}")
                     print(f"Software screenshot: {software_path}")
@@ -143,14 +190,14 @@ def main():
                         b"System: display ready" not in opening):
                     raise AssertionError(f"GPU display boot failed: {opening[-3000:]!r}")
                 if console_handoff:
-                    before = capture_screen(str(monitor), screenshot, "gpu0")
+                    before = capture_current()
                     if pixel(before, 100, 10) != (17, 24, 32):
                         raise AssertionError("selected GPU missed desktop before handoff")
                     connection.sendall(b"exit\r")
                     ended = read_until(connection, b"kmon> ", 30, process)
                     if b"Display stopped; COM1 active" not in ended:
                         raise AssertionError("display lease did not release")
-                    after = capture_screen(str(monitor), screenshot, "gpu0")
+                    after = capture_current()
                     if (after[:2] != before[:2] or
                             pixel(after, 100, 10) == (17, 24, 32) or
                             pixel(after, after[0] - 20, after[1] - 20) !=
@@ -208,7 +255,11 @@ def main():
                                b"DisplayDemoA: GPU isolation passed" not in opening):
                     raise AssertionError(
                         f"VirGL context probe failed: {opening[-3000:]!r}")
-                if use_gl:
+                if gpu_lowmem:
+                    marker = b"Display: GPU live deferred for available memory"
+                    if marker not in opening:
+                        read_until(connection, marker, 30, process)
+                if use_gl and not gpu_live and not gpu_lowmem:
                     connection.sendall(b"version\r")
                     reply = read_until(connection, b"australis> ", 20,
                                        process)
@@ -222,8 +273,15 @@ def main():
                 if not scanout_cursor:
                     raise AssertionError(
                         "native VirtIO-GPU boot did not activate scanout cursor")
-                screen = capture_screen(str(monitor), screenshot, "gpu0")
-                width, height, _ = screen
+                deadline = time.monotonic() + 15
+                while True:
+                    screen = capture_current()
+                    width, height, _ = screen
+                    if pixel(screen, 100, 10) == (17, 24, 32):
+                        break
+                    if time.monotonic() >= deadline:
+                        break
+                    time.sleep(0.1)
                 if ((oversized_mode and (width, height) != (1280, 800)) or width < 320 or height < 240 or pixel(screen, 30, 100) != (203, 56, 48) or pixel(screen, width // 3 + 20, 130) != (42, 104, 217) or pixel(screen, 100, 10) != (17, 24, 32) or pixel(screen, width // 2, height // 2 + 4) != (255, 255, 255) or pixel(screen, width // 2 + 2, height // 2 + 4) != (16, 16, 16)):
                     raise AssertionError(
                         f"scanout missed desktop: {width}x{height}, "
@@ -232,9 +290,15 @@ def main():
                         f"bar={pixel(screen, 100, 10)}")
                 if not oversized_mode:
                     monitor_command(str(monitor), "mouse_move 30 -20")
-                    read_until(connection,
-                               b"VirtIO-GPU scanout cursor moved", 15,
-                               process)
+                    cursor_reply = read_until(
+                        connection, b"VirtIO-GPU scanout cursor moved",
+                        15, process)
+                    if (gpu_live and
+                            b"Display: live GPU composition active" not in
+                            opening + cursor_reply):
+                        read_until(connection,
+                                   b"Display: live GPU composition active",
+                                   30, process)
 
                     # Wait for the cursor to become visible at its new position.
                     old_x = width // 2
@@ -246,9 +310,7 @@ def main():
                     deadline = time.monotonic() + 5
 
                     while True:
-                        moved = capture_screen(
-                            str(monitor), screenshot, "gpu0"
-                        )
+                        moved = capture_current()
 
                         outline = pixel(moved, new_x, new_y + 4)
                         fill = pixel(moved, new_x + 2, new_y + 4)
@@ -267,7 +329,8 @@ def main():
                             # Preserve the failing screenshot for inspection.
                             debug_path = Path("build/virtio-cursor-after.ppm")
                             debug_path.parent.mkdir(parents=True, exist_ok=True)
-                            debug_path.write_bytes(screenshot.read_bytes())
+                            debug_path.write_bytes(
+                                (live_screenshot if gpu_live else screenshot).read_bytes())
 
                             # Search for cursor-shaped pixels near the expected location.
                             candidates = []
@@ -361,11 +424,130 @@ def main():
                         )
 
                     time.sleep(0.2)
+                    if gpu_live:
+                        live_cursor_x = new_x
+                        live_cursor_y = new_y
+
+                        def move_to(target_x, target_y):
+                            nonlocal live_cursor_x, live_cursor_y
+                            dx = target_x - live_cursor_x
+                            dy = target_y - live_cursor_y
+                            while dx or dy:
+                                step_x = max(-100, min(100, dx))
+                                step_y = max(-100, min(100, dy))
+                                monitor_command(str(monitor),
+                                                f"mouse_move {step_x} {step_y}")
+                                dx -= step_x
+                                dy -= step_y
+                                time.sleep(0.3)
+                            observed = []
+                            deadline = time.monotonic() + 15
+                            while time.monotonic() < deadline:
+                                current = gpu_cursor_position(capture_current())
+                                observed.append(current)
+                                if current == (target_x, target_y):
+                                    live_cursor_x = target_x
+                                    live_cursor_y = target_y
+                                    return
+                                time.sleep(0.2)
+                            debug_path = Path("build/gpu-live-interaction-failure.png")
+                            debug_path.write_bytes(live_screenshot.read_bytes())
+                            serial_tail = b""
+                            serial_deadline = time.monotonic() + 2
+                            while time.monotonic() < serial_deadline:
+                                if not select.select([connection], [], [], 0.1)[0]:
+                                    continue
+                                serial_tail += connection.recv(8192)
+                            raise AssertionError(
+                                f"GPU cursor missed ({target_x},{target_y}): "
+                                f"{observed[-12:]}; screenshot={debug_path}; "
+                                f"serial={serial_tail[-4000:]!r}")
+
+                        def wait_live_pixel(x, y, expected, seconds=15):
+                            deadline = time.monotonic() + seconds
+                            actual = None
+                            while time.monotonic() < deadline:
+                                actual = pixel(capture_current(), x, y)
+                                if actual == expected:
+                                    return
+                                time.sleep(0.2)
+                            debug_path = Path("build/gpu-live-interaction-failure.png")
+                            debug_path.write_bytes(live_screenshot.read_bytes())
+                            serial_tail = b""
+                            while select.select([connection], [], [], 0)[0]:
+                                serial_tail += connection.recv(8192)
+                            raise AssertionError(
+                                f"GPU pixel ({x},{y})={actual}, "
+                                f"expected {expected}; screenshot={debug_path}; "
+                                f"serial={serial_tail[-2000:]!r}")
+
+                        def click(expected=None):
+                            monitor_command(str(monitor), "mouse_button 1")
+                            monitor_command(str(monitor), "mouse_move 1 0")
+                            if expected is None:
+                                time.sleep(1.0)
+                            else:
+                                read_until(connection, expected, 20, process)
+                            monitor_command(str(monitor), "mouse_button 0")
+                            monitor_command(str(monitor), "mouse_move -1 0")
+                            time.sleep(1.0)
+
+                        # Raise A, move it across B, and resize it while
+                        # the GPU-composed scanout remains selected.
+                        move_to(200, 200)
+                        click()
+                        move_to(120, 60)
+                        monitor_command(str(monitor), "mouse_button 1")
+                        time.sleep(0.4)
+                        move_to(220, 100)
+                        monitor_command(str(monitor), "mouse_button 0")
+                        time.sleep(0.5)
+                        wait_live_pixel(30, 100, (38, 56, 79))
+                        wait_live_pixel(500, 150, (203, 56, 48))
+                        move_to(725, 483)
+                        monitor_command(str(monitor), "mouse_button 1")
+                        time.sleep(0.4)
+                        move_to(805, 543)
+                        monitor_command(str(monitor), "mouse_button 0")
+                        time.sleep(0.5)
+                        wait_live_pixel(770, 510, (203, 56, 48))
+
+                        # Maximized content and controls use the same bounds
+                        # and hit regions as the software desktop.
+                        move_to(173, 101)
+                        click(b"Display: window maximized")
+                        wait_live_pixel(100, 10, (0, 0, 0))
+                        wait_live_pixel(30, 100, (203, 56, 48))
+                        move_to(53, 14)
+                        click(b"Display: window restored")
+                        wait_live_pixel(100, 10, (17, 24, 32))
+                        wait_live_pixel(30, 100, (38, 56, 79))
+                        move_to(900, 85)
+                        click(b"Display: stack changed to 2")
+                        wait_live_pixel(500, 150, (42, 104, 217))
+                        move_to(width - 80, height - 100)
+                        monitor_command(str(monitor), "mouse_move 100 100")
+                        time.sleep(0.4)
+                        monitor_command(str(monitor), "mouse_move 100 100")
+                        wait_live_pixel(width - 14, height - 20,
+                                        (255, 255, 255))
+                        time.sleep(2)
+                        wait_live_pixel(500, 150, (42, 104, 217))
+                        print("Australis live GPU move/resize/stack/max/edge passed")
                     monitor_command(str(monitor), "sendkey m 50")
-                    read_until(connection, b"Display: mode changed to 1024x768", 30, process)
+                    try:
+                        read_until(connection,
+                                   b"Display: mode changed to 1024x768",
+                                   30, process)
+                    except TimeoutError:
+                        if gpu_live:
+                            capture_current()
+                            Path("build/gpu-live-mode-failure.png").write_bytes(
+                                live_screenshot.read_bytes())
+                        raise
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
-                        resized = capture_screen(str(monitor), screenshot, "gpu0")
+                        resized = capture_current()
                         if (resized[0] == 1024 and resized[1] == 768 and
                                 pixel(resized, 30, 100) == (203, 56, 48) and
                                 pixel(resized, 1024 // 3 + 20, 130) ==
@@ -379,7 +561,7 @@ def main():
                                30, process)
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
-                        restored = capture_screen(str(monitor), screenshot, "gpu0")
+                        restored = capture_current()
                         if (restored[0] == 1280 and restored[1] == 800 and
                                 pixel(restored, 30, 100) == (203, 56, 48) and
                                 pixel(restored, 1280 // 3 + 20, 130) ==
