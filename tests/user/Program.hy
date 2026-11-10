@@ -1006,7 +1006,19 @@ public class Program {
         if (result.State() != UserProgramState.Exited() || result.ExitCode() != 0 ||
             result.Fault() != UserFault.None() || !files.Created() ||
             files.ContentLength() != 2 || files.ContentByte(0) != 120 ||
-            files.ContentByte(1) != 121) { return 32; }
+            files.ContentByte(1) != 121) {
+            System.Console.Write("portable I/O: state=");
+            System.Console.Write(result.State());
+            System.Console.Write(" exit=");
+            System.Console.Write(result.ExitCode());
+            System.Console.Write(" fault=");
+            System.Console.Write(result.Fault());
+            System.Console.Write(" created=");
+            System.Console.Write(files.Created());
+            System.Console.Write(" length=");
+            System.Console.WriteLine(files.ContentLength());
+            return 32;
+        }
         System.Console.WriteLine("Compiled portable AUEX I/O test passed");
         return 0;
     }
