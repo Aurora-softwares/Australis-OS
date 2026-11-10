@@ -87,6 +87,24 @@ def cursor_position(screen):
     return None
 
 
+def cursor_candidates(screen):
+    width, height, pixels = screen
+    stride = width * 3
+    marker = bytes((16, 24, 32, 255, 255, 255,
+                    255, 255, 255, 16, 24, 32))
+    found_positions = []
+    for row in range(4, height - 16):
+        start = row * stride
+        position = pixels.find(marker, start, start + stride)
+        while position >= 0:
+            if (position - start) % 3 == 0:
+                found_positions.append(((position - start) // 3, row - 4))
+                if len(found_positions) >= 16:
+                    return found_positions
+            position = pixels.find(marker, position + 1, start + stride)
+    return found_positions
+
+
 def move_mouse_to(monitor, screenshot, target_x, target_y):
     # QEMU can merge relative USB reports while the guest is redrawing.
     # Correct against the cursor the guest actually painted.
@@ -117,8 +135,10 @@ def move_mouse_to(monitor, screenshot, target_x, target_y):
             dy -= step_y
             time.sleep(0.3)
         time.sleep(1.0)
+    candidates = cursor_candidates(capture_screen(str(monitor), screenshot))
     raise AssertionError(
-        f"cursor did not reach ({target_x},{target_y}); observed={observed}")
+        f"cursor did not reach ({target_x},{target_y}); observed={observed}; "
+        f"candidates={candidates}; serial_tail={bytes(serial_history[-2000:])!r}")
 
 
 def click_mouse(monitor):

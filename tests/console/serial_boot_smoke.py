@@ -18,9 +18,9 @@ BANNER = b"kmon serial console ready. Type help.\r\n"
 VERSION = b"version: 0.0.1\r\n"
 
 
-def monitor_command(path, command):
+def monitor_command(path, command, timeout=5):
     with socket.socket(socket.AF_UNIX) as connection:
-        connection.settimeout(5)
+        connection.settimeout(timeout)
         connection.connect(path)
         response = b""
         while not response.endswith(b"(qemu) "):
@@ -128,7 +128,8 @@ def kernel_record(path):
 
 
 def capture_record(monitor_path, memory_path):
-    monitor_command(monitor_path, f'pmemsave 0 0x10000000 "{memory_path}"')
+    monitor_command(monitor_path, f'pmemsave 0 0x10000000 "{memory_path}"',
+                    timeout=30)
     record = kernel_record(memory_path)
     if record is None:
         raise RuntimeError("QEMU memory did not contain KernelBootInfo")
